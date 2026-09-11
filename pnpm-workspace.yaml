@@ -1,0 +1,8 @@
+packages:
+  - 'plugins/*'
+  - 'packages/*'
+  - 'tooling/*'
+# esbuild 的构建脚本只做二进制自检（tsx / vitest / tsdown 都依赖它）。
+# 不显式放行的话，pnpm 11 会跳过它，并在每次 install 后提示未批准的构建脚本。
+allowBuilds:
+  esbuild: true

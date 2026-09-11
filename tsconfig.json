@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.scripts.json" },
+    { "path": "./tooling/dsh-compat" },
+    { "path": "./tooling/plugin-lint" }
+  ]
+}

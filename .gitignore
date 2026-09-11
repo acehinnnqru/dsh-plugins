@@ -1,0 +1,18 @@
+# 依赖与构建产物
+node_modules/
+lib/
+*.tsbuildinfo
+
+# 工具链环境：node/pnpm 由 flake.nix 提供，这两样都能重新生成
+.direnv/
+
+# pnpm 11 的 store 落在仓库根目录（.pnpm-store/v11），不进库
+/.pnpm-store/
+
+# 个人环境：新克隆自己建，内容一行 `use flake .`。
+# 全局 gitignore 里也有一份，但那是本机配置，仓库自己写死更保险。
+/.envrc
+
+# 打包与测试产物
+*.tgz
+coverage/
