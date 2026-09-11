@@ -76,7 +76,7 @@
 | **客户端构建 preset 没有发布。** `packages/client/` 下连 `package.json` 都没有 |
 | **上游没有任何插件脚手架。** 没有 `create-dsh-plugin`，CLI 只有 `web` 和 `plugin` 两个子命令 |
 | 上游没有为树外插件的清单提供任何校验——写错依赖段不会有人提醒你 |
-| 工具链：Node 22 由仓库的 `flake.nix` + direnv 提供（与 DSH 同一个 devshells 输入）；pnpm 由 pnpm 的版本自管理按 `packageManager` 字段拉到 11.7.0 |
+| 工具链：Node 22 由仓库的 `flake.nix` + direnv 提供（与 DSH 同一个 devshells 输入）；pnpm 走仓库自己的 devshell，命令一律 `direnv exec . pnpm …` |
 
 ---
 

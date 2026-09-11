@@ -16,3 +16,6 @@ lib/
 # 打包与测试产物
 *.tgz
 coverage/
+
+# 实施清单只在本地看，不入库
+docs/specs/
