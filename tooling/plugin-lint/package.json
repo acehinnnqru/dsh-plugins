@@ -1,0 +1,8 @@
+{
+  "name": "plugin-lint",
+  "private": true,
+  "type": "module",
+  "main": "lib/types/index.js",
+  "types": "lib/types/index.d.ts",
+  "scripts": { "build": "tsc -b tsconfig.json && tsdown" }
+}

@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // composite 项目不能被别的项目直接引用源码（TS6307）。scripts/ 依赖这里的
+    // .ts 源码，所以关掉；根 tsconfig.json 仍然把本包列进 references，
+    // `pnpm typecheck` 一样会检查它并产出 lib/types/。
+    "composite": false,
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": ["src"]
+}
