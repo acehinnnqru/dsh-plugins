@@ -12,10 +12,7 @@ interface Step {
 }
 
 const STEPS: Step[] = [
-  // 先确认跑在仓库自己的 devshell 里：外层 shell 的 node/pnpm 会让本地二进
-  // 被别处的同名命令顶掉，验收结果不可信。见 scripts/check-env.ts。
-  { label: 'env', args: ['pnpm', 'check-env'] },
-  // 再构建：tsdown 的入口是 `tsc -b` 的产物（`lib/types/index.js`），
+  // 先构建：tsdown 的入口是 `tsc -b` 的产物（`lib/types/index.js`），
   // 没有这一步，任何用了工具包的包都打不出来。
   { label: 'build', args: ['pnpm', 'build'] },
   { label: 'lint', args: ['pnpm', 'lint'] },

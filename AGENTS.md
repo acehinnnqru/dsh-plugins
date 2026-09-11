@@ -46,7 +46,7 @@ flake.nix            工具链（node 22 + pnpm），不重建
 plugins/<name>/      每个目录 = 一个可安装插件（唯一声明 dsh.bundle 的地方）
 packages/<lib>/      内部共享库，构建期内联，永不单独安装
 tooling/<tool>/      构建与校验工具（dsh-compat 版本常量、plugin-lint）
-scripts/             verify / verify:compat / plugin-lint / check-env
+scripts/             verify / verify:compat / plugin-lint
 docs/specs/          实施清单（做什么、怎么算做完）
 docs/research/       调研底稿，逐条带出处
 ```
