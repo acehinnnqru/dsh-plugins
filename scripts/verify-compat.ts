@@ -1,9 +1,9 @@
 #!/usr/bin/env tsx
 /**
- * 校验各插件声明的 `@deepseek-ai/*` 版本与本仓库锁定的 DSH 版本一致。
+ * Check that every plugin declares the same `@deepseek-ai/*` versions as the DSH version this repo pins.
  *
- * 版本常量只有 `tooling/dsh-compat/src/index.ts` 一处；这里只做对照。
- * 现在还没有插件，所以只会打印当前锁定的版本。
+ * The version constants live in exactly one place, `tooling/dsh-compat/src/index.ts`; this only compares
+ * against them. There are no plugins yet, so for now it just prints the pinned versions.
  */
 import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
@@ -18,16 +18,17 @@ const ROOT = process.cwd()
 const PLUGINS_DIR = join(ROOT, 'plugins')
 
 /**
- * `0.1.5-rc.1` → `0.1.5`。
+ * `0.1.5-rc.1` → `0.1.5`.
  *
- * 只比较 `major.minor.patch`：DSH 每个版本都是预发布，`rc.N` 是上游自己的
- * 构建序号，换一个不该让全仓库红。版本线换了才是真的不兼容。
+ * Only `major.minor.patch` is compared: every DSH release is a prerelease and `rc.N` is upstream's own
+ * build number, so bumping it must not turn the whole repo red. A change of version line is the real
+ * incompatibility.
  */
 function releaseLine(version: string): string {
   return version.split('-')[0] ?? version
 }
 
-/** 声明了 `@deepseek-ai/*` 的每个清单段。 */
+/** Every manifest section that can declare `@deepseek-ai/*`. */
 const SECTIONS = ['dependencies', 'peerDependencies', 'devDependencies'] as const
 
 interface Mismatch {
@@ -63,7 +64,7 @@ for (const dir of await pluginDirs()) {
   for (const section of SECTIONS) {
     for (const [pkg, actual] of Object.entries(manifest[section] ?? {})) {
       if (!pkg.startsWith('@deepseek-ai/')) continue
-      // peer 包（cordis）的版本线和 DSH 是分开的，由 plugin-lint 的 L4 管。
+      // The peer package (cordis) is on a version line of its own, separate from DSH; rule L4 covers it.
       if (PEER_PACKAGES.some((peer) => peer === pkg)) continue
       if (releaseLine(actual) === releaseLine(DSH_VERSION)) continue
 
@@ -73,15 +74,15 @@ for (const dir of await pluginDirs()) {
 }
 
 if (mismatches.length > 0) {
-  process.stderr.write('✗ 以下声明与 tooling/dsh-compat 的常量不一致：\n\n')
+  process.stderr.write('✗ these declarations disagree with the constants in tooling/dsh-compat:\n\n')
   for (const { file, section, pkg, actual } of mismatches) {
-    process.stderr.write(`  ${file}  ${section}.${pkg} = ${actual}（期望 ${DSH_VERSION}）\n`)
+    process.stderr.write(`  ${file}  ${section}.${pkg} = ${actual} (expected ${DSH_VERSION})\n`)
   }
-  process.stderr.write('\n升级 DSH 时改 tooling/dsh-compat/src/index.ts，再同步到各插件。\n')
+  process.stderr.write('\nWhen upgrading DSH, edit tooling/dsh-compat/src/index.ts and sync every plugin.\n')
   process.exit(1)
 }
 
 process.stdout.write(`DSH_VERSION           ${DSH_VERSION}\n`)
 process.stdout.write(`PEER_PACKAGES         ${PEER_PACKAGES.join(', ')}\n`)
 process.stdout.write(`DEPENDENCY_ALLOWLIST  ${DEPENDENCY_ALLOWLIST.join(', ')}\n`)
-process.stdout.write(`✓ 版本一致（检查了 ${pluginCount} 个插件）\n`)
+process.stdout.write(`✓ versions agree (checked ${pluginCount} plugins)\n`)

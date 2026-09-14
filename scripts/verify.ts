@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
 /**
- * 顺序跑全部校验，第一个失败就停。
+ * Run every check in order and stop at the first failure.
  *
- * 这里只编排；每一步的实际规则在各包自己的脚本里。
+ * This file only orchestrates; the actual rules live in each package's own script.
  */
 import { spawn } from 'node:child_process'
 
@@ -12,8 +12,8 @@ interface Step {
 }
 
 const STEPS: Step[] = [
-  // 先构建：tsdown 的入口是 `tsc -b` 的产物（`lib/types/index.js`），
-  // 没有这一步，任何用了工具包的包都打不出来。
+  // Build first: tsdown's entry is the output of `tsc -b` (`lib/types/index.js`), so without
+  // this step no package that uses a tooling package can be built.
   { label: 'build', args: ['pnpm', 'build'] },
   { label: 'lint', args: ['pnpm', 'lint'] },
   { label: 'typecheck', args: ['pnpm', 'typecheck'] },
@@ -39,15 +39,15 @@ for (const step of STEPS) {
   results.push({ label: step.label, ms })
 
   if (code !== 0) {
-    process.stdout.write(`\n✗ ${step.label} 失败，退出码 ${code}（${(ms / 1000).toFixed(1)}s）\n`)
+    process.stdout.write(`\n✗ ${step.label} failed with exit code ${code} (${(ms / 1000).toFixed(1)}s)\n`)
     process.exit(code)
   }
 
-  process.stdout.write(`✓ ${step.label} 通过（${(ms / 1000).toFixed(1)}s）\n`)
+  process.stdout.write(`✓ ${step.label} passed (${(ms / 1000).toFixed(1)}s)\n`)
 }
 
 process.stdout.write('\n---------------- verify ----------------\n')
 for (const { label, ms } of results) {
   process.stdout.write(`  ${label.padEnd(12)}${(ms / 1000).toFixed(1)}s\n`)
 }
-process.stdout.write(`✓ 全绿（${STEPS.length} 步，共 ${(results.reduce((sum, r) => sum + r.ms, 0) / 1000).toFixed(1)}s）\n`)
+process.stdout.write(`✓ all green (${STEPS.length} steps, ${(results.reduce((sum, r) => sum + r.ms, 0) / 1000).toFixed(1)}s total)\n`)

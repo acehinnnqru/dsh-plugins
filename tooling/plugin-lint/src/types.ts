@@ -1,12 +1,12 @@
-/** 一条清单违规。`file` 是相对包目录的路径。 */
+/** One manifest violation. `file` is a path relative to the package directory. */
 export interface Finding {
-  /** 规则 id，例如 `L2`。 */
+  /** Rule id, e.g. `L2`. */
   rule: string
   file: string
   message: string
 }
 
-/** 一条清单规则。0002 起逐条加入 `rules`。 */
+/** One manifest rule. Rules join `rules` one at a time. */
 export interface Rule {
   id: string
   check(dir: string): Promise<Finding[]> | Finding[]

@@ -1,21 +1,21 @@
-# 依赖与构建产物
+# Dependencies and build output
 node_modules/
 lib/
 *.tsbuildinfo
 
-# 工具链环境：node/pnpm 由 flake.nix 提供，这两样都能重新生成
+# Toolchain environment: node/pnpm come from flake.nix, and both are regenerable
 .direnv/
 
-# pnpm 11 的 store 落在仓库根目录（.pnpm-store/v11），不进库
+# pnpm 11 keeps its store at the repo root (.pnpm-store/v11); not tracked
 /.pnpm-store/
 
-# 个人环境：新克隆自己建，内容一行 `use flake .`。
-# 全局 gitignore 里也有一份，但那是本机配置，仓库自己写死更保险。
+# Personal environment: every clone creates its own, one line `use flake .`.
+# The global gitignore has one too, but that is machine config; pinning it here is safer.
 /.envrc
 
-# 打包与测试产物
+# Packing and test output
 *.tgz
 coverage/
 
-# 实施清单只在本地看，不入库
+# Local working notes only; these never enter git
 docs/specs/

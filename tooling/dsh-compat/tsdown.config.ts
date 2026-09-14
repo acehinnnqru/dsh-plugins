@@ -3,11 +3,12 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'tsdown'
 
 /**
- * 单包构建用。根 `tsdown.config.ts` 的 `workspace` 是给根目录整仓构建用的：
- * `tsdown` 的 workspace glob 相对 cwd 解析，在包目录里跑会匹配不到任何包。
+ * For building a single package. The `workspace` in the root `tsdown.config.ts` is for building the
+ * whole repo from the root: tsdown resolves workspace globs relative to cwd, so running it inside a
+ * package directory matches no packages at all.
  *
- * `cwd` 必须显式写死——tsdown 默认用 `process.cwd()`，整仓构建时那会是仓库根目录，
- * 于是 `lib/types/index.js` 会被解析到根目录下而报找不到入口。
+ * `cwd` has to be pinned explicitly — tsdown defaults to `process.cwd()`, which during a whole-repo
+ * build is the repo root, so `lib/types/index.js` would resolve under the root and fail on a missing entry.
  */
 export default defineConfig({
   cwd: dirname(fileURLToPath(import.meta.url)),

@@ -1,6 +1,6 @@
-/** 本仓库针对的 DSH 版本。升级 DSH 时只改这里。 */
+/** The DSH version this repo targets. Upgrading DSH means editing only this. */
 export const DSH_VERSION = '0.1.5-rc.1'
-/** 身份必须共享的包：走 peerDependencies + devDependencies。 */
+/** Packages whose identity must be shared: they go in peerDependencies + devDependencies. */
 export const PEER_PACKAGES = ['@deepseek-ai/cordis'] as const
-/** 允许出现在 dependencies 的 @deepseek-ai 包。 */
+/** `@deepseek-ai` packages allowed to appear in dependencies. */
 export const DEPENDENCY_ALLOWLIST = ['@deepseek-ai/schemastery'] as const

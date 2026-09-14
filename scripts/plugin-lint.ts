@@ -1,9 +1,9 @@
 #!/usr/bin/env tsx
 /**
- * 遍历 `plugins/*`，对每个插件的清单跑一遍规则，汇总输出。
+ * Walk `plugins/*`, run the rules against each plugin's manifest, and report the findings together.
  *
- * 规则表在 `tooling/plugin-lint`（0002 里填）。这一版是空壳：
- * 没有任何插件、也没有任何规则，所以直接通过。
+ * The rule table lives in `tooling/plugin-lint`. This version is a shell: there are no plugins and no
+ * rules yet, so it always passes.
  */
 import { existsSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
@@ -38,8 +38,8 @@ for (const { dir, finding } of all) {
 }
 
 if (all.length > 0) {
-  process.stderr.write(`\n✗ plugin-lint：${all.length} 个问题，涉及 ${dirs.length} 个插件\n`)
+  process.stderr.write(`\n✗ plugin-lint: ${all.length} problems across ${dirs.length} plugins\n`)
   process.exit(1)
 }
 
-process.stdout.write(`✓ plugin-lint 通过（${dirs.length} 个插件，0 个问题）\n`)
+process.stdout.write(`✓ plugin-lint passed (${dirs.length} plugins, 0 problems)\n`)

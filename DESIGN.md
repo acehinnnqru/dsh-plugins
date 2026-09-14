@@ -1,192 +1,191 @@
-# dsh-plugins 设计说明
+# dsh-plugins design notes
 
-> **这份文档只回答「为什么」。** 做什么、怎么配、怎么验收，在 [`docs/specs/`](./docs/specs/README.md)。
-> 逐条出处见 §7；调研底稿（含代码片段与文件路径）在 [`docs/research/`](./docs/research/)。
-
----
-
-## 1. 范围
-
-**自用。不发布到任何 registry。**
-
-要达成的：
-
-- 一个仓库放多个插件，各自独立演进。
-- 同时支持两种插件：只有 host 半边的，和 host + 浏览器半边的。
-- 改一行代码，能在真实的 DSH 里看到效果，秒级。
-- 每个插件在**打包成 tarball 后**仍然是完整可用的——这是能自动化的最后一道关。
-
-不做的：
-
-- 不 fork DSH，不分发 DSH。
-- 不发布到 registry（将来要做的话，§6 记了路径）。
-- 不追求同时支持多个 DSH 大版本。
-- **不自动化任何需要 `dsh` 的步骤。** `dsh` 只在维护者的环境里可用（DSH checkout + nix devshell + npx），所以"装进 profile 并启动"是手动清单，不是脚本。
+> **This document answers "why" only.** Sources, item by item, are in §7, and the research
+> notes (with code snippets and file paths) are in [`docs/research/`](./docs/research/).
 
 ---
 
-## 2. 约束：DSH 插件机制强加的规则
+## 1. Scope
 
-下面每条都核实过。方案必须服从它们，没有商量余地。出处见 §7。
+**Personal use. Nothing is published to any registry.**
 
-### 2.1 插件怎么组织、怎么装
+What it has to achieve:
 
-| 事实 |
-|---|
-| 插件 = 一个导出 `apply` 的模块，可带 `name` / `inject` / `Config`。函数、对象、类三种形态都行 |
-| 分发单元 = npm 包 + **bundle 清单**（`dsh.bundle.patch` 指向自己的 `cordis.patch.yml`）。用户装的是包，不是源码目录 |
-| 没有 `dsh.bundle` 声明的包也能装，但只当普通依赖，**不激活任何配置层** |
-| profile（`$DSH_HOME/profiles/<name>`）决定装什么。层序：base → 各 bundle 按序 → profile 自己的 patch → home 级 patch → `--patch` overlay |
-| 后一层按行覆盖前一层。**覆盖 `config` 是整对象替换，不深合并** |
-| patch 只有两种操作：`insert` 和「按 id 覆盖」。**没有删除**，中性化只能用 `disabled: true` |
-| patch 行用**包名**引用插件，不是路径 |
-| 未匹配到目标的 patch 只告警跳过；格式非法的文件才硬失败 |
-| 插件跑在宿主进程里，**拥有宿主完整权限，没有沙箱**。写插件等于写宿主代码 |
+- Several plugins in one repo, each evolving independently.
+- Support both plugin kinds at once: host half only, and host + browser half.
+- Change one line of code and see the effect in a real DSH within seconds.
+- Every plugin stays fully usable **after it is packed into a tarball** — that is the last gate that can be automated.
 
-### 2.2 浏览器半边
+What it will not do:
 
-| 事实 |
-|---|
-| 声明 `dsh.client`（`platform: 'web'`）+ 导出 `exports["./client"]`，才进入 Web 客户端模块表 |
-| 产物是**经典 CJS 脚本**，用 `<script src>` 加载——**ESM 语法直接报错** |
-| 它必须喊 `window.__ModuleLoader__.load({ id, factory })` 把工厂注册进去 |
-| 能 `require()` 的只有 9 个基线模块（react 家族、cordis、client-store、ui-slots、ui-primitives、ui-dockkit）+ 自己在 `dsh.client.external` 声明的。**其余全部内联** |
-| 构建期有纯度闸门：其他 `@deepseek-ai/*` 的**值导入**直接构建失败。跨插件协作只能走 Cordis 服务或 slots |
-| **浏览器端的模块图只由「正在运行的 host 行」组成**——纯 UI 包也必须有个能加载的 host 半边 |
-| `dsh.client.inject` 只是信息，**不决定加载顺序**；顺序由 Cordis 服务等待决定 |
-| 服务端提供的是构建产物 `lib/client.js`，不是源码。改完必须重新构建 |
-
-### 2.3 依赖解析
-
-| 事实 |
-|---|
-| bundle 名先从 dsh 安装目录解析，再从 profile 解析。patch 行里的裸包名沿 profile 目录上溯，到达 dsh 维护的 `$DSH_HOME/profiles/node_modules` fallback |
-| **profile 初始化时写入 `nodeLinker: hoisted` + `autoInstallPeers: false`**，目的就是让树外插件与安装实例共享同一个 cordis 实例 |
-| host 半边打包时，production 依赖保持 import，其余内联 |
-| 浏览器半边打包时，基线模块保持 external，其余内联 |
-| `files` 必须覆盖每个相对运行时 import 和产出资源 |
-
-### 2.4 生态现状（实测）
-
-| 事实 |
-|---|
-| DSH 当前版本线是 `next` = `0.1.5-rc.1`。**`latest` 不可信**：`@deepseek-ai/dsh` 的 `latest` 是这个版本，但 `@deepseek-ai/dsh-base` 的 `latest` 还停在 `0.0.1-rc.1` |
-| `@deepseek-ai/cordis` 独立版本线，当前 `4.0.2`；`@deepseek-ai/schemastery` `3.18.2` |
-| 测试支撑包**已公开发布**：`dsh-loader-smoke`、`dsh-client-test-runtime`、`dsh-agent-loop-testkit`、`dsh-llm-mock-server`、`dsh-llm-replay`、`dsh-session-snapshot` |
-| **客户端构建 preset 没有发布。** `packages/client/` 下连 `package.json` 都没有 |
-| **上游没有任何插件脚手架。** 没有 `create-dsh-plugin`，CLI 只有 `web` 和 `plugin` 两个子命令 |
-| 上游没有为树外插件的清单提供任何校验——写错依赖段不会有人提醒你 |
-| 工具链：Node 22 由仓库的 `flake.nix` + direnv 提供（与 DSH 同一个 devshells 输入）；pnpm 走仓库自己的 devshell，命令一律 `direnv exec . pnpm …` |
+- No forking DSH, no distributing DSH.
+- No publishing to a registry (if that ever happens, §6 records the path).
+- No ambition to support several DSH major versions at once.
+- **No automating any step that needs `dsh`.** `dsh` exists only in the maintainer's environment (DSH checkout + nix devshell + npx), so "install it into a profile and start it" is a manual checklist, not a script.
 
 ---
 
-## 3. 关键取舍
+## 2. Constraints: rules the DSH plugin mechanism imposes
 
-### 3.1 一个插件 = 一个目录 = 一个 npm 包 = 一个 bundle
+Every item below has been verified. The design has to obey them; there is nothing to negotiate. Sources in §7.
 
-`plugins/<name>/` 里的东西不跨目录共享。理由：包是否声明 `dsh.bundle` 决定了它在 profile 里是"一层配置"还是"一个普通依赖"——这条语义很重要，混放就看不出区别了。
+### 2.1 How plugins are organized and installed
 
-所以仓库里同时有 `packages/`（内部共享库，构建期内联进插件，永不单独安装）和 `tooling/`（构建与校验工具）。它们都 `private: true`，都不声明 `dsh.bundle`。
+| Fact |
+|---|
+| A plugin = a module exporting `apply`, optionally carrying `name` / `inject` / `Config`. Function, object and class forms all work |
+| The distribution unit = an npm package + a **bundle manifest** (`dsh.bundle.patch` pointing at its own `cordis.patch.yml`). What a user installs is the package, not the source directory |
+| A package with no `dsh.bundle` declaration can still be installed, but only as an ordinary dependency — **it activates no config layer** |
+| The profile (`$DSH_HOME/profiles/<name>`) decides what is installed. Layer order: base → each bundle in order → the profile's own patch → the home-level patch → the `--patch` overlay |
+| Each later layer overrides the previous one line by line. **Overriding `config` replaces the whole object; it does not deep-merge** |
+| A patch has only two operations: `insert` and "override by id". **There is no delete**; the only way to neutralize something is `disabled: true` |
+| Patch lines reference plugins by **package name**, not by path |
+| A patch that matches no target only warns and is skipped; only a syntactically invalid file hard-fails |
+| Plugins run inside the host process and **hold the host's full privileges — there is no sandbox**. Writing a plugin is writing host code |
 
-### 3.2 客户端构建 preset 必须自己写（本方案的头号工程内容）
+### 2.2 The browser half
 
-DSH 官方的客户端构建脚本在 `packages/client/tsdown.client.ts`，**没有发布**，还依赖几个仓库内文件。任何树外 UI 插件都得自己复刻一份等价物。
+| Fact |
+|---|
+| Only a package that declares `dsh.client` (`platform: 'web'`) **and** exports `exports["./client"]` enters the Web client module table |
+| The artifact is a **classic CJS script** loaded with `<script src>` — **ESM syntax fails outright** |
+| It must call `window.__ModuleLoader__.load({ id, factory })` to register its factory |
+| Only 9 baseline modules can be `require()`d (the react family, cordis, client-store, ui-slots, ui-primitives, ui-dockkit) plus whatever you declare in `dsh.client.external`. **Everything else is inlined** |
+| There is a build-time purity gate: a **value import** from any other `@deepseek-ai/*` fails the build. Cross-plugin collaboration can only go through Cordis services or slots |
+| **The browser-side module graph is made only of "live host rows"** — a pure UI package still needs a host half that loads |
+| `dsh.client.inject` is informational only; **it does not decide load order**, which comes from Cordis service waiting |
+| The server serves the build artifact `lib/client.js`, not the source. Any edit means rebuilding |
 
-这是唯一需要长期跟上游对齐的东西，所以要配一致性测试：构建一个 fixture → 在 jsdom 里搭个假的 `__ModuleLoader__` → 真的把它加载起来。**上游改了契约，测试会红，而不是等到浏览器里白屏。**
+### 2.3 Dependency resolution
 
-### 3.3 依赖按「身份是否需要共享」分段
+| Fact |
+|---|
+| Bundle names resolve from the dsh install directory first, then from the profile. Bare package names in patch lines walk up from the profile directory until they reach the `$DSH_HOME/profiles/node_modules` fallback maintained by dsh |
+| **Profile initialization writes `nodeLinker: hoisted` + `autoInstallPeers: false`**, precisely so that out-of-tree plugins and the installed instance share one cordis instance |
+| When packing the host half, production dependencies stay as imports and everything else is inlined |
+| When packing the browser half, the baseline modules stay external and everything else is inlined |
+| `files` must cover every relative runtime import and every emitted asset |
 
-判据不是"是不是 `@deepseek-ai/` 开头"，而是**这个包的运行时身份是否需要全局唯一**：
+### 2.4 The state of the ecosystem (measured)
 
-- **需要**（`@deepseek-ai/cordis`、`@deepseek-ai/dsh-*`）→ `peerDependencies` + `devDependencies`，永不进 `dependencies`、永不打包内联。否则会出现两份 Cordis 实例，DI 直接错乱。
-- **不需要**（`schemastery`、`zod`）→ `dependencies`。多一份无害。
-
-这套策略成立是因为上游 profile 已经设了 `autoInstallPeers: false`（§2.3），peer 不会被自动装成第二份。上游自己发布的包也是这么分的。
-
-### 3.4 版本锁精确值，不用 caret
-
-`^0.1.5-rc.1` 看起来像"兼容 0.1.x"，其实**不匹配 `0.1.6-rc.1`**：semver 只在比较符自带同一 `[major,minor,patch]` 元组的预发布标识时，才允许预发布版本参与匹配。DSH 每个版本都是预发布，所以 caret 实际退化成了单点锁定，却伪装成兼容范围。
-
-所以清单里写精确版本。它表达的是"针对这个版本验证过"，这是诚实的。
-
-### 3.5 `link` 能用，但不是验收手段
-
-`link` 装的是符号链接。Node 按真实路径解析模块，于是插件会从**本仓库**解析 `@deepseek-ai/*`，而 dsh 用的是它自己那份——两条路径不同。
-
-这不影响 `link` 作为日常开发手段（上游文档教的本地流程就是它）。它只意味着：**验收要走 tarball**，因为 tarball 是复制进 profile，解析路径与真实安装一致。
-
-差别只在插件是否依赖这些包的模块身份（比如 `extends Service`）。普通函数式插件两边一样。用一行 `import.meta.resolve` 探针就能确认自己属于哪种（见 0003）。
+| Fact |
+|---|
+| DSH's current line is `next` = `0.1.5-rc.1`. **`latest` is not trustworthy**: `@deepseek-ai/dsh`'s `latest` is that version, but `@deepseek-ai/dsh-base`'s `latest` is still `0.0.1-rc.1` |
+| `@deepseek-ai/cordis` is on its own version line, currently `4.0.2`; `@deepseek-ai/schemastery` is `3.18.2` |
+| The test-support packages **are published**: `dsh-loader-smoke`, `dsh-client-test-runtime`, `dsh-agent-loop-testkit`, `dsh-llm-mock-server`, `dsh-llm-replay`, `dsh-session-snapshot` |
+| **The client build preset is not published.** There is not even a `package.json` under `packages/client/` |
+| **Upstream has no plugin scaffold at all.** There is no `create-dsh-plugin`; the CLI has only the `web` and `plugin` subcommands |
+| Upstream validates nothing about an out-of-tree plugin's manifest — declare the wrong dependency section and nobody will tell you |
+| Toolchain: Node 22 comes from the repo's `flake.nix` + direnv (the same devshells input DSH uses); pnpm goes through the repo's own devshell, and every command is `direnv exec . pnpm …` |
 
 ---
 
-## 4. 仓库形状
+## 3. Key trade-offs
+
+### 3.1 One plugin = one directory = one npm package = one bundle
+
+Nothing under `plugins/<name>/` is shared across directories. The reason: whether a package declares `dsh.bundle` decides whether it is "one config layer" or "an ordinary dependency" inside a profile — that semantic matters, and mixing them makes the difference invisible.
+
+So the repo also has `packages/` (internal shared libraries, inlined into plugins at build time, never installed on their own) and `tooling/` (build and validation tools). Both are `private: true` and neither declares `dsh.bundle`.
+
+### 3.2 The client build preset has to be written by hand (the number-one engineering item here)
+
+DSH's official client build script is `packages/client/tsdown.client.ts`; it is **not published** and depends on several in-repo files. Any out-of-tree UI plugin has to reproduce an equivalent.
+
+This is the only thing that needs long-term alignment with upstream, so it gets a consistency test: build a fixture → stand up a fake `__ModuleLoader__` in jsdom → actually load it. **If upstream changes the contract the test goes red, instead of you finding a blank page in the browser.**
+
+### 3.3 Dependencies are split by "must the identity be shared"
+
+The test is not "does the name start with `@deepseek-ai/`" but **does this package's runtime identity have to be globally unique**:
+
+- **Yes** (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-*`) → `peerDependencies` + `devDependencies`, never in `dependencies`, never inlined into the bundle. Otherwise you get two Cordis instances and DI breaks outright.
+- **No** (`schemastery`, `zod`) → `dependencies`. A second copy is harmless.
+
+The strategy holds because the upstream profile already sets `autoInstallPeers: false` (§2.3), so a peer is not auto-installed as a second copy. Upstream splits its own published packages the same way.
+
+### 3.4 Pin exact versions, never carets
+
+`^0.1.5-rc.1` looks like "compatible with 0.1.x" but **does not match `0.1.6-rc.1`**: semver lets a prerelease version participate in a match only when the comparator itself carries a prerelease identifier with the same `[major,minor,patch]` tuple. Every DSH release is a prerelease, so a caret degenerates into a single-point pin while pretending to be a compatible range.
+
+So manifests carry exact versions. That says "verified against this version", which is the honest statement.
+
+### 3.5 `link` works, but is not an acceptance method
+
+`link` installs a symlink. Node resolves modules by real path, so the plugin resolves `@deepseek-ai/*` from **this repo** while dsh uses its own copy — two different paths.
+
+That does not stop `link` from being the everyday development tool (it is the local flow upstream documents). It only means **acceptance goes through a tarball**, because a tarball is copied into the profile and resolves exactly like a real install.
+
+The difference only shows up when a plugin depends on the module identity of those packages (extending `Service`, say). Plain functional plugins behave the same either way. A one-line `import.meta.resolve` probe tells you which kind you have.
+
+---
+
+## 4. Repo shape
 
 ```
-plugins/<name>/     每个目录 = 一个可安装插件（唯一声明 dsh.bundle 的地方）
-packages/<lib>/     内部共享库，构建期内联，永不单独安装
-tooling/<tool>/     构建 preset、清单校验、版本常量
+plugins/<name>/     every directory = one installable plugin (the only place that declares dsh.bundle)
+packages/<lib>/     internal shared libraries, inlined at build time, never installed on their own
+tooling/<tool>/     build preset, manifest lint, version constants
 scripts/            verify / verify:pack / verify:compat
-docs/specs/         实施清单
-docs/research/      调研底稿
-flake.nix/lock      工具链：Node 22 由 nix + direnv 提供（.envrc 个人所有，不入库）
+docs/research/      research notes
+flake.nix/lock      toolchain: Node 22 from nix + direnv (.envrc is personal, not tracked)
 ```
 
-**仓库里没有 profile 目录。** `dsh plugin --profile <name>` 操作的是 `$DSH_HOME/profiles/<name>`，那是维护者自己的东西。仓库只提供插件，安装命令写在 `docs/install.md` 里手动执行。
+**There is no profile directory in the repo.** `dsh plugin --profile <name>` operates on `$DSH_HOME/profiles/<name>`, which is the maintainer's own; the repo only ships plugins, and installing them is a manual step.
 
-**仓库里的任何脚本都不调用 `dsh`。** 它只在维护者的环境里可用（DSH checkout + nix devshell + npx），所以能自动化的到"打包并自检"为止。
+**No script in the repo calls `dsh`.** It exists only in the maintainer's environment (DSH checkout + nix devshell + npx), so automation stops at "pack and self-check".
 
 ---
 
-## 5. 风险与未验证项
+## 5. Risks and unverified items
 
-| # | 风险 | 影响 | 处置 |
+| # | Risk | Impact | Handling |
 |---|---|---|---|
-| R1 | 客户端 preset 与上游漂移，产物在浏览器里跑不起来 | 🔴 高 | 一致性测试（0004）+ 升级 DSH 时 diff 上游 preset |
-| R2 | `link` 安装的解析路径与真实安装不同 | 🟡 低 | 一行探针即可定论（0003）；多数写法不受影响 |
-| R3 | DSH 处于 rc，破坏性变更频繁 | 🟠 中 | 锁精确版本 + `verify:compat` 显式升级；修复只向上 |
-| R4 | 依赖上游 `tsdown` 标注为 experimental 的 `workspace` 选项 | 🟡 低 | 锁定 tsdown 精确版本 |
-| R5 | 源码 overlay（`.ts` 行）依赖未记载的行为组合 | 🟡 低 | 可回避——不走这条快车道也不影响任何事 |
+| R1 | The client preset drifts from upstream and the artifact will not run in the browser | 🔴 High | Consistency test + diff the upstream preset when bumping DSH |
+| R2 | A `link` install resolves along different paths than a real install | 🟡 Low | A one-line probe settles it; most authoring styles are unaffected |
+| R3 | DSH is at rc, so breaking changes are frequent | 🟠 Medium | Pin exact versions + make upgrades explicit through `verify:compat`; fixes go upstream only |
+| R4 | Depends on the `workspace` option that upstream marks experimental in `tsdown` | 🟡 Low | Pin tsdown to an exact version |
+| R5 | The source overlay (`.ts` rows) depends on an undocumented combination of behaviours | 🟡 Low | Avoidable — skipping that fast lane costs nothing |
 
-### 待验证
+### Still to verify
 
-| 验证 | 问题 | 做完的标志 |
+| Verification | Question | Done when |
 |---|---|---|
-| V1 | link 与 tarball 安装下，`@deepseek-ai/cordis` 的解析路径是否相同？ | 各打印一次路径比较。相同 → R2 划掉 |
-| V2 | 复刻的客户端 preset 能否让产出的 `lib/client.js` 在 jsdom 里真正跑起来？ | 一致性测试通过（0004 的验收） |
+| V1 | Do `link` and tarball installs resolve `@deepseek-ai/cordis` to the same path? | Print both paths and compare. Identical → strike R2 |
+| V2 | Does the reproduced client preset actually run the emitted `lib/client.js` in jsdom? | The consistency test passes |
 
 ---
 
-## 6. 将来若要发布
+## 6. If it is ever published
 
-现在不做，路径记在这里省得重新调研：
+Not now; the path is recorded here so the research does not have to be redone:
 
-- **渠道**：npm 发布（预构建）或 `pnpm pack` 的 tarball。**git 安装不行**——monorepo 成员包没有可寻址的安装入口，而 `prepare` 必须自包含。
-- **要补的**：changesets、去掉 `private`、显式设计 peer 范围（§3.4 的 caret 问题会真正咬人）。
-- **可回馈生态的**：`plugin-lint` 和客户端 preset 都有实质价值——上游既没有插件脚手架，也没有发布的 preset。
+- **Channel**: an npm publish (prebuilt) or a `pnpm pack` tarball. **A git install does not work** — monorepo member packages have no addressable install entry, and `prepare` must be self-contained.
+- **To add**: changesets, drop `private`, design peer ranges explicitly (the caret problem from §3.4 really bites here).
+- **Could be given back to the ecosystem**: `plugin-lint` and the client preset both have real value — upstream has neither a plugin scaffold nor a published preset.
 
 ---
 
-## 7. 出处
+## 7. Sources
 
-事实来自本机 DSH checkout（`/Users/rqc/r/github.com/deepseek-ai/deepseek-harness`，版本线 `0.1.5-rc.1`）与 npm registry 实测。
+The facts come from the local DSH checkout (`/Users/rqc/r/github.com/deepseek-ai/deepseek-harness`, version line `0.1.5-rc.1`) and from measurements against the npm registry.
 
-两份逐条带文件路径与代码片段的调研底稿：
+The two research notes, item by item with file paths and code snippets:
 
-- [`docs/research/host-and-bundle-contract.md`](./docs/research/host-and-bundle-contract.md) — 导出契约、`Config`/`!!js`、patch 语义、安装流程、profile 布局、依赖规则、清单必填项
-- [`docs/research/client-half-build-contract.md`](./docs/research/client-half-build-contract.md) — `dsh.client` 校验、产物契约、基线与纯度闸门、HMR
+- [`docs/research/host-and-bundle-contract.md`](./docs/research/host-and-bundle-contract.md) — export contract, `Config`/`!!js`, patch semantics, install flow, profile layout, dependency rules, required manifest fields
+- [`docs/research/client-half-build-contract.md`](./docs/research/client-half-build-contract.md) — `dsh.client` validation, artifact contract, baselines and the purity gate, HMR
 
-关键源码位置：
+Key source locations:
 
-| 主题 | 位置 |
+| Topic | Location |
 |---|---|
-| patch 的全部语义 | `vendor/include/src/index.ts` |
-| 客户端产物契约 | `packages/client/tsdown.client.ts` |
-| 基线模块 | `packages/client/web/src/platform.ts` + `src/seed.ts` |
-| 模块表加载 | `packages/client/modules/src/client/system.ts` |
-| 浏览器图只认活着的 host 行 | `packages/client/web/src/boot.ts` |
-| profile 初始化 | `packages/boot/app-boot/src/profile.ts` |
-| 清单类型定义 | `packages/util/package-manifest/src/types.ts` |
-| HMR 驱动 | `packages/client/hmr/src/index.ts` |
-| 测试支撑包用法 | `packages/test-support/loader-smoke/README.md` |
+| All patch semantics | `vendor/include/src/index.ts` |
+| Client artifact contract | `packages/client/tsdown.client.ts` |
+| Baseline modules | `packages/client/web/src/platform.ts` + `src/seed.ts` |
+| Module table loading | `packages/client/modules/src/client/system.ts` |
+| The browser graph only counts live host rows | `packages/client/web/src/boot.ts` |
+| Profile initialization | `packages/boot/app-boot/src/profile.ts` |
+| Manifest type definitions | `packages/util/package-manifest/src/types.ts` |
+| HMR driver | `packages/client/hmr/src/index.ts` |
+| How to use the test-support packages | `packages/test-support/loader-smoke/README.md` |
 
-**本机工具链**：Node `v22.22.3` 来自仓库的 nix devshell（`/nix/store/...-nodejs-22.22.3`），pnpm `11.7.0` 来自 pnpm 的版本自管理。两者都不是系统安装。
+**Local toolchain**: Node `v22.22.3` from the repo's nix devshell (`/nix/store/...-nodejs-22.22.3`), pnpm `11.7.0` from pnpm's own version management. Neither is a system install.

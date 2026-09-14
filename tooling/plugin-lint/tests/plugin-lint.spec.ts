@@ -15,7 +15,7 @@ describe('lintPlugin', () => {
     await rm(dir, { recursive: true, force: true })
   })
 
-  it('规则表为空时，任何目录都没有 finding', async () => {
+  it('reports no finding for any directory while the rule table is empty', async () => {
     expect(await lintPlugin(dir)).toEqual([])
   })
 })

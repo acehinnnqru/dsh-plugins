@@ -1,9 +1,9 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    // base 里是 composite: true。脚本要直接 import 工具包的 .ts 源码
-    // （tsx 在开发时跑的就是源码，不必先 build），而 composite 项目禁止
-    // 引用未列入自身 include 的文件（TS6307），所以这里关掉。
+    // The base sets composite: true. Scripts import tooling packages' .ts sources directly
+    // (tsx runs the sources in development, so nothing has to be built first), and a composite
+    // project forbids referencing files outside its own include (TS6307), so composite is off here.
     "composite": false,
     "rootDir": ".",
     "outDir": "lib/types"
