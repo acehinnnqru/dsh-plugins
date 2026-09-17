@@ -1,0 +1,8 @@
+# The profile layer this package contributes. A patch has exactly two operations: `insert` a row,
+# or override an existing row by `id`. There is no delete — the row below is inserted once and the
+# profile's own patch (or a later bundle layer) can override it by id.
+- insert:
+    - id: now
+      name: 'dsh-plugin-now'
+      config:
+        timeZone: 'Asia/Shanghai'

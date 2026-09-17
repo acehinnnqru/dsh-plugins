@@ -3,6 +3,7 @@
   "files": [],
   "references": [
     { "path": "./tsconfig.scripts.json" },
+    { "path": "./plugins/now" },
     { "path": "./tooling/dsh-compat" },
     { "path": "./tooling/plugin-lint" }
   ]
