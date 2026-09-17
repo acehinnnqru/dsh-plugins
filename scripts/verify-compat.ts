@@ -31,6 +31,9 @@ function releaseLine(version: string): string {
 /** Every manifest section that can declare `@deepseek-ai/*`. */
 const SECTIONS = ['dependencies', 'peerDependencies', 'devDependencies'] as const
 
+/** `@deepseek-ai` packages that carry their own version line instead of the DSH one. */
+const OWN_VERSION_LINE = new Set<string>([...PEER_PACKAGES, ...DEPENDENCY_ALLOWLIST])
+
 interface Mismatch {
   file: string
   section: string
@@ -64,8 +67,11 @@ for (const dir of await pluginDirs()) {
   for (const section of SECTIONS) {
     for (const [pkg, actual] of Object.entries(manifest[section] ?? {})) {
       if (!pkg.startsWith('@deepseek-ai/')) continue
-      // The peer package (cordis) is on a version line of its own, separate from DSH; rule L4 covers it.
-      if (PEER_PACKAGES.some((peer) => peer === pkg)) continue
+      // Only the DSH family moves with DSH_VERSION. Cordis and the allowlisted pure libraries
+      // (schemastery) are upstream vendor packages on version lines of their own: 4.0.2 and 3.18.2
+      // are correct today and would still be correct the day DSH ships 0.1.6-rc.1. Comparing them
+      // against the DSH line would demand a version that does not exist.
+      if (OWN_VERSION_LINE.has(pkg)) continue
       if (releaseLine(actual) === releaseLine(DSH_VERSION)) continue
 
       mismatches.push({ file, section, pkg, actual })
