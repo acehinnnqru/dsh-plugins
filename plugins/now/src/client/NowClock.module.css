@@ -1,0 +1,28 @@
+/* The clock sits in the sidebar foot beside the shipped actions, so it inherits their geometry and
+   contributes only its own type. Color comes from the theme's semantic labels, which is what makes
+   one stylesheet hold in both the light and the dark theme. */
+.clock {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* The rail is 56px wide: the label has to shrink rather than push the footer out of the column. */
+  min-width: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 11px;
+  line-height: 16px;
+  /* Tabular figures keep the digits from shifting the label on every tick. */
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.clock:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}

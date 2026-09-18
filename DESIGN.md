@@ -90,9 +90,18 @@ So the repo also has `packages/` (internal shared libraries, inlined into plugin
 
 ### 3.2 The client build preset has to be written by hand (the number-one engineering item here)
 
-DSH's official client build script is `packages/client/tsdown.client.ts`; it is **not published** and depends on several in-repo files. Any out-of-tree UI plugin has to reproduce an equivalent.
+DSH's official client build script is `packages/client/tsdown.client.ts`; it is **not published** and depends on several in-repo files. Any out-of-tree UI plugin has to reproduce an equivalent, so this repo has `tooling/dsh-client-preset` (one call, `clientBundle(id, libEntry)`, emits the Node half and the browser half in one run).
 
 This is the only thing that needs long-term alignment with upstream, so it gets a consistency test: build a fixture → stand up a fake `__ModuleLoader__` in jsdom → actually load it. **If upstream changes the contract the test goes red, instead of you finding a blank page in the browser.**
+
+Facts the implementation and its tests have settled, beyond the contract in §2.2:
+
+- **Import the preset by source subpath** (`dsh-client-preset/src/index.ts`). tsdown *executes* a package's config file before it builds anything, so a bare import would read the preset's built `lib/index.js` — not built yet on a fresh clone, and blind to later edits.
+- **A browser entry with JSX has to be `src/client/index.tsx`.** Only the `.tsx` extension lets tsc parse the angle brackets, and it is what emits `lib/types/client/index.js` — the preset's default browser entry. `src/client/index.ts` holding JSX does not compile.
+- **`--watch` needs `addWatchFile` in the preset's source-map plugin.** The plugin serves the emitted modules from a `load` hook instead of letting rolldown read them, and rolldown does not watch a file it never read, so without it the loop silently stalls at the first source edit. Locked down by a conformance test that edits a fixture's source and waits for the rebuilt bundle.
+- **`react` is not a dependency** — it is a frozen baseline module the shell's table answers. The types are not, so `@types/react` is a devDependency; the JSX transform needs them at build time.
+
+`plugins/now` is the worked example of all of this: `src/client/index.tsx` registers one cell into `sidebar.footer.action`, and its `tests/client.spec.ts` executes the *built* `lib/client.js` in a plain V8 context with a fake `__ModuleLoader__` and an empty module table. Editing `src/client/` → `tsc -b --watch` republishes `lib/types/` → `tsdown --watch` rewrites `lib/client.js` → the host's own polling swaps the plugin into the running browser. No `dsh` restart, and no watcher of our own.
 
 ### 3.3 Dependencies are split by "must the identity be shared"
 
@@ -108,6 +117,8 @@ The strategy holds because the upstream profile already sets `autoInstallPeers: 
 `^0.1.5-rc.1` looks like "compatible with 0.1.x" but **does not match `0.1.6-rc.1`**: semver lets a prerelease version participate in a match only when the comparator itself carries a prerelease identifier with the same `[major,minor,patch]` tuple. Every DSH release is a prerelease, so a caret degenerates into a single-point pin while pretending to be a compatible range.
 
 So manifests carry exact versions. That says "verified against this version", which is the honest statement.
+
+`dsh-client-preset` is the exception that proves the rule: it is a `private` workspace package that exists only here, so a plugin names it as `"dsh-client-preset": "file:../../tooling/dsh-client-preset"`. The more idiomatic `workspace:*` **breaks `pnpm pack`**, which is what `verify:pack` runs: pnpm resolves a workspace-protocol dependency for the packed manifest by reading it out of `node_modules`, and refuses with `ERR_PNPM_CANNOT_RESOLVE_WORKSPACE_PROTOCOL` for a workspace member that is not a registry install. Since the packed manifest drops `devDependencies` either way, `file:` costs nothing and keeps the acceptance command runnable.
 
 ### 3.5 `link` works, but is not an acceptance method
 
