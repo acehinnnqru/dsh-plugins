@@ -14,6 +14,7 @@
     "plugin-lint": "tsx scripts/plugin-lint.ts",
     "verify": "tsx scripts/verify.ts",
     "verify:compat": "tsx scripts/verify-compat.ts",
+    "verify:pack": "tsx scripts/verify-pack.ts",
     "verify:platform-modules": "tsx scripts/verify-platform-modules.ts"
   },
   "devDependencies": {

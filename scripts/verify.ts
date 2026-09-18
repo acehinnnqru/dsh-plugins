@@ -18,6 +18,8 @@ const STEPS: Step[] = [
   { label: 'lint', args: ['pnpm', 'lint'] },
   { label: 'typecheck', args: ['pnpm', 'typecheck'] },
   { label: 'plugin-lint', args: ['pnpm', 'plugin-lint'] },
+  // After plugin-lint (static rules first) and after build (the listing must come from fresh output).
+  { label: 'pack', args: ['pnpm', 'verify:pack'] },
   // Before the tests: a bundle built against a stale module baseline would surface as a confusing
   // test failure, and this step names the specifier that drifted.
   { label: 'platform-modules', args: ['pnpm', 'verify:platform-modules'] },
