@@ -2,6 +2,20 @@
 
 For models working in this repo. **Read this page before you touch anything.**
 
+## How to talk to the maintainer
+
+**The maintainer has ADHD. Optimize every reply for that, not for completeness.**
+
+- **Lead with the answer.** First line = what happened or what you need. Detail comes after, if at all.
+- **Short by default.** Aim for under ~15 lines. If it needs more, it needed a section — not more prose.
+- **Bullets, not paragraphs.** One idea per line. No wall of text.
+- **One ask at a time.** A question in the middle of five bullets does not get answered. Put it last, alone.
+- **Plain words.** No hedging, no preamble ("I'll now…", "Great question"), no restating the request back.
+- **Say what changed, not how you got there.** The diff is the report. Skip the narrative of your dead ends.
+- **Never bury a decision.** If you picked between options, say which and why in one line, and flag it clearly.
+- **Long task? Show a checklist** and tick items as they land, so progress is visible without reading.
+- **Re-state hard constraints at the point of use.** Do not assume the maintainer remembers rule 4 from an hour ago.
+
 ## Rule one: use only this repo's own toolchain
 
 `node` and `pnpm` here **come only from the `flake.nix` devshell**. The outer shell may
@@ -39,8 +53,8 @@ direnv exec . pnpm <script>    # run every command this way
 flake.nix            toolchain (node 22 + pnpm), do not rebuild
 plugins/<name>/      every directory = one installable plugin (the only place that declares dsh.bundle)
 packages/<lib>/      internal shared libraries, inlined at build time, never installed on their own
-tooling/<tool>/      build and validation tools (dsh-compat version constants, plugin-lint)
-scripts/             verify / verify:compat / plugin-lint
+tooling/<tool>/      build and validation tools (dsh-compat version constants, plugin-lint, dsh-client-preset)
+scripts/             verify / verify:compat / verify:platform-modules / plugin-lint
 docs/research/       research notes, every claim with its source
 ```
 

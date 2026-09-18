@@ -125,7 +125,7 @@ The difference only shows up when a plugin depends on the module identity of tho
 plugins/<name>/     every directory = one installable plugin (the only place that declares dsh.bundle)
 packages/<lib>/     internal shared libraries, inlined at build time, never installed on their own
 tooling/<tool>/     build preset, manifest lint, version constants
-scripts/            verify / verify:pack / verify:compat
+scripts/            verify / verify:pack / verify:compat / verify:platform-modules
 docs/research/      research notes
 flake.nix/lock      toolchain: Node 22 from nix + direnv (.envrc is personal, not tracked)
 ```
@@ -140,7 +140,7 @@ flake.nix/lock      toolchain: Node 22 from nix + direnv (.envrc is personal, no
 
 | # | Risk | Impact | Handling |
 |---|---|---|---|
-| R1 | The client preset drifts from upstream and the artifact will not run in the browser | 🔴 High | Consistency test + diff the upstream preset when bumping DSH |
+| R1 | The client preset drifts from upstream and the artifact will not run in the browser | 🔴 High | Consistency test (builds a fixture and runs the emitted `lib/client.js` in jsdom) + `verify:platform-modules` for the module baseline + diff the upstream preset when bumping DSH |
 | R2 | A `link` install resolves along different paths than a real install | 🟡 Low | A one-line probe settles it; most authoring styles are unaffected |
 | R3 | DSH is at rc, so breaking changes are frequent | 🟠 Medium | Pin exact versions + make upgrades explicit through `verify:compat`; fixes go upstream only |
 | R4 | Depends on the `workspace` option that upstream marks experimental in `tsdown` | 🟡 Low | Pin tsdown to an exact version |
@@ -151,7 +151,7 @@ flake.nix/lock      toolchain: Node 22 from nix + direnv (.envrc is personal, no
 | Verification | Question | Done when |
 |---|---|---|
 | V1 | Do `link` and tarball installs resolve `@deepseek-ai/cordis` to the same path? | Print both paths and compare. Identical → strike R2 |
-| V2 | Does the reproduced client preset actually run the emitted `lib/client.js` in jsdom? | The consistency test passes |
+| ~~V2~~ | Does the reproduced client preset actually run the emitted `lib/client.js` in jsdom? | **Settled**: `tooling/dsh-client-preset/tests/conformance.spec.ts` builds the `hello-client` fixture and loads its bundle into a jsdom realm with a fake `__ModuleLoader__`; 9 tests pass |
 
 ---
 
@@ -169,10 +169,11 @@ Not now; the path is recorded here so the research does not have to be redone:
 
 The facts come from the local DSH checkout (`/Users/rqc/r/github.com/deepseek-ai/deepseek-harness`, version line `0.1.5-rc.1`) and from measurements against the npm registry.
 
-The two research notes, item by item with file paths and code snippets:
+The three research notes, item by item with file paths and code snippets:
 
 - [`docs/research/host-and-bundle-contract.md`](./docs/research/host-and-bundle-contract.md) — export contract, `Config`/`!!js`, patch semantics, install flow, profile layout, dependency rules, required manifest fields
 - [`docs/research/client-half-build-contract.md`](./docs/research/client-half-build-contract.md) — `dsh.client` validation, artifact contract, baselines and the purity gate, HMR
+- [`docs/research/client-plugin-extension-points.md`](./docs/research/client-plugin-extension-points.md) — every client-side extension point an out-of-tree plugin can use: document viewers, the slot inventory, host→browser data paths, and what is closed to plugins
 
 Key source locations:
 
