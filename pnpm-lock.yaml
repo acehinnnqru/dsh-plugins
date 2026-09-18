@@ -118,6 +118,8 @@ importers:
 
   tooling/dsh-compat: {}
 
+  tooling/new-plugin: {}
+
   tooling/pack-check:
     dependencies:
       js-yaml:

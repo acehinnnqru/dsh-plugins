@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // A composite project cannot have another project reference its sources directly (TS6307).
+    // scripts/ depends on the .ts sources here, so composite is off; the root tsconfig.json still
+    // lists this package in references, so `pnpm typecheck` checks it and emits lib/types/ anyway.
+    "composite": false,
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": ["src"]
+}

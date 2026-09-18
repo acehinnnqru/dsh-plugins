@@ -54,7 +54,8 @@ flake.nix            toolchain (node 22 + pnpm), do not rebuild
 plugins/<name>/      every directory = one installable plugin (the only place that declares dsh.bundle)
 packages/<lib>/      internal shared libraries, inlined at build time, never installed on their own
 tooling/<tool>/      build and validation tools (dsh-compat version constants, plugin-lint, dsh-client-preset)
-scripts/             verify / verify:compat / verify:platform-modules / plugin-lint
+scripts/             verify / verify:compat / verify:platform-modules / plugin-lint / new:plugin
+templates/plugin/    scaffolding source for `pnpm new:plugin`; never a workspace member
 docs/research/       research notes, every claim with its source
 ```
 
