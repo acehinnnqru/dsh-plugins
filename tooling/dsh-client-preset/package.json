@@ -1,0 +1,25 @@
+{
+  "name": "dsh-client-preset",
+  "private": true,
+  "type": "module",
+  "description": "Builds a DSH plugin's browser half into the lib/client.js the Web GUI loads.",
+  "main": "lib/types/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/types/index.js" },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json && tsdown",
+    "test": "vitest run tooling/dsh-client-preset/tests"
+  },
+  "dependencies": {
+    "lightningcss": "1.33.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-client-web": "0.1.5-rc.1",
+    "jsdom": "^30.1.0",
+    "tsdown": "0.22.14"
+  }
+}

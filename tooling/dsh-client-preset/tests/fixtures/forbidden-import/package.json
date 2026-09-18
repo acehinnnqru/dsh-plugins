@@ -1,0 +1,39 @@
+{
+  "name": "dsh-plugin-forbidden-import",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Test fixture: a client half that value-imports another feature plugin, which must fail the build.",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "dsh": {
+    "client": {
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "node -e \"console.error('this fixture must not be built by the workspace: its build is expected to FAIL, and the conformance test drives it directly'); process.exit(0)\"",
+    "build:forbidden": "tsx scripts/build.ts"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-client-ui-session": "0.1.5-rc.1",
+    "dsh-client-preset": "workspace:*",
+    "tsdown": "0.22.14"
+  }
+}

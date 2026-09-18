@@ -2,6 +2,11 @@ packages:
   - 'plugins/*'
   - 'packages/*'
   - 'tooling/*'
+  # The client preset's fixture packages. They are real workspace members on purpose: a fixture has to
+  # resolve `dsh-client-preset` and `tsdown` by bare specifier (exactly like a plugin's tsdown.config.ts
+  # does), and pnpm links a package's dependencies only for workspace members. They are test data, not
+  # installable plugins — nothing under tooling/ is ever installed into a profile.
+  - 'tooling/*/tests/fixtures/*'
 # esbuild's build script only self-checks its binary (tsx / vitest / tsdown all depend on it).
 # Without this explicit allow, pnpm 11 skips it and nags about an unapproved build script after every install.
 allowBuilds:

@@ -13,10 +13,12 @@
     "test": "vitest run",
     "plugin-lint": "tsx scripts/plugin-lint.ts",
     "verify": "tsx scripts/verify.ts",
-    "verify:compat": "tsx scripts/verify-compat.ts"
+    "verify:compat": "tsx scripts/verify-compat.ts",
+    "verify:platform-modules": "tsx scripts/verify-platform-modules.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",
+    "jsdom": "^30.1.0",
     "oxlint": "1.76.0",
     "oxlint-tsgolint": "7.0.2001",
     "tsdown": "^0.22.2",

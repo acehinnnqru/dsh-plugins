@@ -4,6 +4,7 @@
   "references": [
     { "path": "./tsconfig.scripts.json" },
     { "path": "./plugins/now" },
+    { "path": "./tooling/dsh-client-preset" },
     { "path": "./tooling/dsh-compat" },
     { "path": "./tooling/plugin-lint" }
   ]

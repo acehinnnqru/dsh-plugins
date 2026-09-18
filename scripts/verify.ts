@@ -18,6 +18,9 @@ const STEPS: Step[] = [
   { label: 'lint', args: ['pnpm', 'lint'] },
   { label: 'typecheck', args: ['pnpm', 'typecheck'] },
   { label: 'plugin-lint', args: ['pnpm', 'plugin-lint'] },
+  // Before the tests: a bundle built against a stale module baseline would surface as a confusing
+  // test failure, and this step names the specifier that drifted.
+  { label: 'platform-modules', args: ['pnpm', 'verify:platform-modules'] },
   { label: 'test', args: ['pnpm', 'test'] },
 ]
 
@@ -47,7 +50,9 @@ for (const step of STEPS) {
 }
 
 process.stdout.write('\n---------------- verify ----------------\n')
+// Sized from the labels in play, so adding a longer step never silently breaks the column.
+const width = Math.max(...results.map(({ label }) => label.length)) + 2
 for (const { label, ms } of results) {
-  process.stdout.write(`  ${label.padEnd(12)}${(ms / 1000).toFixed(1)}s\n`)
+  process.stdout.write(`  ${label.padEnd(width)}${(ms / 1000).toFixed(1)}s\n`)
 }
 process.stdout.write(`✓ all green (${STEPS.length} steps, ${(results.reduce((sum, r) => sum + r.ms, 0) / 1000).toFixed(1)}s total)\n`)
