@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createRequire, isBuiltin } from 'node:module'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { TsdownPlugin, UserConfig } from 'tsdown'
 import { cssPlugins } from './css.ts'
 import { platformBaseline } from './platform-modules.ts'
@@ -53,23 +53,39 @@ function declaredExternals(id: string, manifest: PluginManifest): readonly strin
 }
 
 /**
- * Locate the package `id` names and read the manifest facts the build depends on.
+ * The manifest the build should read: the package being built, else the installed one.
  *
- * Resolved through this preset's own `require`, which is the same resolution that put the manifest in
- * front of it: a plugin names the preset in its `devDependencies`, so the plugin is what gets found.
+ * tsdown evaluates this config with cwd set to the package directory, so the manifest sitting there
+ * is the plugin actually being built. Reading it first is what lets a plugin that pnpm never linked
+ * into the store build at all — a freshly generated one, or a workspace member nobody depends on.
+ * The `require`-based lookup stays as the fallback for a caller building a package it does not sit in.
+ * @param id - package name.
+ * @returns the absolute path of the package manifest.
+ * @throws when neither location has a manifest.
+ */
+function manifestPathFor(id: string): string {
+  const local = join(process.cwd(), 'package.json')
+  if (existsSync(local)) {
+    const name = (JSON.parse(readFileSync(local, 'utf8')) as { name?: unknown }).name
+    if (name === id) return local
+  }
+  return createRequire(import.meta.url).resolve(`${id}/package.json`)
+}
+
+/**
+ * Locate the package `id` names and read the manifest facts the build depends on.
  * @param id - package name.
  * @param options - additional module-table requests.
  * @returns the package directory (the build's `cwd`) and its manifest.
  * @throws when the package cannot be resolved, or declares no `exports["./client"]`.
  */
 function locatePlugin(id: string, options: ClientBundleOptions): { cwd: string; manifest: PluginManifest; external: readonly string[] } {
-  const require = createRequire(import.meta.url)
   let manifestPath: string
   try {
-    manifestPath = require.resolve(`${id}/package.json`)
+    manifestPath = manifestPathFor(id)
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
-    throw new Error(`dsh-client-preset: cannot resolve ${id}/package.json — the plugin must be an installed package: ${detail}`)
+    throw new Error(`dsh-client-preset: cannot resolve ${id}/package.json — the plugin must be the package being built or an installed package: ${detail}`)
   }
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as PluginManifest
   const clientExport = (manifest.exports as Record<string, unknown> | undefined)?.['./client']
