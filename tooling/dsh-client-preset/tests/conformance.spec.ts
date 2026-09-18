@@ -1,5 +1,5 @@
-import { execFile } from 'node:child_process'
-import { readFile, readdir, rm } from 'node:fs/promises'
+import { execFile, spawn } from 'node:child_process'
+import { readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -85,6 +85,88 @@ async function output(name: string, file: string): Promise<string> {
 /** Remove a fixture's build output, so its build assertions cannot pass on a previous run's files. */
 async function clean(name: string): Promise<void> {
   await rm(join(fixturesDir, name, 'lib'), { recursive: true, force: true })
+}
+
+/** Poll a predicate until it holds, or the deadline passes. */
+async function until(holds: () => Promise<boolean>, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    if (await holds().catch(() => false)) return true
+    if (Date.now() > deadline) return false
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+}
+
+/**
+ * The watch loop the dev story depends on.
+ *
+ * An author runs one watcher and edits `src/client/`: `tsc -b --watch` republishes `lib/types/`, and
+ * the bundle has to follow without a restart. The preset's source-map plugin serves those emitted
+ * modules from a hook rather than letting rolldown read them, and rolldown does not watch a file it
+ * never read — so without `addWatchFile` in that plugin, this loop silently stalls at the first edit.
+ * That is the failure this test exists to catch, and it is a rebuild assertion, not a timing one: the
+ * marker can only reach `client.js` by rebuilding it from the edited source.
+ *
+ * The fixture's own `watch` script is what runs, read out of its manifest rather than copied here, so
+ * a script that stops producing a bundle fails this test too. It is started through `sh -c` instead of
+ * `pnpm run`, because that is what makes the process group the shell's own — see {@link stopWatcher}.
+ * @param name - the fixture to watch.
+ */
+async function expectWatchRebuild(name: string): Promise<void> {
+  const cwd = join(fixturesDir, name)
+  const source = join(cwd, 'src', 'client', 'index.ts')
+  const bundle = join(cwd, 'lib', 'client.js')
+  const manifest = JSON.parse(await readFile(join(cwd, 'package.json'), 'utf8')) as {
+    scripts?: Record<string, string>
+  }
+  const script = manifest.scripts?.['watch']
+  if (script === undefined) throw new Error(`${name}'s manifest declares no watch script`)
+
+  // Seeded through the fixture's own build: `--watch` bundles what `tsc` emitted, and it does not
+  // bootstrap a missing tree.
+  const seeded = await build(name)
+  expect(seeded.code, seeded.output).toBe(0)
+
+  const original = await readFile(source, 'utf8')
+  const watcher = spawn('sh', ['-c', script], { cwd, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+  let log = ''
+  watcher.stdout?.on('data', (chunk: Buffer) => { log += chunk.toString() })
+  watcher.stderr?.on('data', (chunk: Buffer) => { log += chunk.toString() })
+  try {
+    // Both halves have to be up before the edit: writing first would race an unstarted watcher, which
+    // is a slower machine's flake rather than a real failure. `tsc --watch` announces itself, and a
+    // tsdown run in watch mode says "Rebuilt" where a one-shot build says "Build complete".
+    const watching = await until(
+      async () => log.includes('Watching for file changes') && log.includes('Rebuilt'),
+      30_000,
+    )
+    expect(watching, `the watchers never reported readiness:\n${log}`).toBe(true)
+
+    // A fresh identifier per run: a bundle that still held a previous run's text would otherwise read
+    // as a successful rebuild without anything having rebuilt. It goes into an assignment rather than
+    // a trailing comment, because a comment attached to no statement is dropped by the bundler and
+    // would never appear in `client.js` however often the bundle was rebuilt.
+    const marker = `__watch_probe_${Date.now()}__`
+    expect(original.includes(marker), 'the marker is already in the source').toBe(false)
+    const edited = original.replace('globals.__helloApplied = true', `globals.__helloApplied = Boolean('${marker}')`)
+    expect(edited, 'the fixture no longer contains the line this test edits').not.toBe(original)
+    await writeFile(source, edited)
+
+    const rebuilt = await until(async () => (await readFile(bundle, 'utf8')).includes(marker), 20_000)
+    expect(rebuilt, `the bundle did not rebuild after the source changed:\n${log}`).toBe(true)
+  } finally {
+    // `detached` made the shell its own process group leader, so one signal reaches the shell, both
+    // watchers it started, and anything they started in turn. Signalling only the shell would orphan
+    // `tsdown --watch`, which then keeps rewriting the fixture's bundle under later tests.
+    if (watcher.pid !== undefined) {
+      try {
+        process.kill(-watcher.pid, 'SIGTERM')
+      } catch {
+        // Already exited; nothing of ours is left running.
+      }
+    }
+    await writeFile(source, original)
+  }
 }
 
 /**
@@ -208,6 +290,12 @@ describe('clientBundle artifact contract', () => {
     factory?.(tableRequire(harness))
     expect(window.document.querySelectorAll('style[data-plugin-css]')).toHaveLength(2)
   })
+
+  it('rebuilds under --watch when the emitted module changes', async () => {
+    // Seeding, spawning the watcher and waiting for the rebuild do not fit the default 5s budget; the
+    // test's own polls are the real bounds, and this only has to stay above their sum.
+    await expectWatchRebuild(HELLO)
+  }, 60_000)
 
   it('maps the bundle back to the original TypeScript, with its content', async () => {
     const map = JSON.parse(await output(HELLO, 'client.js.map')) as {

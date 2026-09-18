@@ -28,7 +28,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -b tsconfig.json && tsdown"
+    "build": "tsc -b tsconfig.json && tsdown",
+    "watch": "tsc -b tsconfig.json --watch --preserveWatchOutput & tsdown --watch"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.2",

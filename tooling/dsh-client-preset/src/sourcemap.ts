@@ -67,6 +67,12 @@ export function tscSourceMapPlugin(): TsdownPlugin {
     async load(id) {
       const chained = await chain(id)
       if (chained === null) return null
+      this.addWatchFile(id)
+      this.addWatchFile(`${id}${TSC_MAP_SUFFIX}`)
+      // A module this hook fills in is not one rolldown read from disk, so rolldown does not put it in
+      // the watch graph — and in watch mode the bundle would then never rebuild when `tsc -b --watch`
+      // rewrites the emitted file. Declaring the inputs is what makes the loop close. The source map
+      // is watched too: `tsc` rewrites it in the same step, and the map is half of what is returned.
       return { code: chained.code, map: chained.map as never }
     },
   }
