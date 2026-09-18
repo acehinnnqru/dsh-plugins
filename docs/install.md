@@ -8,19 +8,30 @@ Nothing in this repo runs `dsh`. It exists only in the maintainer's environment 
 devshell + npx), so this page is a manual checklist: copy, paste, compare. `dsh-plugin-now` is the
 example throughout.
 
-## 0. Build the plugin first
-
-The profile consumes `lib/index.js`, and a path install serves that file straight from this repo:
+## 0. Build and pack it first
 
 ```sh
 cd /Users/rqc/r/github.com/acehinnnqru/dsh-plugins
 direnv exec . pnpm install                              # once per clone
 direnv exec . pnpm --filter dsh-plugin-now build
+direnv exec . pnpm --filter dsh-plugin-now pack --pack-destination /tmp/dsh-plugin-pkg
 ```
 
-A path install is a `link:` dependency, so pnpm does not copy anything and does not install the
-plugin's own dependencies — they come from this repo's `node_modules`, which is why `pnpm install`
-has to have run here.
+`--pack-destination` creates the directory itself, so there is no `mkdir` step.
+
+**The acceptance install is the tarball, not the source directory.** A tarball is copied into the
+profile and resolves its dependencies exactly like a real install; a path install is a `link:` whose
+real path stays in this repo, so the plugin resolves its peers from here instead of from the profile
+([DESIGN.md](../DESIGN.md) §3.5). The path install is still the fast everyday loop:
+
+```sh
+dsh plugin --profile demo add /Users/rqc/r/github.com/acehinnnqru/dsh-plugins/plugins/now
+dsh plugin --profile demo add /tmp/dsh-plugin-pkg/dsh-plugin-now-0.0.0.tgz
+```
+
+The first one is `link:`: pnpm copies nothing and does not install the plugin's own dependencies —
+they come from this repo's `node_modules`, which is why `pnpm install` has to have run here. The
+second one installs them into the profile.
 
 ## 1. Create a profile to demo in
 
@@ -40,7 +51,7 @@ initialize `demo` from the plain default, which is `dsh-base` alone.
 ## 2. Add the plugin
 
 ```sh
-dsh plugin --profile demo add /Users/rqc/r/github.com/acehinnnqru/dsh-plugins/plugins/now
+dsh plugin --profile demo add /tmp/dsh-plugin-pkg/dsh-plugin-now-0.0.0.tgz
 ```
 
 Expected: pnpm reports `dsh-plugin-now` added, and the profile's `package.json` gains
@@ -137,7 +148,20 @@ dsh --profile demo --dump-config | tail -20                        # what did th
 - The plugin's peer dependencies (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-tools`) are deliberately
   not installed into the profile: the profile sets `autoInstallPeers: false`, so they resolve from
   the DSH installation's own closure. That is what keeps one Cordis instance in the process.
-- `link:` installs and tarball installs can resolve those packages to different paths. This plugin
-  only imports functions and types from them, so both behave identically; a plugin that depends on
-  module identity (extending `Service`, say) has to be accepted through a tarball instead
-  ([DESIGN.md](../DESIGN.md) §3.5).
+- The two install kinds resolve those packages from different trees, and that is measured, not
+  assumed. A throwaway profile carrying this profile's own settings (`nodeLinker: hoisted`,
+  `autoInstallPeers: false`) shows it: with `link:`, `import.meta.resolve('@deepseek-ai/cordis')`
+  answers from **this repo** (`…/dsh-plugins/node_modules/.pnpm/@deepseek-ai+cordis@4.0.2/…`); with a
+  tarball, the peers are not in the profile at all — that is what `autoInstallPeers: false` does —
+  and fall through to the installation's `profiles/node_modules` closure. Same version, different
+  physical path. This plugin only imports functions and types, so both behave identically; a plugin
+  that depends on module identity (extending `Service`, say) has to be accepted through a tarball
+  ([DESIGN.md](../DESIGN.md) §3.5). To close [DESIGN.md](../DESIGN.md) §5 V1, add this to `apply`,
+  rebuild (`direnv exec . pnpm --filter dsh-plugin-now build`), and boot once per install:
+
+  ```ts
+  console.log('[probe] cordis =', import.meta.resolve('@deepseek-ai/cordis'))
+  ```
+
+  It has to be a raw `console.log`: `ctx.logger` reaches nothing (see above). Record the two paths
+  here, then delete the line.
