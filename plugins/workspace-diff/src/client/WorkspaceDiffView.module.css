@@ -1,0 +1,322 @@
+/* Two surfaces share this stylesheet: the Conversation tab (header plus file tree) and the right
+   Sidebar tab body (one file's diff).
+
+   The visual language is the shipped review surface's, deliberately: the same semantic tokens the
+   per-turn review tab and the diff card use (--dsw-font-markdown-code-block for the diff, code-font
+   12px rows, --dsw-alias-state-success/error-primary for the two sides, color-mix washes at 12%
+   behind them, 22px code lines, 0.5px --dsw-alias-border-l3 separators), so these surfaces hold in
+   both themes and read as one product with them. */
+.view {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--dsw-alias-label-primary);
+}
+
+.header {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: center;
+  box-sizing: border-box;
+  height: 38px;
+  padding: 0 8px 0 12px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+.repo {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary {
+  display: inline-flex;
+  flex: none;
+  gap: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+}
+
+.added {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.deleted {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.refresh {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.refresh:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.note {
+  margin: 0;
+  padding: 12px 16px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
+}
+
+.notice {
+  margin: 0;
+  padding: 4px 16px 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xs-13);
+}
+
+/* ---- the Conversation tab: the changed-file tree ---- */
+
+.treePane {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 6px 8px 12px;
+  overflow: auto;
+}
+
+.tree,
+.treeChildren {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Depth is the nesting itself, so a row never needs to know its own level. */
+.treeChildren {
+  padding-left: 14px;
+}
+
+.treeFile,
+.treeDirectory {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.treeFile:hover,
+.treeDirectory:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.treeDirectory {
+  color: var(--dsw-alias-label-primary);
+}
+
+.chevron {
+  flex: none;
+  width: 1.2em;
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+  user-select: none;
+}
+
+.status {
+  flex: none;
+  width: 1.2em;
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+}
+
+.path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.counts {
+  display: inline-flex;
+  flex: none;
+  gap: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+/* ---- the right Sidebar tab: one file's diff ---- */
+
+/* The container gives a tab body a flex host and nothing else (ui-sidebar-right's .panelBody has
+   no padding), so the body owns its spacing — and its path row stays outside the scroller, the way
+   the shipped review tab's own 38px header does, instead of scrolling away with the diff. */
+.tabBody {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  font: var(--dsw-font-markdown-code-block);
+}
+
+.tabHeader {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+  box-sizing: border-box;
+  height: 38px;
+  padding: 0 12px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+}
+
+.tabPath {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabCounts {
+  display: inline-flex;
+  flex: none;
+  gap: 6px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* The header's icon tools, the same 28px seat the shipped review tab uses. */
+.tool {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.tool svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tool:hover,
+.tool[aria-pressed='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* The diff scrolls as one surface, in both directions — unless the reader asked for wrapping. */
+.diffScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 8px 0 16px;
+  overflow: auto;
+}
+
+.diffScroll[data-wrap] .line {
+  white-space: pre-wrap;
+}
+
+.diffScroll[data-wrap] .text {
+  overflow-wrap: anywhere;
+}
+
+/* Old number, new number, sign, text — the shipped review tab's own grid, so a line sits in the same
+   place in both surfaces, and the two sides carry the theme's state colours over a 12% wash. */
+.hunk {
+  margin-bottom: 8px;
+}
+
+.hunkHeader {
+  padding: 4px 16px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: pre;
+}
+
+.line {
+  display: grid;
+  grid-template-columns: 3.5em 3.5em 1.2em minmax(0, 1fr);
+  min-height: 22px;
+  line-height: 22px;
+  white-space: pre;
+}
+
+.number {
+  padding-right: 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: none;
+}
+
+.sign {
+  text-align: center;
+  user-select: none;
+}
+
+.text {
+  padding-right: 16px;
+}
+
+.add {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);
+}
+
+.add .sign,
+.add .text {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.del {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
+}
+
+.del .sign,
+.del .text {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.context .text {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.noteLine {
+  color: var(--dsw-alias-label-tertiary);
+}

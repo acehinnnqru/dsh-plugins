@@ -1,0 +1,6 @@
+# The profile layer this package contributes. A patch has exactly two operations: `insert` a row,
+# or override an existing row by `id`; there is no delete, and a row that matches nothing is only a
+# warning. `name` has to be the package name, or the layer silently does nothing.
+- insert:
+    - id: workspace-diff
+      name: 'dsh-plugin-workspace-diff'

@@ -4,6 +4,7 @@
   "references": [
     { "path": "./tsconfig.scripts.json" },
     { "path": "./plugins/now" },
+    { "path": "./plugins/workspace-diff" },
     { "path": "./tooling/dsh-client-preset" },
     { "path": "./tooling/dsh-compat" },
     { "path": "./tooling/new-plugin" },
