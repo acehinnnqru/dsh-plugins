@@ -14,26 +14,12 @@ For models working in this repo. **Read this page before you touch anything.**
 - **Say what changed, not how you got there.** The diff is the report. Skip the narrative of your dead ends.
 - **Never bury a decision.** If you picked between options, say which and why in one line, and flag it clearly.
 - **Long task? Show a checklist** and tick items as they land, so progress is visible without reading.
-- **Re-state hard constraints at the point of use.** Do not assume the maintainer remembers rule 4 from an hour ago.
-
-## Rule one: use only this repo's own toolchain
-
-`node` and `pnpm` here **come only from the `flake.nix` devshell**. The outer shell may
-still carry another repo's environment (the DSH checkout, for instance); those
-`node` / `pnpm` binaries are someone else's. Do not use them.
-
-```sh
-direnv exec . pnpm <script>    # run every command this way
-```
-
-- The first entry needs `direnv allow`; without direnv, start a shell with `nix develop` and run `pnpm` inside it.
-- Only when `direnv allow` has already been run **and the current shell is inside this repo** may you run `pnpm …` directly. When in doubt, always `direnv exec .` — its overhead is negligible.
-- **Do not go hunting for node / pnpm outside the repo.** No `npx`, not the self-managed copy under `~/Library/pnpm`, not the DSH checkout's `node_modules/.bin`.
+- **Re-state hard constraints at the point of use.** Do not assume the maintainer remembers a constraint from an hour ago.
 
 ## Hard rules
 
 1. **Acceptance commands must actually run.** Never write "it should work". Run it once and paste the real output.
-2. **Everything that enters git is English.** Code, comments, docs, test names, script output, commit messages — no Chinese. The single exception is user-facing copy that genuinely has to be Chinese (a plugin's Chinese UI strings, say), and even then only the copy itself is exempt. Files that never enter git — local scratch notes — are outside this rule.
+2. **A plugin's user-facing UI copy may be Chinese** (its own locale strings) — that is the only Chinese allowed in a committed file.
 3. **One change at a time.** Finish it, get it accepted, then start the next one.
 4. **Do not call `dsh`.** It is only available in the maintainer's environment, and it needs the DSH checkout + nix devshell. No script may call it — "install it into a profile and start it" is a manual checklist, not automation.
 5. **Do not add profile directories to the repo.** `dsh plugin --profile <name>` operates on `$DSH_HOME/profiles/<name>`, which is not in this repo.
