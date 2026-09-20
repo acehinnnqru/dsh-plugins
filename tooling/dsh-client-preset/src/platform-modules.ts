@@ -19,7 +19,7 @@ export type PreloadedClientExternals = readonly string[]
  * `pnpm verify:platform-modules` and by the tests: the preset always prefers what it reads from the
  * published package, and this constant going stale is exactly what that check reports.
  *
- * Source: `@deepseek-ai/dsh-client-web@0.1.5-rc.1` `lib/types/platform.d.ts`.
+ * Source: `@deepseek-ai/dsh-client-web@0.1.6-alpha.2` `lib/types/platform.d.ts`.
  */
 export const EXPECTED_PLATFORM_MODULES: PlatformModules = [
   'react',
@@ -51,7 +51,7 @@ const CLIENT_WEB_PACKAGE = '@deepseek-ai/dsh-client-web'
  * from git must not reach into this repo's unpublished internals, and the pin that actually governs
  * the read is this package's own `devDependencies`.
  */
-const PINNED_RELEASE = '0.1.5-rc.1'
+const PINNED_RELEASE = '0.1.6-alpha.2'
 
 /**
  * Resolve a module specifier the way this preset's own dependencies would, so the version read here is
