@@ -70,8 +70,8 @@ Every item below has been verified. The design has to obey them; there is nothin
 
 | Fact |
 |---|
-| DSH's newest line is `alpha` = `0.1.6-alpha.2` (`next` = `0.1.5-rc.2`), and that alpha release is what this repo pins. **`latest` is not trustworthy**: on `@deepseek-ai/dsh-tools` and `@deepseek-ai/dsh-client-web` it still points at `0.0.1-rc.1` |
-| `@deepseek-ai/cordis` is on its own version line, currently `4.0.2`; `@deepseek-ai/schemastery` is `3.18.2` |
+| DSH's newest line is `next` = `0.2.0-rc.2`, and this repo pins `0.2.0-rc.1` — the release the maintainer's DSH installation runs (`alpha` is `0.1.7-alpha.2`). **`latest` is not trustworthy**: on `@deepseek-ai/dsh-tools` and `@deepseek-ai/dsh-client-web` it still points at `0.0.1-rc.1` |
+| `@deepseek-ai/cordis` is on its own version line, currently `4.0.4`; `@deepseek-ai/schemastery` is `3.18.4`. The `0.2.0-rc.1` DSH packages require exactly those lines (`~4.0.4`, `~3.18.4`), so a DSH release bump moves them too |
 | The test-support packages **are published**: `dsh-loader-smoke`, `dsh-client-test-runtime`, `dsh-agent-loop-testkit`, `dsh-llm-mock-server`, `dsh-llm-replay`, `dsh-session-snapshot` |
 | **The client build preset is not published.** There is not even a `package.json` under `packages/client/` |
 | **Upstream has no plugin scaffold at all.** There is no `create-dsh-plugin`; the CLI has only the `web` and `plugin` subcommands |
@@ -178,7 +178,7 @@ Not now; the path is recorded here so the research does not have to be redone:
 
 ## 7. Sources
 
-The facts come from the local DSH checkout (`/Users/rqc/r/github.com/deepseek-ai/deepseek-harness`, version line `0.1.5-rc.1`) and from measurements against the npm registry.
+The facts come from the local DSH checkout (`/Users/rqc/r/github.com/deepseek-ai/deepseek-harness`) and from measurements against the npm registry.
 
 The three research notes, item by item with file paths and code snippets:
 
