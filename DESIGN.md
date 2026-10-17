@@ -50,7 +50,7 @@ Every item below has been verified. The design has to obey them; there is nothin
 | Only a package that declares `dsh.client` (`platform: 'web'`) **and** exports `exports["./client"]` enters the Web client module table |
 | The artifact is a **classic CJS script** loaded with `<script src>` — **ESM syntax fails outright** |
 | It must call `window.__ModuleLoader__.load({ id, factory })` to register its factory |
-| Only 9 baseline modules can be `require()`d (the react family, cordis, client-store, ui-slots, ui-primitives, ui-dockkit) plus whatever you declare in `dsh.client.external`. **Everything else is inlined** |
+| Only 11 baseline modules can be `require()`d (the react family, cordis, zod, `@tanstack/react-virtual`, client-store, ui-slots, ui-primitives, ui-dockkit) plus whatever you declare in `dsh.client.external`. **Everything else is inlined** |
 | There is a build-time purity gate: a **value import** from any other `@deepseek-ai/*` fails the build. Cross-plugin collaboration can only go through Cordis services or slots |
 | **The browser-side module graph is made only of "live host rows"** — a pure UI package still needs a host half that loads |
 | `dsh.client.inject` is informational only; **it does not decide load order**, which comes from Cordis service waiting |
@@ -70,12 +70,12 @@ Every item below has been verified. The design has to obey them; there is nothin
 
 | Fact |
 |---|
-| DSH's newest line is `next` = `0.2.0-rc.2`, and this repo pins `0.2.0-rc.1` — the release the maintainer's DSH installation runs (`alpha` is `0.1.7-alpha.2`). **`latest` is not trustworthy**: on `@deepseek-ai/dsh-tools` and `@deepseek-ai/dsh-client-web` it still points at `0.0.1-rc.1` |
-| `@deepseek-ai/cordis` is on its own version line, currently `4.0.4`; `@deepseek-ai/schemastery` is `3.18.4`. The `0.2.0-rc.1` DSH packages require exactly those lines (`~4.0.4`, `~3.18.4`), so a DSH release bump moves them too |
+| The maintainer's DSH installation runs the `alpha` line, now `0.2.1-alpha.5`, and this repo pins that exact release; `next` is `0.2.0-rc.2`. **`latest` is not trustworthy**: on `@deepseek-ai/dsh-tools` and `@deepseek-ai/dsh-client-web` it still points at `0.0.1-rc.1` |
+| `@deepseek-ai/cordis` is pinned to `4.0.5-alpha.2` and `@deepseek-ai/schemastery` to `3.18.5-alpha.2` — the lines the `0.2.1-alpha.5` DSH packages require (`~4.0.5-alpha.2`, `~3.18.5-alpha.2`). A DSH release bump moves them too |
 | The test-support packages **are published**: `dsh-loader-smoke`, `dsh-client-test-runtime`, `dsh-agent-loop-testkit`, `dsh-llm-mock-server`, `dsh-llm-replay`, `dsh-session-snapshot` |
 | **The client build preset is not published.** There is not even a `package.json` under `packages/client/` |
 | **Upstream has no plugin scaffold at all.** There is no `create-dsh-plugin`; the CLI has only the `web` and `plugin` subcommands |
-| Upstream validates nothing about an out-of-tree plugin's manifest — declare the wrong dependency section and nobody will tell you |
+| Upstream does not validate an out-of-tree plugin's manifest shape, but the `0.2.1-alpha.5` runtime **does** compare the plugin's declared `@deepseek-ai/dsh-*` peer requirements with its own version and refuses a mismatch; `dsh plugin allow-version` is the explicit escape hatch |
 | Toolchain: Node 22 comes from the repo's `flake.nix` + direnv (the same devshells input DSH uses); pnpm goes through the repo's own devshell, and every command is `direnv exec . pnpm …` |
 
 ---
@@ -153,7 +153,7 @@ flake.nix/lock      toolchain: Node 22 from nix + direnv (.envrc is personal, no
 |---|---|---|---|
 | R1 | The client preset drifts from upstream and the artifact will not run in the browser | 🔴 High | Consistency test (builds a fixture and runs the emitted `lib/client.js` in jsdom) + `verify:platform-modules` for the module baseline + diff the upstream preset when bumping DSH |
 | R2 | A `link` install resolves along different paths than a real install | 🟡 Low | A one-line probe settles it; most authoring styles are unaffected |
-| R3 | DSH is at rc, so breaking changes are frequent | 🟠 Medium | Pin exact versions + make upgrades explicit through `verify:compat`; fixes go upstream only |
+| R3 | DSH is pre-1.0, so breaking changes are frequent | 🟠 Medium | Pin exact versions + make upgrades explicit through `verify:compat`; fixes go upstream only |
 | R4 | Depends on the `workspace` option that upstream marks experimental in `tsdown` | 🟡 Low | Pin tsdown to an exact version |
 | R5 | The source overlay (`.ts` rows) depends on an undocumented combination of behaviours | 🟡 Low | Avoidable — skipping that fast lane costs nothing |
 

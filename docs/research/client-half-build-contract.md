@@ -68,10 +68,11 @@ window.__ModuleLoader__.load({
 
 ## 3. What a client bundle may import (baseline / allowlist, runtime resolution)
 
-**Baseline = `PLATFORM_MODULES`,** `packages/client/web/src/platform.ts:8-17`:
+**Baseline = `PLATFORM_MODULES`,** `packages/client/web/src/platform.ts:8-17` (as read from `@deepseek-ai/dsh-client-web@0.2.1-alpha.5`):
 ```ts
 export const PLATFORM_MODULES = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
+  'zod', '@tanstack/react-virtual',
   '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-ui-primitives',
@@ -80,7 +81,7 @@ export const PLATFORM_MODULES = [
 export const PRELOADED_CLIENT_EXTERNALS = [] as const   // currently empty
 ```
 **Runtime supplier of those keys = the shell's frozen seed table:** `packages/client/web/src/seed.ts` `getStaticModules()` returns one static import per word, `satisfies Record<PlatformModule, unknown>`; passed as `staticModules` in `packages/client/web/src/boot.ts:70` and stored as the module system's `seed` (`system.ts:~90`). Resolution order at runtime is seed → memoized → registered factory → throw; there is no import map, no global, no dynamic fallback.
-**Build-time externality rule:** `packages/client/tsdown.client.ts:406-411` `clientExternals(id) = PLATFORM_MODULES ∪ PRELOADED_CLIENT_EXTERNALS ∪ requestedExternals(id, dsh.client.external)`; `clientConfig` then sets `deps.neverBundle: isRequested`, `deps.alwaysBundle: (s) => !isRequested` — i.e. **only baseline + declared `external` stay as `require()`; everything else (your own code, zod, clsx, third-party libs) is inlined.** A `require()` the table cannot answer is a guaranteed runtime throw.
+**Build-time externality rule:** `packages/client/tsdown.client.ts:406-411` `clientExternals(id) = PLATFORM_MODULES ∪ PRELOADED_CLIENT_EXTERNALS ∪ requestedExternals(id, dsh.client.external)`; `clientConfig` then sets `deps.neverBundle: isRequested`, `deps.alwaysBundle: (s) => !isRequested` — i.e. **only baseline + declared `external` stay as `require()`; everything else (your own code, clsx, third-party libs) is inlined.** A `require()` the table cannot answer is a guaranteed runtime throw.
 **Purity gate (build error, mirror of the above):** `tsdown.client.ts:520-536` `dsh-client-bundle-purity` throws for any `@deepseek-ai/*` value import that is not requested/inline-safe:
 `INLINE_SAFE` (`:61`) allows inlining only wire/contract layers: `@deepseek-ai/dsh-{file-reference,session,llm,tools,brand,deque,output-retention,typert-protocol,util-crypto,util-values,util-workspace-path}`, `dsh-token-meter/client`, `dsh-host-open-in-app/shared`, `dsh-agent-presets/display`, `dsh-spill-policy/notice`; plus vendored libraries `@deepseek-ai/{cosmokit,schemastery}` (`:67`) and generated `@deepseek-ai/dsh-*/remote` (`:70`). Type-only imports are erased and never reach the gate.
 

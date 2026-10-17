@@ -314,8 +314,10 @@ Cordis service list (`packages/client/AGENTS.md`, restated in `client-half-build
 
 ### 2.5 What a browser half may import (module table)
 
-- Baseline frozen module-table rows — `packages/client/web/src/platform.ts:8-15`:
+- Baseline frozen module-table rows — `packages/client/web/src/platform.ts:8-15`
+  (as read from `@deepseek-ai/dsh-client-web@0.2.1-alpha.5`):
   `react`, `react/jsx-runtime`, `react-dom`, `react-dom/client`, `@deepseek-ai/cordis`,
+  `zod`, `@tanstack/react-virtual`,
   `@deepseek-ai/dsh-client-store`, `@deepseek-ai/dsh-client-ui-slots`,
   `@deepseek-ai/dsh-client-ui-primitives`, `@deepseek-ai/dsh-client-ui-dockkit`.
   `PRELOADED_CLIENT_EXTERNALS` is empty.

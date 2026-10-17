@@ -151,7 +151,7 @@ dsh --profile demo --dump-config | tail -20                        # what did th
 - The two install kinds resolve those packages from different trees, and that is measured, not
   assumed. A throwaway profile carrying this profile's own settings (`nodeLinker: hoisted`,
   `autoInstallPeers: false`) shows it: with `link:`, `import.meta.resolve('@deepseek-ai/cordis')`
-  answers from **this repo** (`…/dsh-plugins/node_modules/.pnpm/@deepseek-ai+cordis@4.0.4_@deepseek-ai+cordis-plugin-include@1.0.9_@deepseek-ai+cordis-plugin-loader@1.0.5/…`); with a
+  answers from **this repo** (`…/dsh-plugins/node_modules/.pnpm/@deepseek-ai+cordis@4.0.5-alpha.2_@deepseek-ai+cordis-plugin-loader@1.0.6-alpha.2/…`); with a
   tarball, the peers are not in the profile at all — that is what `autoInstallPeers: false` does —
   and fall through to the installation's `profiles/node_modules` closure. Same version, different
   physical path. This plugin only imports functions and types, so both behave identically; a plugin
