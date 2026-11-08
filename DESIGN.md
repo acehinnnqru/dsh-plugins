@@ -70,12 +70,12 @@ Every item below has been verified. The design has to obey them; there is nothin
 
 | Fact |
 |---|
-| The maintainer's DSH installation runs the `alpha` line, now `0.2.1-alpha.5`, and this repo pins that exact release; `next` is `0.2.0-rc.2`. **`latest` is not trustworthy**: on `@deepseek-ai/dsh-tools` and `@deepseek-ai/dsh-client-web` it still points at `0.0.1-rc.1` |
-| `@deepseek-ai/cordis` is pinned to `4.0.5-alpha.2` and `@deepseek-ai/schemastery` to `3.18.5-alpha.2` — the lines the `0.2.1-alpha.5` DSH packages require (`~4.0.5-alpha.2`, `~3.18.5-alpha.2`). A DSH release bump moves them too |
+| The maintainer's DSH installation runs the `rc` line, now `0.2.2-rc.1`, and this repo pins that exact release; `alpha` is `0.2.2-alpha.3`, and `next` also points at `0.2.2-rc.1`. **`latest` is not trustworthy**: on `@deepseek-ai/dsh-tools` and `@deepseek-ai/dsh-client-web` it still points at `0.0.1-rc.1` |
+| `@deepseek-ai/cordis` is pinned to `4.1.0` and `@deepseek-ai/schemastery` to `3.19.0` — the lines the `0.2.2-rc.1` DSH packages require (`~4.1.0`, `~3.19.0`). A DSH release bump moves them too |
 | The test-support packages **are published**: `dsh-loader-smoke`, `dsh-client-test-runtime`, `dsh-agent-loop-testkit`, `dsh-llm-mock-server`, `dsh-llm-replay`, `dsh-session-snapshot` |
 | **The client build preset is not published.** There is not even a `package.json` under `packages/client/` |
 | **Upstream has no plugin scaffold at all.** There is no `create-dsh-plugin`; the CLI has only the `web` and `plugin` subcommands |
-| Upstream does not validate an out-of-tree plugin's manifest shape, but the `0.2.1-alpha.5` runtime **does** compare the plugin's declared `@deepseek-ai/dsh-*` peer requirements with its own version and refuses a mismatch; `dsh plugin allow-version` is the explicit escape hatch |
+| Upstream does not validate an out-of-tree plugin's manifest shape, but the `0.2.2-rc.1` runtime **does** compare the plugin's declared `@deepseek-ai/dsh-*` peer requirements with its own version and refuses a mismatch; `dsh plugin allow-version` is the explicit escape hatch |
 | Toolchain: Node 22 comes from the repo's `flake.nix` + direnv (the same devshells input DSH uses); pnpm goes through the repo's own devshell, and every command is `direnv exec . pnpm …` |
 
 ---

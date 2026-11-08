@@ -138,7 +138,6 @@ function stubCtx(): Stub {
           opened.push(address)
         },
       },
-      remote: { workspaceFiles: { changes: () => (async function* empty() {})() } },
     },
   }
 }
@@ -157,7 +156,7 @@ describe('workspace-diff browser half', () => {
     expect(unanswered).toEqual([])
     expect(requested.sort()).toEqual([...BASELINE].sort())
     expect(plugin?.apply).toBeTypeOf('function')
-    expect(plugin?.inject).toEqual(['slots', 'locale', 'remote', 'remote.workspaceFiles', 'sidebarRight', 'sidebarRightTabs'])
+    expect(plugin?.inject).toEqual(['slots', 'locale', 'sidebarRight', 'sidebarRightTabs'])
   })
 
   it('contributes the file tree to conversation.view, after chat and trajectory', async () => {

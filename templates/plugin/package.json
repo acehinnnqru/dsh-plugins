@@ -18,11 +18,11 @@
     "watch": "tsc -b tsconfig.json --watch --preserveWatchOutput & tsdown --watch"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.5-alpha.2",
+    "@deepseek-ai/cordis": "4.1.0",
     "@deepseek-ai/dsh-tools": "__DSH_VERSION__"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.5-alpha.2",
+    "@deepseek-ai/cordis": "4.1.0",
     "@deepseek-ai/dsh-tools": "__DSH_VERSION__"
   }
 }

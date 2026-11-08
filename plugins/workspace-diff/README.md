@@ -16,8 +16,8 @@ changes: the changed-file list, and for the selected file git's own unified diff
   Sidebar, in this plugin's own tab type (dsh-resource://workspace-diff/session/...), so the
   container owns the chip, title, closing, dragging and persistence; its header carries the path, the
   file's `+A -R`, and a wrap toggle that starts on. Both surfaces show the empty
-  states (not a repository, no changes, no commits yet, truncated, binary, unreadable); the tree
-  refreshes on a debounce after any observed write, and the tab refreshes when its own file changes.
+  states (not a repository, no changes, no commits yet, truncated, binary, unreadable); both
+  surfaces poll their route every two seconds while mounted, and the tree also has a Refresh button.
 
 Read-only: no stage, unstage, commit, checkout, or any other mutating git command.
 
@@ -27,8 +27,9 @@ Read-only: no stage, unstage, commit, checkout, or any other mutating git comman
 dsh plugin --profile <profile> add ./plugins/workspace-diff
 ```
 
-The plugin only exists in a profile after that install; changing `lib/` is picked up without
-reinstalling, but a manifest or patch change needs another install.
+The plugin only exists in a profile after that install. A rebuilt host half is picked up when the
+Host restarts; the browser bundle also reloads through the Host's HMR watcher. A manifest or patch
+change needs another install.
 
 ## Configuration and safety
 
@@ -36,9 +37,8 @@ reinstalling, but a manifest or patch change needs another install.
 |---|---|---|
 | — | — | The host half reads no configuration; its caps are constants in `src/git.ts`. |
 
-What it reads: the Session's cwd, the git working tree below the repository root, and the
-workspaceFiles change stream. What it writes: nothing. Network: nothing beyond the two same-origin
-routes the browser half calls.
+What it reads: the Session's cwd and the git working tree below the repository root. What it
+writes: nothing. Network: nothing beyond the two same-origin routes the browser half calls.
 
 ## Layout
 
@@ -47,8 +47,8 @@ routes the browser half calls.
 | `src/index.ts` | Loader metadata and the route registration |
 | `src/git.ts` | Command builders and the porcelain/numstat parsers (pure, unit tested) |
 | `src/routes.ts` | The two routes: Session resolution, git runs, refusals |
-| `src/client/index.tsx` | The `conversation.view` registration |
-| `src/client/api.ts` | The routes plus the `workspaceFiles` watch, bound to one Session |
-| `src/client/parse-diff.ts` | Unified diff to rows (pure, unit tested) |
-| `src/client/WorkspaceDiffView.tsx`, `DiffBody.tsx` | The view and its diff pane |
+| `src/client/index.tsx` | The `conversation.view` and tab-type registrations |
+| `src/client/api.ts` | The two routes, bound to one Session |
+| `src/client/hunk-rows.ts` | Hunk lines to numbered rows (pure, unit tested) |
+| `src/client/WorkspaceDiffView.tsx`, `FileTree.tsx`, `DiffTab.tsx`, `DiffHunks.tsx` | The view, its tree, and the diff pane |
 | `src/client/locales.ts` | `zh`/`en` copy for the `workspaceDiff` namespace |

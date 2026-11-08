@@ -309,11 +309,13 @@ describe('clientBundle artifact contract', () => {
 
 describe('clientBundle failures', () => {
   it('refuses a cross-plugin value import', async () => {
+    // The fixture build is a cold tsc + tsdown spawn, and under the whole suite's parallel load it
+    // regularly crosses the 5s default.
     const built = await buildForbidden()
     expect(built.code).not.toBe(0)
     expect(built.output).toContain('client bundle purity')
     expect(built.output).toContain('@deepseek-ai/dsh-client-ui-session')
-  })
+  }, 30_000)
 
   it('throws when a plugin declares a browser half but exports no ./client', async () => {
     const built = await runIn(join(fixturesDir, NO_CLIENT_EXPORT), ['pnpm', 'exec', 'tsdown'])

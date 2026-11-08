@@ -35,8 +35,8 @@ const ID = 'workspace-diff'
 /** After Chat (order 0) and Trajectory (order 10); a list sorts by priority, then order. */
 const ORDER = 20
 
-/** Cordis service names this plugin waits for: slots, locale, the Remote face, and the Sidebar. */
-export const inject = ['slots', 'locale', 'remote', 'remote.workspaceFiles', 'sidebarRight', 'sidebarRightTabs']
+/** Cordis service names this plugin waits for: slots, locale, and the Sidebar. */
+export const inject = ['slots', 'locale', 'sidebarRight', 'sidebarRightTabs']
 
 /**
  * Whether a diff tab opens with line wrapping already on.
@@ -73,7 +73,7 @@ export function apply(ctx: ClientContext): void {
     key: TAB_ID,
     locale: NS,
     inject: (): DiffTabInjected => ({
-      apiFor: (sessionId) => createWorkspaceDiffApi(ctx, sessionId),
+      apiFor: (sessionId) => createWorkspaceDiffApi(sessionId),
       defaultWrap: DEFAULT_WRAP,
       t: (key: WorkspaceDiffKey) => t(key),
     }),
@@ -86,7 +86,7 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     label: () => t('view.label'),
     inject: (sessionId: SessionId): WorkspaceDiffInjected => ({
-      api: createWorkspaceDiffApi(ctx, sessionId),
+      api: createWorkspaceDiffApi(sessionId),
       openDiff: (path) => { ctx.sidebarRight.openResource(diffAddress(sessionId, path)) },
       t: (key: WorkspaceDiffKey) => t(key),
     }),

@@ -7,12 +7,12 @@
  *
  * The container owns the tab chip, its title, closing, resizing and persistence; this component owns
  * only the content. The address it was opened at carries the Session and the path, and the tab's own
- * signal ends the request when the tab closes.
+ * signal ends the request when the tab closes. The body polls its route while it is open.
  * @module dsh-plugin-workspace-diff/client/DiffTab
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { IconWrapLinesOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconWrapLinesOutlineMedium, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { parseDiffAddress } from './address.ts'
 import type { DiffOutcome, WorkspaceDiffApi } from './api.ts'
@@ -31,6 +31,9 @@ export interface DiffTabInjected {
   readonly t: (key: WorkspaceDiffKey) => string
 }
 
+/** How often the open tab re-reads its diff. */
+const REFRESH_POLL_MS = 2_000
+
 /** The body's props: the tab container's own, plus what the registration injects. */
 type DiffTabProps = PropsRuntime<'sidebar.right.pane.tab'> & DiffTabInjected
 
@@ -47,17 +50,12 @@ export function DiffTab({ useTabInfo, apiFor, defaultWrap, t }: DiffTabProps): R
   const [revision, setRevision] = useState(0)
   const [wrap, setWrap] = useState(defaultWrap)
 
-  // The frame's absolute path ends with this tab's repository-relative one, so a write to this file
-  // refreshes the pane without the tab ever learning the repository root.
+  // The pane follows the same poll as the tree: its route is the only source of truth, and the
+  // target-scoped workspaceFiles watch cannot name "the whole repository".
   useEffect(() => {
-    if (api === undefined || parsed === undefined) return
-    const controller = new AbortController()
-    api.watch((change) => {
-      if (!change.absolutePath.endsWith('/' + parsed.path)) return
-      setRevision((value) => value + 1)
-    }, controller.signal)
-    return () => { controller.abort() }
-  }, [api, parsed])
+    const timer = setInterval(() => { setRevision((value) => value + 1) }, REFRESH_POLL_MS)
+    return () => { clearInterval(timer) }
+  }, [])
 
   useEffect(() => {
     if (api === undefined || parsed === undefined) return
@@ -106,7 +104,7 @@ export function DiffTab({ useTabInfo, apiFor, defaultWrap, t }: DiffTabProps): R
             aria-label={t('diff.wrapAria')}
             onClick={() => { setWrap((value) => !value) }}
           >
-            <IconWrapLinesOutline16 />
+            <IconWrapLinesOutlineMedium />
           </button>
         </Tooltip>
       </div>

@@ -83,18 +83,23 @@ function harness(overrides: {
     },
     sessions: { get: () => undefined },
     sandboxPolicy: { resolve: () => ({ mode: 'read-only', root: '/work' }) },
+    logger: { warn() {} },
     shell: {
       resolve(request: { command: string; workdir: string }) {
         return request
       },
-      async run(spec: { command: string; workdir: string }) {
+      async execute(spec: { command: string; workdir: string }) {
         calls.push({ command: spec.command, workdir: spec.workdir })
         const answer = answers(spec.command)
         return {
-          exitCode: answer.exitCode,
-          signal: null,
-          stdout: { text: answer.text, truncated: answer.truncated ?? false },
-          stderr: { text: '', truncated: false },
+          async result() {
+            return {
+              exitCode: answer.exitCode,
+              signal: null,
+              stdout: { text: answer.text, truncated: answer.truncated ?? false },
+              stderr: { text: '', truncated: false },
+            }
+          },
         }
       },
     },

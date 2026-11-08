@@ -5,12 +5,12 @@
  * plugin's own tab type, so the container that already owns tab chips, resizing, closing and
  * persistence owns it here too, and this tab stays a navigation surface.
  *
- * The tree refreshes on a debounce after any observed write; every request and the watch are tied to
- * the view's own AbortController, so switching Session or closing the tab ends both.
+ * The tree polls its route while it is mounted, and every request is tied to the view's own
+ * AbortController, so switching Session or closing the tab ends both.
  * @module dsh-plugin-workspace-diff/client/WorkspaceDiffView
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChangesOutcome, ChangedFileView, WorkspaceDiffApi } from './api.ts'
 import { FileTree } from './FileTree.tsx'
@@ -19,12 +19,12 @@ import { reasonMessage } from './messages.ts'
 import { buildFileTree } from './tree.ts'
 import css from './WorkspaceDiffView.module.css'
 
-/** How long after the last observed write the tree is refetched. */
-const REFRESH_DEBOUNCE_MS = 150
+/** How often the mounted tree re-reads the route. */
+const REFRESH_POLL_MS = 2_000
 
 /** What the registration injects into the component. */
 export interface WorkspaceDiffInjected {
-  /** The changes route and the file watch, bound to this Session. */
+  /** The changes route, bound to this Session. */
   readonly api: WorkspaceDiffApi
   /** Open one repository-relative path's diff in the right Sidebar. */
   readonly openDiff: (path: string) => void
@@ -43,7 +43,6 @@ type ViewProps = PropsRuntime<'conversation.view'> & WorkspaceDiffInjected
 export function WorkspaceDiffView({ api, openDiff, t }: ViewProps): ReactNode {
   const [changes, setChanges] = useState<ChangesOutcome | undefined>(undefined)
   const [revision, setRevision] = useState(0)
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -54,20 +53,13 @@ export function WorkspaceDiffView({ api, openDiff, t }: ViewProps): ReactNode {
     return () => { controller.abort() }
   }, [api, revision])
 
+  // A workspace-wide watch is not part of the 0.2.1 workspaceFiles Remote: its watch is
+  // target-scoped, and a git tree has no single target. Poll instead, at a rate that keeps a
+  // developer's own edits visible without turning git status into a busy loop.
   useEffect(() => {
-    const controller = new AbortController()
-    api.watch(() => {
-      if (timer.current !== undefined) clearTimeout(timer.current)
-      timer.current = setTimeout(() => { setRevision((value) => value + 1) }, REFRESH_DEBOUNCE_MS)
-    }, controller.signal)
-    return () => {
-      controller.abort()
-      if (timer.current !== undefined) {
-        clearTimeout(timer.current)
-        timer.current = undefined
-      }
-    }
-  }, [api])
+    const timer = setInterval(() => { setRevision((value) => value + 1) }, REFRESH_POLL_MS)
+    return () => { clearInterval(timer) }
+  }, [])
 
   const files: readonly ChangedFileView[] = useMemo(
     () => (changes?.ok === true ? changes.files : []),

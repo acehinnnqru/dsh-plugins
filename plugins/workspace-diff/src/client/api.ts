@@ -1,17 +1,11 @@
 /**
- * The browser half's data access: the two routes, and the workspace file watch.
+ * The browser half's data access: the two routes.
  *
  * Fetched through the same origin the page came from, so Connection's authentication fence covers
- * them and no credential handling lives here. Every call takes the caller's signal, and the watch is
- * an async stream that ends when that signal aborts.
+ * them and no credential handling lives here. Every call takes the caller's signal; the views poll
+ * on their own timers, so this module owns no watch stream.
  * @module dsh-plugin-workspace-diff/client/api
  */
-
-import type { Context as ClientContext } from '@deepseek-ai/cordis'
-// Type-only: it carries the Context merge that puts the mounted `remote` face on `ctx`.
-import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import type { WorkspaceFileChange } from '@deepseek-ai/dsh-api-workspace-files/types'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** One row of the changes response. */
 export interface ChangedFileView {
@@ -57,17 +51,14 @@ export interface WorkspaceDiffApi {
   loadChanges(signal: AbortSignal): Promise<ChangesOutcome>
   /** Read one accepted path's two sides. */
   loadDiff(path: string, signal: AbortSignal): Promise<DiffOutcome>
-  /** Follow host-side file observations until the signal aborts. */
-  watch(onChange: (change: WorkspaceFileChange) => void, signal: AbortSignal): void
 }
 
 /**
  * Build the view's data access for one Session.
- * @param ctx - client context carrying the mounted Remote namespaces.
  * @param sessionId - the Session this view is rendering.
  * @returns the access object the component receives.
  */
-export function createWorkspaceDiffApi(ctx: ClientContext, sessionId: string): WorkspaceDiffApi {
+export function createWorkspaceDiffApi(sessionId: string): WorkspaceDiffApi {
   const query = 'sessionId=' + encodeURIComponent(sessionId)
   return {
     async loadChanges(signal) {
@@ -75,6 +66,7 @@ export function createWorkspaceDiffApi(ctx: ClientContext, sessionId: string): W
         signal,
         headers: { accept: 'application/json' },
       })
+      if (!response.ok) throw new Error('workspace-diff.changes answered HTTP ' + response.status)
       return await response.json() as ChangesOutcome
     },
     async loadDiff(path, signal) {
@@ -82,20 +74,8 @@ export function createWorkspaceDiffApi(ctx: ClientContext, sessionId: string): W
         signal,
         headers: { accept: 'application/json' },
       })
+      if (!response.ok) throw new Error('workspace-diff.diff answered HTTP ' + response.status)
       return await response.json() as DiffOutcome
-    },
-    watch(onChange, signal) {
-      const frames = ctx.remote.workspaceFiles.changes(sessionId as SessionId, signal)
-      void (async () => {
-        try {
-          for await (const frame of frames) {
-            // ready only confirms the Host is observing; the view refreshes on observations.
-            if (frame.kind === 'change') onChange(frame.change)
-          }
-        } catch {
-          // A closed or aborted stream is the normal end of a view's lifetime.
-        }
-      })()
     },
   }
 }

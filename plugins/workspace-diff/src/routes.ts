@@ -55,6 +55,7 @@ export type FailureReason =
   | 'not-in-repo'
   | 'too-large'
   | 'binary'
+  | 'unknown'
 
 /** A refusal the browser shows as an empty state. */
 export interface Failure {
@@ -160,7 +161,8 @@ async function runGit(
     env: { GIT_OPTIONAL_LOCKS: '0' },
     sandboxPolicy: ctx.sandboxPolicy.resolve(session === undefined ? {} : { session }),
   })
-  return await ctx.shell.run(spec)
+  const execution = await ctx.shell.execute(spec)
+  return await execution.result()
 }
 
 /**
@@ -256,12 +258,27 @@ async function fileSize(
 }
 
 /**
- * Answer GET /api/workspace-diff.changes.
+ * Answer GET /api/workspace-diff.changes, turning an unexpected failure into the view's own
+ * `unknown` empty state instead of closing the request with a 500.
  * @param ctx - host context.
  * @param request - the incoming request.
  * @returns the file list, or a refusal.
  */
 async function changesResponse(ctx: Context, request: Request): Promise<Response> {
+  try {
+    return await changesAnswer(ctx, request)
+  } catch (error) {
+    logFailure(ctx, 'changes', error)
+    return json({ ok: false, reason: 'unknown' } satisfies Failure)
+  }
+}
+
+/**
+ * @param ctx - host context.
+ * @param request - the incoming request.
+ * @returns the file list, or a refusal.
+ */
+async function changesAnswer(ctx: Context, request: Request): Promise<Response> {
   const resolved = await sessionOf(ctx, request)
   if (resolved instanceof Response) return resolved
   if ('ok' in resolved) return json(resolved)
@@ -273,12 +290,26 @@ async function changesResponse(ctx: Context, request: Request): Promise<Response
 }
 
 /**
- * Answer GET /api/workspace-diff.diff.
+ * Answer GET /api/workspace-diff.diff, with the same failure containment as the changes route.
  * @param ctx - host context.
  * @param request - the incoming request.
  * @returns the two sides of one accepted path's comparison, or a refusal.
  */
 async function diffResponse(ctx: Context, request: Request): Promise<Response> {
+  try {
+    return await diffAnswer(ctx, request)
+  } catch (error) {
+    logFailure(ctx, 'diff', error)
+    return json({ ok: false, reason: 'unknown' } satisfies Failure)
+  }
+}
+
+/**
+ * @param ctx - host context.
+ * @param request - the incoming request.
+ * @returns the two sides of one accepted path's comparison, or a refusal.
+ */
+async function diffAnswer(ctx: Context, request: Request): Promise<Response> {
   const path = new URL(request.url).searchParams.get('path')
   if (path === null || path === '') return new Response('path is required.', { status: 400 })
 
@@ -317,6 +348,18 @@ async function diffResponse(ctx: Context, request: Request): Promise<Response> {
     removed: file.removed,
     truncated: result.stdout.truncated,
   })
+}
+
+/**
+ * Report one unexpected route failure on the host log. The browser only sees `unknown`; the
+ * stack belongs in the terminal that started the Host.
+ * @param ctx - host context.
+ * @param route - the route name used in the message.
+ * @param error - the thrown value.
+ */
+function logFailure(ctx: Context, route: string, error: unknown): void {
+  const failure = error instanceof Error ? error : new Error(String(error))
+  ctx.logger.warn(failure, `workspace-diff: ${route} route failed`)
 }
 
 /**
