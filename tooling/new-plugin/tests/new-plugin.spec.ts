@@ -74,7 +74,9 @@ async function smoke(name: string, ui: boolean): Promise<void> {
     expect(existsSync(join(dir, 'lib', 'index.js')), 'the host bundle').toBe(true)
     if (ui) expect(existsSync(join(dir, 'lib', 'client.js')), 'the browser bundle').toBe(true)
 
-    const report = JSON.parse(run('pnpm', ['pack', '--dry-run', '--json'], dir)) as PackReport
+    // The template has a `prepare` script for Git installs; it must not run here, both because the
+    // test already built the package and because tsdown's log would corrupt the JSON listing.
+    const report = JSON.parse(run('pnpm', ['pack', '--dry-run', '--json', '--config.ignore-scripts=true'], dir)) as PackReport
     const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as PackManifest
     const files = (report.files ?? []).flatMap((entry) => (typeof entry.path === 'string' ? [entry.path] : []))
     expect(checkPack({ dir, manifest, files })).toEqual([])

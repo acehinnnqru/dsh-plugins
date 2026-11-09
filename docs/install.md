@@ -4,6 +4,10 @@
 it does not exist, runs pnpm inside it, and then re-reads the profile's dependencies — every one that
 declares `dsh.bundle.patch` becomes a profile layer, every one that does not gets a warning.
 
+> The experimental plugin market installs the same bundles over Git from a format-1 index. See
+> [`market.md`](./market.md). That path needs a build-script approval because `lib/` is not committed;
+> the tarball path below does not.
+
 Nothing in this repo runs `dsh`. It exists only in the maintainer's environment (DSH checkout + nix
 devshell + npx), so this page is a manual checklist: copy, paste, compare. `dsh-plugin-now` is the
 example throughout.

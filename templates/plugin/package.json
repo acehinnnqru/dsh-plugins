@@ -1,7 +1,6 @@
 {
   "name": "__PACKAGE__",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
   "description": "TODO: one line about what this plugin does.",
   "main": "lib/index.js",
@@ -15,7 +14,8 @@
   "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
   "scripts": {
     "build": "tsc -b tsconfig.json && tsdown",
-    "watch": "tsc -b tsconfig.json --watch --preserveWatchOutput & tsdown --watch"
+    "watch": "tsc -b tsconfig.json --watch --preserveWatchOutput & tsdown --watch",
+    "prepare": "tsc -b tsconfig.json && tsdown"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.1.0",
@@ -23,6 +23,9 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.1.0",
-    "@deepseek-ai/dsh-tools": "__DSH_VERSION__"
+    "@deepseek-ai/dsh-tools": "__DSH_VERSION__",
+    "@types/node": "22.20.4",
+    "tsdown": "0.22.14",
+    "typescript": "6.0.3"
   }
 }

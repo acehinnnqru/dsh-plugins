@@ -7,6 +7,7 @@
     { "path": "./plugins/workspace-diff" },
     { "path": "./tooling/dsh-client-preset" },
     { "path": "./tooling/dsh-compat" },
+    { "path": "./tooling/market-index" },
     { "path": "./tooling/new-plugin" },
     { "path": "./tooling/pack-check" },
     { "path": "./tooling/plugin-lint" }

@@ -6,8 +6,9 @@
  * and that listing is exactly what a profile installs. The rules live in `tooling/pack-check`; this
  * file only walks `plugins/*` and reports.
  *
- * The cost is that lifecycle scripts (`prepack`) do not run. No plugin uses one; if that changes,
- * switch this to a real pack (see docs/specs/0003-local-install.md, "不做").
+ * Lifecycle scripts are disabled explicitly. Every plugin has a `prepare` script now, so pnpm would
+ * run a full build during the dry run and print tsdown's log to stdout, corrupting the JSON. The
+ * build has already happened at the start of `pnpm verify`; this step only inspects the listing.
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -39,7 +40,7 @@ type PackResult = { report: PackReport; error?: undefined } | { report?: undefin
 
 /** Runs in the package directory: the output is then a single object, not a `--filter` array. */
 function pack(dir: string): PackResult {
-  const done = spawnSync('pnpm', ['pack', '--dry-run', '--json'], { cwd: dir, encoding: 'utf8' })
+  const done = spawnSync('pnpm', ['pack', '--dry-run', '--json', '--config.ignore-scripts=true'], { cwd: dir, encoding: 'utf8' })
   if (done.status !== 0) {
     const stderr = (done.stderr ?? '').trim()
     const detail = done.error?.message ?? stderr.split('\n').filter(Boolean).at(-1) ?? 'no output'

@@ -10,11 +10,13 @@
     "build": "pnpm -r build",
     "typecheck": "tsc -b tsconfig.json",
     "lint": "pnpm exec oxlint plugins packages tooling scripts",
+    "market:index": "tsx scripts/market-index.ts",
     "test": "vitest run",
     "new:plugin": "tsx scripts/new-plugin.ts",
     "plugin-lint": "tsx scripts/plugin-lint.ts",
     "verify": "tsx scripts/verify.ts",
     "verify:compat": "tsx scripts/verify-compat.ts",
+    "verify:market": "tsx scripts/market-index.ts --check",
     "verify:pack": "tsx scripts/verify-pack.ts",
     "verify:platform-modules": "tsx scripts/verify-platform-modules.ts"
   },

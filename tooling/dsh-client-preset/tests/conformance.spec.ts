@@ -235,7 +235,9 @@ describe('clientBundle artifact contract', () => {
     // Two formats racing for one filename leave no trace in the file list, so the bytes have to prove
     // the CJS half won: a bundle carrying ESM statements is not a classic script, whatever it is named.
     expect(await output(HELLO, 'client.js')).not.toMatch(/^\s*(?:import|export)\s/m)
-  })
+    // A cold tsc + tsdown spawn regularly crosses the default 5s on a loaded machine; the build
+    // itself is the assertion, not the clock.
+  }, 30_000)
 
   it('registers under the package name, not a /client variant', async () => {
     const { registered } = executeBundle(await output(HELLO, 'client.js'))
@@ -321,7 +323,8 @@ describe('clientBundle failures', () => {
     const built = await runIn(join(fixturesDir, NO_CLIENT_EXPORT), ['pnpm', 'exec', 'tsdown'])
     expect(built.code).not.toBe(0)
     expect(built.output).toContain('exports no "./client" bundle')
-  })
+    // Same cold-build budget as the other spawned builds.
+  }, 30_000)
 
   it('throws at execution when the module table cannot answer a require', async () => {
     const { registered } = executeBundle(await output(HELLO, 'client.js'))

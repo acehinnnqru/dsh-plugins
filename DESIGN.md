@@ -76,6 +76,7 @@ Every item below has been verified. The design has to obey them; there is nothin
 | **The client build preset is not published.** There is not even a `package.json` under `packages/client/` |
 | **Upstream has no plugin scaffold at all.** There is no `create-dsh-plugin`; the CLI has only the `web` and `plugin` subcommands |
 | Upstream does not validate an out-of-tree plugin's manifest shape, but the `0.2.2-rc.1` runtime **does** compare the plugin's declared `@deepseek-ai/dsh-*` peer requirements with its own version and refuses a mismatch; `dsh plugin allow-version` is the explicit escape hatch |
+| `0.2.2-rc.1` ships the experimental plugin-market bundle and `@deepseek-ai/dsh-plugin-market-index`; the reference generator under `apps/plugin-market-generator` is not published. An index version installs from npm or a commit-pinned Git repository — never from a tarball URL |
 | Toolchain: Node 22 comes from the repo's `flake.nix` + direnv (the same devshells input DSH uses); pnpm goes through the repo's own devshell, and every command is `direnv exec . pnpm …` |
 
 ---
@@ -128,6 +129,17 @@ That does not stop `link` from being the everyday development tool (it is the lo
 
 The difference only shows up when a plugin depends on the module identity of those packages (extending `Service`, say). Plain functional plugins behave the same either way. A one-line `import.meta.resolve` probe tells you which kind you have.
 
+### 3.6 The market index names a commit, so `lib/` has to be built at install time
+
+DSH's Discover tab reads a static format-1 index. The format's only sources are npm and Git; this repo publishes to neither registry, so every entry is a Git source pinned to `{ url, commit, path }`. That makes the gitignored `lib/` the central problem: a Git checkout has no build output, and the loader needs `lib/index.js`.
+
+The fix is a `prepare` script plus the toolchain as the plugin's own devDependencies. pnpm runs `prepare` for a Git dependency after installing its dependencies, so the subdirectory builds in place; the experiment (a temporary clone, then `pnpm add git+file://…&path:/plugins/now`) produced `lib/index.js` and `lib/client.js`. pnpm 11 blocks that script until the user approves the exact `allowBuilds` key; DSH's plugin manager exposes that approval and records the commit. The cost is one approval per new commit, not per install of the same commit.
+
+Two consequences:
+
+- `private: true` was removed from the plugin manifests. The market's reference generator treats a private Git package as not distributable, and an index entry is a distribution claim; it is not an npm publish.
+- The index is a release artifact. A commit cannot contain its own SHA, so the index lags the branch by one commit and is regenerated after a push (`pnpm market:index`), then validated (`pnpm verify:market`).
+
 ---
 
 ## 4. Repo shape
@@ -135,8 +147,10 @@ The difference only shows up when a plugin depends on the module identity of tho
 ```
 plugins/<name>/     every directory = one installable plugin (the only place that declares dsh.bundle)
 packages/<lib>/     internal shared libraries, inlined at build time, never installed on their own
-tooling/<tool>/     build preset, manifest lint, version constants
-scripts/            verify / verify:pack / verify:compat / verify:platform-modules
+tooling/<tool>/     build preset, manifest lint, version constants, market index
+tooling/market-index/  format-1 index builder + verifier
+scripts/            verify / verify:pack / verify:compat / verify:platform-modules / market-index
+index.json   generated index (pins commits; regenerate after a push)
 docs/research/      research notes
 flake.nix/lock      toolchain: Node 22 from nix + direnv (.envrc is personal, not tracked)
 ```
@@ -156,6 +170,8 @@ flake.nix/lock      toolchain: Node 22 from nix + direnv (.envrc is personal, no
 | R3 | DSH is pre-1.0, so breaking changes are frequent | 🟠 Medium | Pin exact versions + make upgrades explicit through `verify:compat`; fixes go upstream only |
 | R4 | Depends on the `workspace` option that upstream marks experimental in `tsdown` | 🟡 Low | Pin tsdown to an exact version |
 | R5 | The source overlay (`.ts` rows) depends on an undocumented combination of behaviours | 🟡 Low | Avoidable — skipping that fast lane costs nothing |
+| R6 | A Git install runs `prepare`, so pnpm 11 requires build-script approval and the build's devDependencies from the registry | 🟠 Medium | The plugin manager surfaces the exact `allowBuilds` key; `docs/market.md` documents the approval. A tarball install still works without it |
+| R7 | The index must be fetched without credentials and without redirects; this repo is private, so GitHub raw is not an index source | 🟡 Low | Serve `index.json` from a local or public HTTP(S) endpoint; the Git source itself works over SSH |
 
 ### Still to verify
 
@@ -170,15 +186,15 @@ flake.nix/lock      toolchain: Node 22 from nix + direnv (.envrc is personal, no
 
 Not now; the path is recorded here so the research does not have to be redone:
 
-- **Channel**: an npm publish (prebuilt) or a `pnpm pack` tarball. **A git install does not work** — monorepo member packages have no addressable install entry, and `prepare` must be self-contained.
-- **To add**: changesets, drop `private`, design peer ranges explicitly (the caret problem from §3.4 really bites here).
+- **Channel**: an npm publish (prebuilt), a `pnpm pack` tarball, or the plugin market's Git source. The Git source now works because each plugin declares a `prepare` script and its build devDependencies (§3.6); without that, a monorepo subdirectory has no build output. A market index lists only npm and Git, so a tarball is not an index source.
+- **To add**: changesets and design peer ranges explicitly (the caret problem from §3.4 really bites here). `private` is already removed from the plugin manifests for the market, but an npm publish still needs the rest.
 - **Could be given back to the ecosystem**: `plugin-lint` and the client preset both have real value — upstream has neither a plugin scaffold nor a published preset.
 
 ---
 
 ## 7. Sources
 
-The facts come from the local DSH checkout (`/Users/rqc/r/github.com/deepseek-ai/deepseek-harness`) and from measurements against the npm registry.
+The facts come from the local DSH checkout (`/Users/rqc/r/github.com/deepseek-ai/deepseek-harness`) and from measurements against the npm registry. The market facts come from the installed `@deepseek-ai/dsh-plugin-market-index` 0.2.2-rc.1 validator and types, the `@deepseek-ai/dsh-plugin-market` README, and the upstream note `.agents/notes/implemented/feature/2026-10-02-plugin-market-index-format.md`.
 
 The three research notes, item by item with file paths and code snippets:
 
@@ -197,6 +213,9 @@ Key source locations:
 | The browser graph only counts live host rows | `packages/client/web/src/boot.ts` |
 | Profile initialization | `packages/boot/app-boot/src/profile.ts` |
 | Manifest type definitions | `packages/util/package-manifest/src/types.ts` |
+| Plugin market index format | `.agents/notes/implemented/feature/2026-10-02-plugin-market-index-format.md`; `packages/util/plugin-market-index/src/index.ts` |
+| Market reader and install rules | `packages/boot/plugin-market/README.md`; `packages/boot/plugin-manager/README.md` |
+| Market index reference generator | `apps/plugin-market-generator/README.md` |
 | HMR driver | `packages/client/hmr/src/index.ts` |
 | How to use the test-support packages | `packages/test-support/loader-smoke/README.md` |
 

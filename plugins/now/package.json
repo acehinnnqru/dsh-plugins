@@ -1,7 +1,6 @@
 {
   "name": "dsh-plugin-now",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
   "description": "Adds a `now` tool that answers with the current time.",
   "main": "lib/index.js",
@@ -35,7 +34,8 @@
   },
   "scripts": {
     "build": "tsc -b tsconfig.json && tsdown",
-    "watch": "tsc -b tsconfig.json --watch --preserveWatchOutput & tsdown --watch"
+    "watch": "tsc -b tsconfig.json --watch --preserveWatchOutput & tsdown --watch",
+    "prepare": "tsc -b tsconfig.json && tsdown"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.1.0",
@@ -47,8 +47,11 @@
     "@deepseek-ai/dsh-client-ui-sidebar": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-slots": "0.2.2-rc.1",
     "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
+    "@types/node": "22.20.4",
     "@types/react": "18.3.31",
-    "dsh-client-preset": "file:../../tooling/dsh-client-preset"
+    "dsh-client-preset": "file:../../tooling/dsh-client-preset",
+    "tsdown": "0.22.14",
+    "typescript": "6.0.3"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "3.19.0"
