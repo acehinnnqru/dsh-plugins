@@ -1,0 +1,74 @@
+{
+  "format": 1,
+  "title": {
+    "en": "dsh-plugins"
+  },
+  "description": {
+    "en": "Personal DeepSeek Harness plugin bundles, installed from pinned Git commits."
+  },
+  "metadata": {
+    "categories": {},
+    "labels": {},
+    "sortKeys": {}
+  },
+  "plugins": [
+    {
+      "name": "dsh-plugin-now",
+      "description": "Adds a `now` tool that answers with the current time.",
+      "author": "acehinnnqru",
+      "repository": {
+        "url": "https://github.com/acehinnnqru/dsh-plugins",
+        "directory": "plugins/now"
+      },
+      "metadata": {
+        "keywords": [],
+        "labels": [],
+        "sortKeys": {}
+      },
+      "versions": [
+        {
+          "version": "0.0.0",
+          "publishTimestamp": 1794197475,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/acehinnnqru/dsh-plugins",
+            "commit": "f7ad15fb004a89212598533e9cdc5606b547091a",
+            "path": "plugins/now"
+          },
+          "engines": {
+            "dsh": "0.2.2-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-plugin-workspace-diff",
+      "description": "A Conversation view showing the session workspace's uncommitted git changes and their unified diffs.",
+      "author": "acehinnnqru",
+      "repository": {
+        "url": "https://github.com/acehinnnqru/dsh-plugins",
+        "directory": "plugins/workspace-diff"
+      },
+      "metadata": {
+        "keywords": [],
+        "labels": [],
+        "sortKeys": {}
+      },
+      "versions": [
+        {
+          "version": "0.0.0",
+          "publishTimestamp": 1794197475,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/acehinnnqru/dsh-plugins",
+            "commit": "f7ad15fb004a89212598533e9cdc5606b547091a",
+            "path": "plugins/workspace-diff"
+          },
+          "engines": {
+            "dsh": "0.2.2-rc.1"
+          }
+        }
+      ]
+    }
+  ]
+}
