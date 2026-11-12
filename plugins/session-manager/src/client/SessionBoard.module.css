@@ -197,9 +197,51 @@
   cursor: pointer;
 }
 
+.card[data-open='true'] .cardBody {
+  padding-right: 60px;
+}
+
 .cardBody:focus-visible {
   outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   outline-offset: 1px;
+}
+
+.open {
+  position: absolute;
+  top: 6px;
+  right: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.card:hover .open,
+.card:focus-within .open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.open:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.open:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .pin {
@@ -247,6 +289,7 @@
 }
 
 @media (hover: none) {
+  .open,
   .pin {
     opacity: 1;
     pointer-events: auto;

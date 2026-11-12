@@ -16,6 +16,7 @@ import {
   IconCloseOutlineRegular,
   IconPinFillRegular,
   IconPinOutlineRegular,
+  IconRightUpOutlineRegular,
   Modal,
   relativeTime,
   StateDot,
@@ -72,10 +73,13 @@ type Translate = PageProps['t']
 
 /** The Session currently shown in a preview surface. */
 interface Preview {
-  readonly id: SessionId
-  readonly title: string
+  readonly card: SessionCard
   readonly reference: SessionReference
-  /** The waiting question dialog; its Full conversation action expands to the embedded page. */
+  /** Waiting keeps the native question dialog; other states use the general session preview. */
+  readonly kind: 'question' | 'session'
+  /** State at open, used if the dialog opens the real page. */
+  readonly state: PinnedState
+  /** Only the question dialog can expand to the embedded page. */
   readonly mode: 'dialog' | 'page'
 }
 
@@ -90,6 +94,7 @@ interface PreviewDialogProps {
   readonly renderSlot: PageProps['renderSlot']
   readonly onClose: () => void
   readonly onOpenPage: () => void
+  readonly onOpenSession: () => void
 }
 
 /**
@@ -110,20 +115,29 @@ function PreviewDialog({
   renderSlot,
   onClose,
   onOpenPage,
+  onOpenSession,
 }: PreviewDialogProps): ReactNode {
   return (
     <Modal open onClose={onClose} title={title} headless className={css.dialog ?? ''}>
       <div className={css.dialogFrame}>
         <header className={css.dialogBar}>
           <div className={css.dialogHeading}>
-            {waitingKind !== undefined && (
+            {preview.kind === 'question' && waitingKind !== undefined && (
               <span className={css.dialogEyebrow}>{t(waitingCopyKey(waitingKind))}</span>
             )}
             <span className={css.dialogTitle} title={title}>{title}</span>
           </div>
-          <button type="button" className={css.dialogAction} onClick={onOpenPage}>
-            {t('preview.openPage')}
-          </button>
+          {preview.kind === 'question'
+            ? (
+              <button type="button" className={css.dialogAction} onClick={onOpenPage}>
+                {t('preview.openPage')}
+              </button>
+            )
+            : (
+              <button type="button" className={css.dialogAction} onClick={onOpenSession}>
+                {t('preview.openSession')}
+              </button>
+            )}
           <button
             type="button"
             className={css.dialogClose}
@@ -225,7 +239,7 @@ function fullDate(at: number): string {
   return new Date(at).toLocaleString()
 }
 
-/** One card's content, its state, and the pin toggle. */
+/** One card's content, its state, and the pin and real-page controls. */
 interface SessionCardViewProps {
   readonly card: SessionCard
   readonly state: PinnedState
@@ -233,16 +247,17 @@ interface SessionCardViewProps {
   readonly t: Translate
   readonly now: number
   readonly onOpen: () => void
+  readonly onOpenSession: () => void
   readonly onTogglePin: () => void
 }
 
 /**
  * Render one Session card.
  *
- * The body is a button so the whole card opens the preview; the pin is a sibling button in the
- * corner, not a nested control. It is hidden until the card is hovered or focused, and stays
- * visible while the card is pinned.
- * @param props - the card, its state label, pin state, copy, clock, and two actions.
+ * The body is a button so the whole card opens the preview dialog. The pin and open-session
+ * controls are sibling buttons in the corner, not nested controls. They are hidden until the card
+ * is hovered or focused; the pin stays visible while the card is pinned.
+ * @param props - the card, its state label, pin state, copy, clock, and three actions.
  * @returns the card.
  */
 function SessionCardView({
@@ -252,10 +267,16 @@ function SessionCardView({
   t,
   now,
   onOpen,
+  onOpenSession,
   onTogglePin,
 }: SessionCardViewProps): ReactNode {
   return (
-    <article className={css.card} data-state={state} data-pinned={pinned ? 'true' : undefined}>
+    <article
+      className={css.card}
+      data-state={state}
+      data-pinned={pinned ? 'true' : undefined}
+      data-open="true"
+    >
       <button type="button" className={css.cardBody} onClick={onOpen}>
         <span className={css.cardTitle} title={card.title}>{card.title}</span>
         <span className={css.cardLine}>
@@ -267,6 +288,15 @@ function SessionCardView({
         {card.cwd !== undefined && (
           <span className={css.cwd} title={card.cwd}>{baseName(card.cwd)}</span>
         )}
+      </button>
+      <button
+        type="button"
+        className={css.open}
+        aria-label={t('preview.openSession')}
+        title={t('preview.openSession')}
+        onClick={onOpenSession}
+      >
+        <IconRightUpOutlineRegular size={14} />
       </button>
       <button
         type="button"
@@ -359,17 +389,27 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const total = columns.running.length + columns.waiting.length + columns.completed.length + pinned.length
 
   /**
-   * Open the waiting Session's native question dialog.
-   * @param card - the waiting card.
+   * Open the card's preview dialog.
+   *
+   * A waiting card keeps the native question surface; every other state gets the general session
+   * dialog. A completed card opened for viewing is acknowledged immediately.
+   * @param card - the clicked card.
+   * @param state - the column or pinned state that owns the card.
    */
-  function openPreview(card: SessionCard): void {
+  function openPreview(card: SessionCard, state: PinnedState): void {
     setPreviewError(undefined)
     try {
       const reference = retainSession(card.id)
+      if (state === 'completed') {
+        clearLocalCompletion(card.id)
+        completionReadAt.set(card.id, card.updatedAt)
+        bumpBoardRevision((value) => value + 1)
+      }
       setPreview({
-        id: card.id,
-        title: card.title,
+        card,
         reference,
+        kind: state === 'waiting' ? 'question' : 'session',
+        state,
         mode: 'dialog',
       })
     } catch (cause) {
@@ -381,8 +421,9 @@ export function SessionBoardPage(props: PageProps): ReactNode {
    * Open the real Session page and arm the return control.
    * @param card - the clicked card.
    * @param state - the column or pinned state that owns the card.
+   * @returns whether the Session page opened.
    */
-  function openSessionPage(card: SessionCard, state: PinnedState): void {
+  function openSessionPage(card: SessionCard, state: PinnedState): boolean {
     setPreviewError(undefined)
     armBackToBoard()
     try {
@@ -390,23 +431,14 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     } catch (cause) {
       disarmBackToBoard()
       setPreviewError(cause instanceof Error ? cause.message : String(cause))
-      return
+      return false
     }
     // The real page is now the visible conversation; a completed card has been acknowledged.
     if (state === 'completed') {
       clearLocalCompletion(card.id)
       completionReadAt.set(card.id, card.updatedAt)
     }
-  }
-
-  /**
-   * Route a card: waiting Sessions keep the question dialog, everything else opens the real page.
-   * @param card - the clicked card.
-   * @param state - the column or pinned state that owns the card.
-   */
-  function openCard(card: SessionCard, state: PinnedState): void {
-    if (state === 'waiting') openPreview(card)
-    else openSessionPage(card, state)
+    return true
   }
 
   /** Leave the preview; its effect cleanup releases the retained reference. */
@@ -415,16 +447,28 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     setPreview(undefined)
   }
 
+  /**
+   * Open the real page from the preview dialog, closing the dialog if navigation fails so the error
+   * is visible on the board.
+   * @param current - the dialog's preview.
+   */
+  function openRealPage(current: Preview): void {
+    if (openSessionPage(current.card, current.state)) return
+    setPreview(undefined)
+  }
+
   /** Keep the retained Session and expand the question dialog into the embedded page. */
   function openPage(): void {
-    setPreview((current) => current === undefined ? current : { ...current, mode: 'page' })
+    setPreview((current) => current === undefined || current.kind !== 'question'
+      ? current
+      : { ...current, mode: 'page' })
   }
 
   const previewTitle = preview === undefined
     ? ''
-    : list.byId[preview.id]?.displayTitle ?? preview.title
+    : list.byId[preview.card.id]?.displayTitle ?? preview.card.title
 
-  if (preview !== undefined && preview.mode === 'page') {
+  if (preview !== undefined && preview.kind === 'question' && preview.mode === 'page') {
     return (
       <div className={css.preview}>
         <header className={css.previewBar}>
@@ -485,7 +529,10 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                     t={t}
                     now={now}
                     onOpen={() => {
-                      openCard(card, card.state)
+                      openPreview(card, card.state)
+                    }}
+                    onOpenSession={() => {
+                      openSessionPage(card, card.state)
                     }}
                     onTogglePin={() => {
                       togglePin(card.id)
@@ -527,7 +574,10 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                               t={t}
                               now={now}
                               onOpen={() => {
-                                openCard(card, column)
+                                openPreview(card, column)
+                              }}
+                              onOpenSession={() => {
+                                openSessionPage(card, column)
                               }}
                               onTogglePin={() => {
                                 togglePin(card.id)
@@ -548,12 +598,15 @@ export function SessionBoardPage(props: PageProps): ReactNode {
         <PreviewDialog
           preview={preview}
           title={previewTitle}
-          waitingKind={statuses.get(preview.id)?.pendingInteraction?.kind}
+          waitingKind={statuses.get(preview.card.id)?.pendingInteraction?.kind}
           t={t}
           SessionProvider={SessionProvider}
           renderSlot={renderSlot}
           onClose={closePreview}
           onOpenPage={openPage}
+          onOpenSession={() => {
+            openRealPage(preview)
+          }}
         />
       )}
     </>
