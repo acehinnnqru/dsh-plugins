@@ -1,5 +1,5 @@
 /**
- * The native Conversation body rendered inside the board's preview subpage.
+ * The native Conversation body rendered inside the waiting dialog's embedded surface.
  *
  * The page declares `session-manager.conversation` and binds it with `SessionProvider`; this
  * component is the occupant. It instantiates the shared `conversation.content` Factory exactly the

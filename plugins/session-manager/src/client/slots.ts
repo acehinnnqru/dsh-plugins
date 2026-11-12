@@ -7,12 +7,12 @@
  * @module dsh-plugin-session-manager/client/slots
  */
 
-/** Session-scoped slot hosting the native Conversation body in the preview subpage. */
+/** Session-scoped slot hosting the native Conversation body in the embedded waiting surface. */
 export const CONVERSATION_SLOT = 'session-manager.conversation' as const
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
-    /** Session-scoped native Conversation body hosted by the board's preview subpage. */
+    /** Session-scoped native Conversation body hosted by the waiting dialog's embedded page. */
     'session-manager.conversation': {
       kind: 'single'
       scope: 'session'

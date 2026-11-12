@@ -43,19 +43,6 @@ export interface PinnedCard extends SessionCard {
   readonly state: PinnedState
 }
 
-/**
- * How a card's Session opens.
- *
- * A Session waiting for the user opens the compact question dialog so the native question card is
- * on screen immediately; every other card, including an idle pinned card, opens the full-screen
- * conversation preview.
- * @param column - the card's column or pinned state.
- * @returns the preview surface for that state.
- */
-export function previewMode(column: PinnedState): 'dialog' | 'page' {
-  return column === 'waiting' ? 'dialog' : 'page'
-}
-
 /** The derived board: one newest-first card list per column. */
 export interface SessionBoard {
   /** Sessions with a running turn and no pending interaction. */
@@ -160,12 +147,12 @@ export function deriveBoard(
  * A pinned Session stays at the top even when it is idle or already read, so this reads the whole
  * listed set rather than one column. Archived, blank, and subagent rows are skipped. A completion
  * still counts after the Session was opened from the board only when it is in `locallyCompleted`;
- * otherwise an up-to-date preview mark turns the label to idle.
+ * otherwise an up-to-date read mark turns the label to idle.
  * @param list - Session Controller list snapshot.
  * @param statuses - unified UI status by Session.
  * @param archivedSessionIds - registry-global archive set.
  * @param pinnedSessionIds - pinned Session ids, in the order the user pinned them.
- * @param readAt - preview read marks, keyed by Session, valued by the summary `updatedAt` shown.
+ * @param readAt - completion read marks, keyed by Session, valued by the summary `updatedAt` shown.
  * @param locallyCompleted - stops the board observed itself and has not acknowledged.
  * @returns pinned cards in pin order.
  */
@@ -217,14 +204,14 @@ export function derivePinned(
 }
 
 /**
- * Drop completed cards the preview has already shown.
+ * Drop completed cards whose completion has already been acknowledged.
  *
- * DSH's own `completionUnread` is only cleared when a Session is retained as `mainView`; the preview
- * deliberately is not that. The preview therefore keeps its own mark: the summary `updatedAt` it
- * showed. A card is hidden while the mark is at least as new as the card, and returns as soon as
- * newer activity makes the completion current again.
+ * DSH's own `completionUnread` is only cleared when a Session is retained as `mainView`; a card
+ * opened from the board navigates to that view, but the board still keeps its own mark for the
+ * summary `updatedAt` it showed. A card is hidden while the mark is at least as new as the card, and
+ * returns as soon as newer activity makes the completion current again.
  * @param cards - the derived completed column.
- * @param readAt - preview read marks, keyed by Session, valued by the summary `updatedAt` shown.
+ * @param readAt - completion read marks, keyed by Session, valued by the summary `updatedAt` shown.
  * @param locallyCompleted - stops the board observed itself; these are newer than an older read mark.
  * @returns cards that are unmarked, locally observed, or newer than their mark.
  */

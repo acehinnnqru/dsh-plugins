@@ -32,13 +32,13 @@ import {
   BOARD_COLUMNS,
   deriveBoard,
   derivePinned,
-  previewMode,
   visibleCompleted,
   waitingCopyKey,
   type BoardColumn,
   type PinnedState,
   type SessionCard,
 } from './board.ts'
+import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
 import { NS, type SessionManagerKey } from './locales.ts'
 import { pinnedSessionIds, subscribePins, togglePin } from './pins.ts'
@@ -47,15 +47,17 @@ import css from './SessionBoard.module.css'
 
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
   interface SessionReferenceSourceMap {
-    /** The board's preview subpage, which deliberately is not the main view. */
+    /** The waiting dialog's embedded Conversation, which deliberately is not the main view. */
     sessionManager: unknown
   }
 }
 
-/** The one action the board needs; the registration injects it from `ctx.sessions`. */
+/** The actions the board needs; the registration injects them from the client services. */
 export interface SessionManagerInjected {
-  /** Retain one Session for the preview; the page releases the reference when the preview closes. */
+  /** Retain one Session for the waiting dialog; the page releases the reference when it closes. */
   readonly retainSession: (sessionId: SessionId) => SessionReference
+  /** Open the real Session page, preserving the user's Conversation customizations. */
+  readonly openSession: (sessionId: SessionId) => void
 }
 
 /** The main slot's props, the preview child slot, the translate seat, and Session retention. */
@@ -73,7 +75,7 @@ interface Preview {
   readonly id: SessionId
   readonly title: string
   readonly reference: SessionReference
-  /** A waiting Session opens the question dialog; every other card opens the full page. */
+  /** The waiting question dialog; its Full conversation action expands to the embedded page. */
   readonly mode: 'dialog' | 'page'
 }
 
@@ -94,8 +96,8 @@ interface PreviewDialogProps {
  * Render the waiting Session's native Conversation in a dialog.
  *
  * The native question card lives in the Conversation composer chain, so the same embedded Factory
- * that fills the full preview puts the card at the bottom of this dialog. The bar names why the
- * Session waits and offers the full page for context.
+ * that fills the dialog puts the card at the bottom. The bar names why the Session waits and offers
+ * the embedded page for context.
  * @param props - the preview, copy, the bound child slot, and the two navigation callbacks.
  * @returns the dialog with the native Conversation.
  */
@@ -146,11 +148,11 @@ function PreviewDialog({
  * Read marks for completions that were already in **Completed** when opened.
  *
  * DSH clears `completionUnread` only for a `mainView` retention; the board keeps its own mark so a
- * completed card leaves after it has been opened. The value is the summary `updatedAt` the card
- * showed, so newer activity brings it back. Module-level so a panel round trip does not resurrect
- * the card; browser-local, like DSH's own reminder.
+ * completed card leaves after it has been opened from the board. The value is the summary
+ * `updatedAt` the card showed, so newer activity brings it back. Module-level so a panel round trip
+ * does not resurrect the card; browser-local, like DSH's own reminder.
  */
-const previewedAt = new Map<SessionId, number>()
+const completionReadAt = new Map<SessionId, number>()
 
 /** Per-column copy and the state dot it leads with. */
 interface ColumnCopy {
@@ -282,7 +284,7 @@ function SessionCardView({
 }
 
 /**
- * Render the board, or the preview subpage when a card is open.
+ * Render the board, the waiting dialog, or that dialog's expanded embedded page.
  * @param props - main-slot standard props, the preview child, translate seat, and retention.
  * @returns the board page or its full-screen conversation preview.
  */
@@ -292,6 +294,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     useSessionStatus,
     useWorkspaces,
     retainSession,
+    openSession,
     SessionProvider,
     renderSlot,
     t,
@@ -314,6 +317,11 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   useEffect(() => subscribePins(() => {
     bumpPinRevision((value) => value + 1)
   }), [bumpPinRevision])
+
+  // The board is visible, so a return marker from an earlier Session visit is stale.
+  useEffect(() => {
+    disarmBackToBoard()
+  }, [])
 
   // Relative labels are the only clock-dependent copy on the page. A slow tick keeps them honest
   // without re-deriving the board, which only changes when Session state does. The tick pauses while
@@ -339,42 +347,66 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   }, [previewReference])
 
   const locallyCompleted = localCompletionIds(list)
-  const pinned = derivePinned(list, statuses, archived, pinnedSessionIds(), previewedAt, locallyCompleted)
+  const pinned = derivePinned(list, statuses, archived, pinnedSessionIds(), completionReadAt, locallyCompleted)
   const pinnedIds = new Set(pinned.map((card) => card.id))
   const board = deriveBoard(list, statuses, archived, locallyCompleted)
   const columns: Record<BoardColumn, readonly SessionCard[]> = {
     running: board.running.filter((card) => !pinnedIds.has(card.id)),
     waiting: board.waiting.filter((card) => !pinnedIds.has(card.id)),
-    completed: visibleCompleted(board.completed, previewedAt, locallyCompleted)
+    completed: visibleCompleted(board.completed, completionReadAt, locallyCompleted)
       .filter((card) => !pinnedIds.has(card.id)),
   }
   const total = columns.running.length + columns.waiting.length + columns.completed.length + pinned.length
 
   /**
-   * Retain one Session and open the preview surface its state calls for.
-   * @param card - the clicked card.
-   * @param state - the column or pinned state that owns the card.
+   * Open the waiting Session's native question dialog.
+   * @param card - the waiting card.
    */
-  function openPreview(card: SessionCard, state: PinnedState): void {
+  function openPreview(card: SessionCard): void {
     setPreviewError(undefined)
     try {
       const reference = retainSession(card.id)
-      // Only a card that was already completed is an explicit read acknowledgement. A Running
-      // Session that finishes while its preview is open must still land in Completed.
-      if (state === 'completed') {
-        clearLocalCompletion(card.id)
-        previewedAt.set(card.id, card.updatedAt)
-        bumpBoardRevision((value) => value + 1)
-      }
       setPreview({
         id: card.id,
         title: card.title,
         reference,
-        mode: previewMode(state),
+        mode: 'dialog',
       })
     } catch (cause) {
       setPreviewError(cause instanceof Error ? cause.message : String(cause))
     }
+  }
+
+  /**
+   * Open the real Session page and arm the return control.
+   * @param card - the clicked card.
+   * @param state - the column or pinned state that owns the card.
+   */
+  function openSessionPage(card: SessionCard, state: PinnedState): void {
+    setPreviewError(undefined)
+    armBackToBoard()
+    try {
+      openSession(card.id)
+    } catch (cause) {
+      disarmBackToBoard()
+      setPreviewError(cause instanceof Error ? cause.message : String(cause))
+      return
+    }
+    // The real page is now the visible conversation; a completed card has been acknowledged.
+    if (state === 'completed') {
+      clearLocalCompletion(card.id)
+      completionReadAt.set(card.id, card.updatedAt)
+    }
+  }
+
+  /**
+   * Route a card: waiting Sessions keep the question dialog, everything else opens the real page.
+   * @param card - the clicked card.
+   * @param state - the column or pinned state that owns the card.
+   */
+  function openCard(card: SessionCard, state: PinnedState): void {
+    if (state === 'waiting') openPreview(card)
+    else openSessionPage(card, state)
   }
 
   /** Leave the preview; its effect cleanup releases the retained reference. */
@@ -383,7 +415,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     setPreview(undefined)
   }
 
-  /** Keep the retained Session and expand the question dialog into the full preview page. */
+  /** Keep the retained Session and expand the question dialog into the embedded page. */
   function openPage(): void {
     setPreview((current) => current === undefined ? current : { ...current, mode: 'page' })
   }
@@ -453,7 +485,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                     t={t}
                     now={now}
                     onOpen={() => {
-                      openPreview(card, card.state)
+                      openCard(card, card.state)
                     }}
                     onTogglePin={() => {
                       togglePin(card.id)
@@ -495,7 +527,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                               t={t}
                               now={now}
                               onOpen={() => {
-                                openPreview(card, column)
+                                openCard(card, column)
                               }}
                               onTogglePin={() => {
                                 togglePin(card.id)

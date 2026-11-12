@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { deriveBoard, derivePinned, previewMode, visibleCompleted, waitingCopyKey, type SessionCard } from '../src/client/board.ts'
+import { deriveBoard, derivePinned, visibleCompleted, waitingCopyKey, type SessionCard } from '../src/client/board.ts'
 
 /** Brand a literal string as a Session id. */
 function id(value: string): SessionId {
@@ -269,18 +269,6 @@ describe('derivePinned', () => {
     )
 
     expect(pinned.map((card) => card.id)).toEqual([normal.id])
-  })
-})
-
-describe('previewMode', () => {
-  it('opens a waiting Session in the question dialog', () => {
-    expect(previewMode('waiting')).toBe('dialog')
-  })
-
-  it('opens every other state in the full preview page', () => {
-    expect(previewMode('running')).toBe('page')
-    expect(previewMode('completed')).toBe('page')
-    expect(previewMode('idle')).toBe('page')
   })
 })
 
