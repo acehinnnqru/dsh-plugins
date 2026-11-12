@@ -15,7 +15,7 @@ export const NS = 'sessionManager'
 export const zh = {
   'panel.title': '会话管理',
   'page.title': '会话看板',
-  'page.description': '按运行时状态看会话：正在运行、等待你输入、以及完成后还没看过的。等待输入的卡片会直接弹出原生问题；其余卡片在当前页打开会话预览。看过的完成会从看板消失。',
+  'page.description': '按运行时状态看会话：正在运行、等待你输入、以及完成后还没看过的。等待输入的卡片会直接弹出原生问题；其余卡片在当前页打开会话预览。点开已完成卡片才会标记为已读。',
   'page.count': '{count} 个会话',
   'preview.back': '返回看板',
   'preview.close': '关闭',
@@ -49,7 +49,7 @@ export const zh = {
 export const en: Record<keyof typeof zh, string> = {
   'panel.title': 'Session manager',
   'page.title': 'Session board',
-  'page.description': 'Sessions by runtime state: running, waiting for you, and finished but unread. A waiting card pops its native question; other cards preview the conversation here. A completion you have seen leaves the board.',
+  'page.description': 'Sessions by runtime state: running, waiting for you, and finished but unread. A waiting card pops its native question; other cards preview the conversation here. Only opening an already-completed card marks it read.',
   'page.count': '{count} sessions',
   'preview.back': 'Back to board',
   'preview.close': 'Close',

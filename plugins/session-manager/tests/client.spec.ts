@@ -117,6 +117,34 @@ function stubCtx(seen: Registered[], wait: string[]): unknown {
       retain() {
         return { release() {} }
       },
+      list: {
+        getSnapshot() {
+          return { ids: [], byId: {}, phase: 'ready', projectionsBySession: {} }
+        },
+        subscribe() {
+          return () => undefined
+        },
+      },
+    },
+    uiSession: {
+      sessionStatus: {
+        getSnapshot() {
+          return new Map()
+        },
+        subscribe() {
+          return () => undefined
+        },
+      },
+    },
+    layout: {
+      panelInfo: {
+        getSnapshot() {
+          return { activePanelId: null }
+        },
+        subscribe() {
+          return () => undefined
+        },
+      },
     },
   }
 }
@@ -136,7 +164,7 @@ describe('session-manager browser half', () => {
     expect(requested.sort()).toEqual([...BASELINE].sort())
     expect(plugin?.apply).toBeTypeOf('function')
     // The source's `inject` is the Cordis service list; `dsh.client.inject` in the manifest is not this.
-    expect(plugin?.inject).toEqual(['slots', 'locale', 'sessions', 'uiSession'])
+    expect(plugin?.inject).toEqual(['slots', 'locale', 'sessions', 'uiSession', 'layout'])
   })
 
   it('contributes a main page, its preview child, and one sidebar row', async () => {

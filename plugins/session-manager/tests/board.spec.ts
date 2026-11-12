@@ -106,6 +106,36 @@ describe('deriveBoard', () => {
     expect(board.waiting).toEqual([])
   })
 
+  it('places a stop observed by the board in completed even without an unread marker', () => {
+    const session = id('stopped')
+    const board = deriveBoard(
+      listOf([summary('stopped')]),
+      statusesOf([[session, status({ running: false, completionUnread: false })]]),
+      [],
+      new Set([session]),
+    )
+
+    expect(idsOf(board.completed)).toEqual([session])
+  })
+
+  it('keeps running and waiting Sessions out of completed even when marked stopped', () => {
+    const running = id('running')
+    const waiting = id('waiting')
+    const board = deriveBoard(
+      listOf([summary('running'), summary('waiting')]),
+      statusesOf([
+        [running, status({ running: true })],
+        [waiting, status({ pendingInteraction: pending('question', waiting) })],
+      ]),
+      [],
+      new Set([running, waiting]),
+    )
+
+    expect(idsOf(board.running)).toEqual([running])
+    expect(idsOf(board.waiting)).toEqual([waiting])
+    expect(board.completed).toEqual([])
+  })
+
   it('drops idle and already-read Sessions', () => {
     const read = id('read')
     const idle = id('idle')
@@ -231,5 +261,12 @@ describe('visibleCompleted', () => {
     const readAt = new Map<SessionId, number>([[older.id, 100]])
 
     expect(idsOf(visibleCompleted([older, newer], readAt))).toEqual([newer.id])
+  })
+
+  it('keeps a locally observed completion even when an older read mark exists', () => {
+    const done = card('done', 100)
+    const readAt = new Map<SessionId, number>([[done.id, 100]])
+
+    expect(idsOf(visibleCompleted([done], readAt, new Set([done.id])))).toEqual([done.id])
   })
 })

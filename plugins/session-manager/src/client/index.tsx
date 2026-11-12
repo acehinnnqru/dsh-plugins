@@ -24,6 +24,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import { startCompletionTracker } from './completion-tracker.ts'
 import { SessionConversationHost } from './ConversationHost.tsx'
 import { SessionBoardPage, type SessionManagerInjected } from './SessionBoardPage.tsx'
 import { SessionManagerIcon } from './SessionManagerIcon.tsx'
@@ -37,7 +38,7 @@ const PANEL_ID = 'session-manager' as MainPanelId
 const PANEL_ORDER = 30
 
 /** Cordis service names this half waits for: the slot registry, locale, Session retention, and its scope adapter. */
-export const inject = ['slots', 'locale', 'sessions', 'uiSession']
+export const inject = ['slots', 'locale', 'sessions', 'uiSession', 'layout']
 
 /**
  * Contribute the board page, its preview child, and its sidebar row.
@@ -46,6 +47,8 @@ export const inject = ['slots', 'locale', 'sessions', 'uiSession']
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'session-manager: dictionaries')
   const t = ctx.locale.bind(NS)
+
+  startCompletionTracker(ctx)
 
   const retainSession = (sessionId: SessionId): SessionReference =>
     ctx.sessions.retain(sessionId, { source: 'sessionManager' })

@@ -9,7 +9,7 @@
  * @module dsh-plugin-session-manager/client/page
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconChevronLeftOutlineRegular,
@@ -35,6 +35,7 @@ import {
   type BoardColumn,
   type SessionCard,
 } from './board.ts'
+import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
 import { NS, type SessionManagerKey } from './locales.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
 import css from './SessionBoard.module.css'
@@ -137,13 +138,12 @@ function PreviewDialog({
 }
 
 /**
- * Preview-local read marks.
+ * Read marks for completions that were already in **Completed** when opened.
  *
- * DSH clears `completionUnread` only when a Session is retained as `mainView`; a preview is not
- * that. Showing a completion in the preview therefore records the summary `updatedAt` it showed,
- * and the completed column hides that card until newer activity makes it current again. The map is
- * module-level on purpose: navigating to another panel unmounts the page, and the mark must survive
- * that round trip. It is still only browser-local, like DSH's own completion reminder.
+ * DSH clears `completionUnread` only for a `mainView` retention; the board keeps its own mark so a
+ * completed card leaves after it has been opened. The value is the summary `updatedAt` the card
+ * showed, so newer activity brings it back. Module-level so a panel round trip does not resurrect
+ * the card; browser-local, like DSH's own reminder.
  */
 const previewedAt = new Map<SessionId, number>()
 
@@ -237,7 +237,12 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const [now, setNow] = useState(() => Date.now())
   const [preview, setPreview] = useState<Preview | undefined>(undefined)
   const [previewError, setPreviewError] = useState<string | undefined>(undefined)
-  const [, bumpReadRevision] = useState(0)
+  const [, bumpBoardRevision] = useState(0)
+
+  // The tracker is global; this board only needs to re-render when its local completion map moves.
+  useEffect(() => subscribeLocalCompletions(() => {
+    bumpBoardRevision((value) => value + 1)
+  }), [bumpBoardRevision])
 
   // Relative labels are the only clock-dependent copy on the page. A slow tick keeps them honest
   // without re-deriving the board, which only changes when Session state does. The tick pauses while
@@ -262,22 +267,9 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     }
   }, [previewReference])
 
-  const board = useMemo(
-    () => deriveBoard(list, statuses, archived),
-    [list, statuses, archived],
-  )
-  const completed = visibleCompleted(board.completed, previewedAt)
-
-  // A completion read in the preview is read even though DSH's mainView marker is untouched. Mark
-  // the exact summary timestamp the preview showed, so newer activity brings the card back.
-  useEffect(() => {
-    if (preview === undefined) return
-    const row = list.byId[preview.id]
-    if (row === undefined || statuses.get(preview.id)?.completionUnread !== true) return
-    if ((previewedAt.get(preview.id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt) return
-    previewedAt.set(preview.id, row.updatedAt)
-    bumpReadRevision((value) => value + 1)
-  }, [preview, statuses, list, bumpReadRevision])
+  const locallyCompleted = localCompletionIds(list)
+  const board = deriveBoard(list, statuses, archived, locallyCompleted)
+  const completed = visibleCompleted(board.completed, previewedAt, locallyCompleted)
 
   const total = board.running.length + board.waiting.length + completed.length
 
@@ -290,6 +282,13 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     setPreviewError(undefined)
     try {
       const reference = retainSession(card.id)
+      // Only a card that was already completed is an explicit read acknowledgement. A Running
+      // Session that finishes while its preview is open must still land in Completed.
+      if (column === 'completed') {
+        clearLocalCompletion(card.id)
+        previewedAt.set(card.id, card.updatedAt)
+        bumpBoardRevision((value) => value + 1)
+      }
       setPreview({
         id: card.id,
         title: card.title,

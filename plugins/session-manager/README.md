@@ -12,8 +12,8 @@ by runtime state.
   - **Running** — the Session's turn is executing and no domain is waiting for the user.
   - **Waiting for input** — a pending interaction outranks a running turn. The card says whether it
     is an approval, a plan review, an ordinary question, or an unrecognized domain.
-  - **Completed** — the turn finished while the Session was not in the main view, and that completion
-    has not been read yet.
+  - **Completed** — the turn finished and that completion has not been read. The board also catches a
+    stop DSH leaves unmarked because the Session stayed `mainView`-retained behind this panel.
 - Omits idle Sessions, Sessions whose completion has already been read, blank drafts, subagent-origin
   rows, and archived Sessions. A **Waiting for input** card opens a dialog that surfaces the native
   question immediately; every other card opens a full-screen preview **inside this page**. The
@@ -26,13 +26,16 @@ by runtime state.
   reference when the preview closes.
 - Reads only the live client state DSH already publishes — the Session list, the unified Session
   status, and the Workspace archive set — so the board follows running state, pending interactions,
-  and reads without polling or a host route. **Completed** uses DSH's own unread-completion marker:
-  it is local viewing state, so a completion observed by this client stays unread until the Session
-  is opened, and a reload never invents unread turns.
-- Shows a completion in the preview and the board treats it as read: the card is hidden until that
-  Session's summary `updatedAt` advances. DSH's own `completionUnread` is only cleared by a
-  `mainView` retention, which a preview deliberately is not; this plugin therefore keeps its own
-  browser-local mark keyed by Session and the activity time it showed.
+  and reads without polling or a host route. **Completed** combines DSH's own unread-completion
+  marker with a running→stopped edge the plugin observes globally. A stop counts unless that Session
+  is the visible conversation (conversation selected and retained as `mainView`): DSH leaves its own
+  marker false when the Session stays `mainView`-retained behind a global panel, which is exactly
+  the board's situation.
+- Opening a card that is already in **Completed** marks that completion read: the card is hidden
+  until a newer stop or the Session's summary `updatedAt` advances. Only that click acknowledges a
+  completion; a **Running** Session that finishes while its preview or the question dialog is open
+  still appears in **Completed** when you return. Both the read mark and the local stop note are
+  browser-local and reset with the page.
 - Carries no host behavior. The host half is an empty `apply`; it exists because a browser half is
   attached to a live Loader row.
 
@@ -85,9 +88,9 @@ persisted beyond the in-memory preview mark, which resets with the page.
 2. A `pendingInteraction` puts the Session in **Waiting for input**.
 3. Otherwise a running turn puts it in **Running**. Until the status snapshot knows the row, the
    list row's own running flag is the fallback, matching the Workspace row.
-4. Otherwise `completionUnread` puts it in **Completed**.
-5. A completion already shown in the preview is omitted until the Session's summary `updatedAt`
-   advances; that mark is local to the board and does not change DSH's own read state.
+4. Otherwise `completionUnread`, or a stop this plugin observed, puts it in **Completed**.
+5. A completion whose card was opened from **Completed** is omitted until a newer stop or the
+   Session's summary `updatedAt` advances; that mark is local and does not change DSH's own state.
 6. Everything else is omitted, which is what makes a read Session disappear.
 
 `tests/board.spec.ts` covers the precedence, the filters, the preview mark, and the surface

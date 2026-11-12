@@ -100,12 +100,16 @@ function newestFirst(cards: SessionCard[]): SessionCard[] {
  * @param list - Session Controller list snapshot.
  * @param statuses - unified UI status by Session.
  * @param archivedSessionIds - registry-global archive set.
+ * @param locallyCompleted - Sessions the board watched stop while it was mounted. DSH leaves
+ *   `completionUnread` false when the Session is still retained as `mainView` behind a global
+ *   panel, so the board keeps its own stop observation.
  * @returns the board, one newest-first list per column.
  */
 export function deriveBoard(
   list: SessionListState,
   statuses: SessionStatusSnapshot,
   archivedSessionIds: readonly SessionId[],
+  locallyCompleted: ReadonlySet<SessionId> = new Set(),
 ): SessionBoard {
   const archived = new Set(archivedSessionIds)
   const running: SessionCard[] = []
@@ -131,7 +135,7 @@ export function deriveBoard(
 
     if (pendingInteraction !== undefined) waiting.push(card)
     else if (isRunning) running.push(card)
-    else if (completionUnread) completed.push(card)
+    else if (completionUnread || locallyCompleted.has(id)) completed.push(card)
   }
 
   return {
@@ -150,11 +154,16 @@ export function deriveBoard(
  * newer activity makes the completion current again.
  * @param cards - the derived completed column.
  * @param readAt - preview read marks, keyed by Session, valued by the summary `updatedAt` shown.
- * @returns cards that are unmarked, or whose completion is newer than their mark.
+ * @param locallyCompleted - stops the board observed itself; these are newer than an older read mark.
+ * @returns cards that are unmarked, locally observed, or newer than their mark.
  */
 export function visibleCompleted(
   cards: readonly SessionCard[],
   readAt: ReadonlyMap<SessionId, number>,
+  locallyCompleted: ReadonlySet<SessionId> = new Set(),
 ): readonly SessionCard[] {
-  return cards.filter((card) => (readAt.get(card.id) ?? Number.NEGATIVE_INFINITY) < card.updatedAt)
+  return cards.filter((card) =>
+    locallyCompleted.has(card.id)
+    || (readAt.get(card.id) ?? Number.NEGATIVE_INFINITY) < card.updatedAt,
+  )
 }
