@@ -112,6 +112,12 @@
   padding: 2px 4px 10px;
 }
 
+/* Reuse StateDot's 6px core and only change the color; the doubled class wins over
+   the primitive's solid-state color rule. */
+.runningDot.runningDot[data-state='done'] {
+  color: var(--dsw-alias-state-business-primary);
+}
+
 .columnTitle {
   flex: 1;
   min-width: 0;

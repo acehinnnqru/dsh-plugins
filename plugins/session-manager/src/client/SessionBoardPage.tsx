@@ -611,7 +611,9 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                   aria-labelledby={`session-manager-${column}`}
                 >
                   <header className={css.columnHead}>
-                    <StateDot state={meta.dot} />
+                    {column === 'running'
+                      ? <StateDot state="done" className={css.runningDot} />
+                      : <StateDot state={meta.dot} />}
                     <h2 className={css.columnTitle} id={`session-manager-${column}`}>{t(meta.title)}</h2>
                     <span className={css.columnCount}>{cards.length}</span>
                   </header>
