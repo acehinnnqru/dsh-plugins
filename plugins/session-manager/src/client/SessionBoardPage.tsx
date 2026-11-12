@@ -1,19 +1,23 @@
 /**
- * The session board and its full-screen conversation preview.
+ * The session board, its full-screen conversation preview, and its new-conversation overlay.
  *
  * The board is three columns over the live runtime state of every listed Session. A card opens a
  * preview *inside this page*: the native Conversation is embedded through the shared
  * `conversation.content` Factory, bound to a retained Session reference, so the composer and the
  * native question/approval takeovers travel with it. A back bar returns to the board; no Session
  * navigation happens.
+ *
+ * The same Factory serves the new-conversation overlay, centered on a blank Session that this page
+ * created or reused; accepted prompts hand the board back without navigating either.
  * @module dsh-plugin-session-manager/client/page
  */
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconChevronLeftOutlineRegular,
   IconCloseOutlineRegular,
+  IconNewChatOutlineRegular,
   IconPinFillRegular,
   IconPinOutlineRegular,
   IconRightUpOutlineRegular,
@@ -27,6 +31,7 @@ import {
   type RelativeTimeUnit,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: each carries the declaration merges for the global hooks and the `main` slot row.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -45,15 +50,18 @@ import {
 } from './board.ts'
 import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
+import { NewConversation } from './NewConversation.tsx'
 import { NS, type SessionManagerKey } from './locales.ts'
+import { recentWorkspaceId, reusableBlankSession } from './new-conversation-target.ts'
 import { pinnedSessionIds, subscribePins, togglePin } from './pins.ts'
 import { recentWindowDays, setRecentWindowDays, subscribeRecentWindow } from './recent-window.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
+import { setChooseWorkspace } from './workspace-choice.ts'
 import css from './SessionBoard.module.css'
 
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
   interface SessionReferenceSourceMap {
-    /** The waiting dialog's embedded Conversation, which deliberately is not the main view. */
+    /** An embedded Conversation the board shows: a preview dialog, its page, or a new conversation. */
     sessionManager: unknown
   }
 }
@@ -62,8 +70,33 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
 export interface SessionManagerInjected {
   /** Retain one Session for the waiting dialog; the page releases the reference when it closes. */
   readonly retainSession: (sessionId: SessionId) => SessionReference
+  /**
+   * Retain one blank Session as `mainView` for the new-conversation overlay.
+   *
+   * The native hero's Agent preset control, and the Host write behind it, only accept a blank
+   * Session that is retained as the main view. The board panel stays selected, so this adds no
+   * navigation; the page releases the reference with the overlay.
+   */
+  readonly retainMainView: (sessionId: SessionId) => SessionReference
   /** Open the real Session page, preserving the user's Conversation customizations. */
   readonly openSession: (sessionId: SessionId) => void
+  /**
+   * Create, or reuse, the blank Session a new conversation starts in, without navigating.
+   * @param options - target Workspace and the optional blank Session to reuse.
+   * @returns the catalogued Session the Host created or reused.
+   */
+  readonly createSession: (options: {
+    readonly workspaceId?: WorkspaceId
+    readonly sessionId?: SessionId
+    readonly agentPreset?: string
+  }) => Promise<SessionId>
+  /**
+   * Move the unsent draft text from one Session to another. Attachments cannot travel, so the page
+   * checks {@link SessionManagerInjected.draftAttachmentCount} first.
+   */
+  readonly moveDraft: (from: SessionId, to: SessionId) => void
+  /** Count the draft's browser attachments, which a Workspace switch must not silently drop. */
+  readonly draftAttachmentCount: (sessionId: SessionId) => number
 }
 
 /** The main slot's props, the preview child slot, the translate seat, and Session retention. */
@@ -86,6 +119,14 @@ interface Preview {
   readonly state: PinnedState
   /** Only the question dialog can expand to the embedded page. */
   readonly mode: 'dialog' | 'page'
+}
+
+/** The blank Session the new-conversation overlay is showing, and its two retained handles. */
+interface Composer {
+  /** Owns the embedded Conversation for as long as the overlay is mounted. */
+  readonly reference: SessionReference
+  /** Keeps the blank Session eligible for the native hero's Agent preset control. */
+  readonly mainView: SessionReference
 }
 
 /** Props of the question dialog. */
@@ -329,21 +370,39 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     useSessionStatus,
     useWorkspaces,
     retainSession,
+    retainMainView,
     openSession,
+    createSession,
+    moveDraft,
+    draftAttachmentCount,
     SessionProvider,
     renderSlot,
     t,
   } = props
   const list = useSessions((state) => state)
   const statuses = useSessionStatus((state) => state)
-  const archived = useWorkspaces((state) => state.archivedSessionIds)
+  const workspaces = useWorkspaces((state) => state)
+  const archived = workspaces.archivedSessionIds
   const [now, setNow] = useState(() => Date.now())
   const [preview, setPreview] = useState<Preview | undefined>(undefined)
   const [previewError, setPreviewError] = useState<string | undefined>(undefined)
+  const [composer, setComposer] = useState<Composer | undefined>(undefined)
+  const [startError, setStartError] = useState<string | undefined>(undefined)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [, bumpBoardRevision] = useState(0)
   const [, bumpPinRevision] = useState(0)
   const [, bumpWindowRevision] = useState(0)
+  const opening = useRef(false)
+  const switching = useRef(false)
+  const mounted = useRef(true)
+  // Callbacks published to the picker read the latest snapshots through refs; they outlive the
+  // render that created them and must not keep its stale list.
+  const listRef = useRef(list)
+  listRef.current = list
+  const workspacesRef = useRef(workspaces)
+  workspacesRef.current = workspaces
+  const composerRef = useRef<Composer | undefined>(undefined)
+  composerRef.current = composer
 
   // The tracker is global; this board only needs to re-render when its local completion map moves.
   useEffect(() => subscribeLocalCompletions(() => {
@@ -365,18 +424,28 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     disarmBackToBoard()
   }, [])
 
+  // Creating a Session is a round trip; a reference it returns after the panel is gone must not
+  // leak, and a picker left mounted must stop offering a chooser for a page that no longer exists.
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      setChooseWorkspace(undefined)
+    }
+  }, [])
+
   // Relative labels are the only clock-dependent copy on the page. A slow tick keeps them honest
   // without re-deriving the board, which only changes when Session state does. The tick pauses while
   // the native Conversation is mounted, so the preview is not re-rendered by an unrelated clock.
   useEffect(() => {
-    if (preview !== undefined) return undefined
+    if (preview !== undefined || composer !== undefined) return undefined
     const timer = setInterval(() => {
       setNow(Date.now())
     }, 30_000)
     return () => {
       clearInterval(timer)
     }
-  }, [preview])
+  }, [preview, composer])
 
   // The preview owns one retained Session reference. Releasing it in the effect cleanup runs after
   // the Conversation for the old reference has unmounted, including when the page itself unmounts.
@@ -387,6 +456,17 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       previewReference.release()
     }
   }, [previewReference])
+
+  // The overlay owns both handles; the cleanup runs after the Conversation unmounts.
+  const composerReference = composer?.reference
+  const composerMainView = composer?.mainView
+  useEffect(() => {
+    if (composerReference === undefined) return
+    return () => {
+      composerReference.release()
+      composerMainView?.release()
+    }
+  }, [composerReference, composerMainView])
 
   const locallyCompleted = localCompletionIds(list)
   const pinned = derivePinned(list, statuses, archived, pinnedSessionIds(), completionReadAt, locallyCompleted)
@@ -468,6 +548,116 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   }
 
   /**
+   * Start a new conversation without navigating.
+   *
+   * The board is a global panel, so the target is the Workspace with the most recent activity. A
+   * blank Session parked there is reused, which keeps abandoned drafts from piling up; the retained
+   * references then show the native new-session hero in the overlay.
+   */
+  async function startConversation(): Promise<void> {
+    if (opening.current) return
+    opening.current = true
+    setStartError(undefined)
+    try {
+      const workspaceId = recentWorkspaceId(workspaces, list)
+      const blankId = reusableBlankSession(workspaces, list, workspaceId)
+      const sessionId = await createSession({
+        ...(workspaceId === undefined ? {} : { workspaceId }),
+        ...(blankId === undefined ? {} : { sessionId: blankId }),
+      })
+      const reference = retainSession(sessionId)
+      let mainView: SessionReference
+      try {
+        mainView = retainMainView(sessionId)
+      } catch (cause) {
+        reference.release()
+        throw cause
+      }
+      if (!mounted.current) {
+        reference.release()
+        mainView.release()
+        return
+      }
+      setChooseWorkspace(switchWorkspace)
+      setComposer({ reference, mainView })
+    } catch (cause) {
+      setStartError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      opening.current = false
+    }
+  }
+
+  /** Hand the screen back to the board; the release effect drops the retained references. */
+  function closeConversation(): void {
+    setChooseWorkspace(undefined)
+    setComposer(undefined)
+  }
+
+  /**
+   * Move the open new conversation to another Workspace without leaving the overlay.
+   *
+   * There is no Host command that re-homes a Session, so the move is a swap: reuse or create a blank
+   * Session in the target Workspace under the old Session's Agent preset, then carry the draft text
+   * over. Attachments cannot travel between input shells, so a draft that has any refuses the switch
+   * instead of dropping them.
+   * @param fromId - the blank Session the overlay is showing.
+   * @param workspaceId - the Workspace the user picked.
+   * @returns a localized failure, or undefined after the overlay moved.
+   */
+  async function switchWorkspace(
+    fromId: SessionId,
+    workspaceId: WorkspaceId,
+  ): Promise<string | undefined> {
+    const current = composerRef.current
+    if (current === undefined || current.reference.sessionId !== fromId) return undefined
+    const registry = workspacesRef.current
+    const owner = registry.items.find((workspace) => workspace.sessionIds.includes(fromId))
+    if (owner?.workspaceId === workspaceId) return undefined
+    if (switching.current) return undefined
+    switching.current = true
+    try {
+      if (draftAttachmentCount(fromId) > 0) return t('workspace.attachments')
+      const summary = listRef.current.byId[fromId]
+      // The agent-preset projection is declared by the product's agent-preset plugin, which is not
+      // a dependency of this one; read the id from the summary's opaque projection bag.
+      const preset = (summary?.projectionValues as Record<string, unknown> | undefined)?.['agentPreset']
+      const parked = reusableBlankSession(registry, listRef.current, workspaceId)
+      // A parked blank with attachments would mix its files into the draft being moved; start a
+      // fresh blank instead and leave that one parked.
+      const blankId = parked !== undefined && draftAttachmentCount(parked) === 0 ? parked : undefined
+      const sessionId = await createSession({
+        workspaceId,
+        ...(blankId === undefined ? {} : { sessionId: blankId }),
+        ...(typeof preset === 'string' && preset !== '' ? { agentPreset: preset } : {}),
+      })
+      // A lagging client snapshot can make the Host reuse the very Session being shown; there is
+      // nothing to move in that case.
+      if (sessionId === fromId) return undefined
+      const reference = retainSession(sessionId)
+      let mainView: SessionReference
+      try {
+        mainView = retainMainView(sessionId)
+      } catch (cause) {
+        reference.release()
+        throw cause
+      }
+      try {
+        moveDraft(fromId, sessionId)
+      } catch (cause) {
+        reference.release()
+        mainView.release()
+        throw cause
+      }
+      setComposer({ reference, mainView })
+      return undefined
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : String(cause)
+    } finally {
+      switching.current = false
+    }
+  }
+
+  /**
    * Open the real page from the preview dialog, closing the dialog if navigation fails so the error
    * is visible on the board.
    * @param current - the dialog's preview.
@@ -521,6 +711,17 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           <h1 className={css.title}>{t('page.title')}</h1>
           <div className={css.headerTools}>
             {total > 0 && <span className={css.total}>{t('page.count', { count: total })}</span>}
+            <button
+              type="button"
+              className={css.newChat}
+              aria-label={t('new.title')}
+              title={t('new.title')}
+              onClick={() => {
+                void startConversation()
+              }}
+            >
+              <IconNewChatOutlineRegular size={16} />
+            </button>
             <Menu
               open={settingsOpen}
               anchor={(
@@ -559,6 +760,12 @@ export function SessionBoardPage(props: PageProps): ReactNode {
         {previewError !== undefined && (
           <p className={css.previewError} role="alert">
             {t('preview.failed')}: {previewError}
+          </p>
+        )}
+
+        {startError !== undefined && (
+          <p className={css.previewError} role="alert">
+            {t('new.failed')}: {startError}
           </p>
         )}
 
@@ -672,6 +879,16 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           onOpenSession={() => {
             openRealPage(preview)
           }}
+        />
+      )}
+      {composer !== undefined && (
+        <NewConversation
+          reference={composer.reference}
+          t={t}
+          renderSlot={renderSlot}
+          SessionProvider={SessionProvider}
+          onSent={closeConversation}
+          onClose={closeConversation}
         />
       )}
     </>

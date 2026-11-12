@@ -170,7 +170,7 @@ describe('session-manager browser half', () => {
     expect(plugin?.inject).toEqual(['slots', 'locale', 'sessions', 'uiSession', 'uiWorkspace', 'layout'])
   })
 
-  it('contributes a main page, its preview child, a sidebar row, and the leading back control', async () => {
+  it('contributes a main page, its preview child, the workspace picker, a sidebar row, and the leading back control', async () => {
     const [registration] = await registrations()
     if (registration === undefined) throw new Error('no registration')
     const { plugin } = instantiate(registration)
@@ -183,10 +183,11 @@ describe('session-manager browser half', () => {
     expect(wait).toEqual([
       'main',
       'session-manager.conversation',
+      'conversation.hero.options',
       'sidebar.panellist',
       'conversation.header.leading',
     ])
-    expect(seen).toHaveLength(4)
+    expect(seen).toHaveLength(5)
     expect(seen[0]?.options).toMatchObject({
       name: 'main',
       key: 'session-manager',
@@ -199,21 +200,25 @@ describe('session-manager browser half', () => {
       locale: 'sessionManager',
     })
     expect(seen[2]?.options).toMatchObject({
+      name: 'conversation.hero.options',
+      id: 'session-manager-workspace',
+      locale: 'sessionManager',
+    })
+    expect(seen[3]?.options).toMatchObject({
       name: 'sidebar.panellist',
       id: 'session-manager',
       order: 30,
     })
-    expect(seen[3]?.options).toMatchObject({
+    expect(seen[4]?.options).toMatchObject({
       name: 'conversation.header.leading',
     })
 
-    const label = seen[2]?.options['label']
+    const label = seen[3]?.options['label']
     expect(label).toBeTypeOf('function')
     expect((label as () => string)()).toBe('panel.title')
-    expect(seen[0]?.component).toBeTypeOf('function')
-    expect(seen[1]?.component).toBeTypeOf('function')
-    expect(seen[2]?.component).toBeTypeOf('function')
-    expect(seen[3]?.component).toBeTypeOf('function')
+    for (const registration of seen) {
+      expect(registration.component).toBeTypeOf('function')
+    }
   })
 
   it('carries its stylesheet inside the bundle', async () => {

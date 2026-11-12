@@ -57,7 +57,8 @@
   display: inline-flex;
 }
 
-.settings {
+.settings,
+.newChat {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -71,12 +72,14 @@
   cursor: pointer;
 }
 
-.settings:hover {
+.settings:hover,
+.newChat:hover {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
 
-.settings:focus-visible {
+.settings:focus-visible,
+.newChat:focus-visible {
   outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   outline-offset: 1px;
 }
@@ -551,6 +554,241 @@
 .dialogBody [data-conversation-content] {
   flex: 1;
   min-height: 0;
+}
+
+/* The new-conversation overlay: the Modal mask is the backdrop, and the white rounded dialog holds
+   only the controls the native new-session row and composer need. No hero headline. */
+.newDialog.newDialog {
+  width: min(820px, calc(100vw - 48px));
+  height: min(220px, calc(100vh - 64px));
+  padding: 0;
+  gap: 0;
+  overflow: visible;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-panel);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: var(--dsw-elevation-prominent);
+}
+
+.newFrame {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.newBody {
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 24px 16px;
+}
+
+.newBody [data-conversation-content] {
+  flex: 1;
+  min-height: 0;
+}
+
+/* The overlay replaces the native hero's Workspace chip with the searchable picker registered in
+   conversation.hero.options. The options group normally sits at the right edge; the native button
+   is hidden and the group moves into its seat. Scoped to this dialog, so the main new-session page
+   keeps its native chip. The class-name suffixes are DSH's CSS-module names for the hero row, its
+   options group, and the hero composer stack, pinned with the DSH version in package.json. */
+.newDialog [class*='heroWorkspaceRow']:has([data-session-manager-workspace]) > button:first-child {
+  display: none;
+}
+
+.newDialog [class*='heroWorkspaceRow']:has([data-session-manager-workspace]) > [class*='heroOptions'] {
+  order: -1;
+  margin-left: 0;
+}
+
+/* Only the controls are wanted here; the composer stack's first child is the HeroShell headline
+   whenever the hero phase is active. The page-sized bottom padding goes with it. */
+.newDialog [class*='composerHero'] > :first-child {
+  display: none;
+}
+
+.newDialog [class*='composerHero'] {
+  padding-bottom: 0;
+}
+
+.workspacePicker {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.workspaceTrigger {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(100%, 360px);
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.workspaceTrigger:hover,
+.workspaceTrigger[aria-expanded='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.workspaceTrigger:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+
+.workspaceTriggerIcon {
+  flex: none;
+  color: var(--dsw-alias-label-primary);
+}
+
+.workspaceTriggerLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspaceTriggerChevron {
+  flex: none;
+  color: var(--dsw-alias-label-caption);
+}
+
+.workspaceMenu {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(360px, var(--dsh-anchored-max-height, calc(100vh - 24px)));
+  padding: 4px;
+  overflow: hidden;
+  z-index: 1100;
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+  box-shadow: var(--dsw-elevation-prominent);
+}
+
+.workspaceSearch {
+  flex: none;
+  padding: 4px 4px 4px;
+}
+
+.workspaceSearchInput {
+  width: 100%;
+}
+
+.workspaceList {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 2px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.workspaceRow {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  min-height: 28px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspaceRow:hover,
+.workspaceRow[data-active='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.workspaceRow:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+
+.workspaceRow:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.workspaceRowIcon {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.workspaceRowText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.workspaceRowTitle {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspaceRowPath {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspaceRowCheck {
+  flex: none;
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.workspaceEmpty {
+  padding: 14px 10px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.workspaceError {
+  flex: none;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  border-top: 0.5px solid var(--dsw-alias-border-l3);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
 }
 
 .preview {

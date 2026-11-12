@@ -1,6 +1,7 @@
 # dsh-plugin-session-manager
 
-A sidebar entry and a main-column board that keep running, unread, and recent Sessions in view.
+A sidebar entry, a main-column board that keeps running, unread, and recent Sessions in view, and a
+full-screen new-conversation overlay that embeds the native composer.
 
 ## What it does
 
@@ -28,14 +29,24 @@ A sidebar entry and a main-column board that keep running, unread, and recent Se
   to a full-width **Pinned** rail above the columns and keep their runtime label there; the rail is
   absent until at least one pin exists. Pins are browser-local and survive a panel round trip and a
   reload; they do not change host state.
+- Starts a new conversation from the **New conversation** control in the page's top-right. The control
+  creates (or reuses) the blank Session of the Workspace with the most recent activity, retains it, and
+  shows the native new-session controls — a searchable Workspace picker, the Agent preset chip, and the
+  composer — in a white rounded panel over a backdrop mask, without the hero headline. Sending hands
+  the board back and leaves the Session running in **Running**; closing without sending leaves the
+  blank Session reusable. The Workspace picker opens as a menu under its chip and stays inside the
+  overlay: choosing another Workspace reuses or creates a blank Session there, carries the draft text
+  across, and releases the previous Session; a draft with attachments refuses the switch rather than
+  dropping them.
 - Configures the **Recent** window from the gear in the page's top-right: 1, 3, 7, or 30 days.
   The default is three days; the choice is browser-local and only filters Recent. Running and Unread
   never age out.
 - Embeds the native Conversation through the shared `conversation.content` Factory — the same host
-  the subagent right-Sidebar chat uses — for both preview dialogs and the pending question's **Full
-  conversation** page, with a `SessionProvider` bound to a retained Session reference. The embedded
-  body itself does not navigate or replace the main Conversation panel; the card control or the
-  session dialog's **Open session** action opens the real panel, and closing releases the reference.
+  the subagent right-Sidebar chat uses — for both preview dialogs, the pending question's **Full
+  conversation** page, and the new-conversation overlay, with a `SessionProvider` bound to a
+  retained Session reference. The embedded body itself does not navigate or replace the main
+  Conversation panel; the card control or the session dialog's **Open session** action opens the real
+  panel, and closing releases the reference.
 - Reads only the live client state DSH already publishes — the Session list, the unified Session
   status, and the Workspace archive set — so the board follows running state, pending interactions,
   and reads without polling or a host route. **Unread** combines pending interactions, DSH's own
@@ -89,12 +100,17 @@ Safety: the host half registers nothing, reads nothing, writes nothing, and make
 requests. The browser half reads the Session list and unified UI status from the Web client, and the
 archive set from the Workspace Controller. Opening a card retains one Session reference and renders
 the native Conversation through the `conversation.content` Factory in the preview dialog; closing
-releases the reference. The card's open-session control and the session dialog's **Open session**
-action navigate through `uiWorkspace.openSession` to the real Session panel; the leading back control
-selects the board again. The board itself never starts, stops, renames, or archives a Session; the
-native composer is the Session's own input surface, used by the person in front of it. The only
-stored values are the browser-local pin list and Recent-window choice in `localStorage`; completion
-read marks and local stop notes live in memory and reset with the page.
+releases the reference. The **New conversation** control creates or reuses the target Workspace's
+blank Session through `ctx.sessions.create` and retains it for the overlay, together with a
+`mainView` handle that the native Agent preset control requires (the board panel stays selected, so
+this adds no navigation); sending or closing releases both. A Workspace switch repeats that pair for
+the chosen Workspace and moves the draft text between the two input shells, so it costs no
+navigation either. The card's open-session control and the
+session dialog's **Open session** action navigate through `uiWorkspace.openSession` to the real
+Session panel; the leading back control selects the board again. The board never stops, renames, or archives a Session, and never pauses or
+resumes one; the native composer is the Session's own input surface, used by the person in front of
+it. The only stored values are the browser-local pin list and Recent-window choice in
+`localStorage`; completion read marks and local stop notes live in memory and reset with the page.
 
 ## How the columns are decided
 
@@ -115,5 +131,7 @@ read marks and local stop notes live in memory and reset with the page.
 boundary, and the pinned states; `tests/pins.spec.ts` covers pin persistence;
 `tests/recent-window.spec.ts` covers the window preference; `tests/back-to-board.spec.ts` covers the
 return marker; `tests/conversation-input.spec.ts` covers the embedded Factory phase;
+`tests/new-conversation.spec.ts` covers the target Workspace and the reusable blank Session;
+`tests/workspace-search.spec.ts` covers the picker's label rule and filter;
 `tests/client.spec.ts` executes the built bundle and checks its registrations, baseline imports, CSS,
 and source map.

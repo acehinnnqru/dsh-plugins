@@ -1,5 +1,5 @@
 /**
- * The native Conversation body rendered inside the waiting dialog's embedded surface.
+ * The native Conversation body rendered inside the board's embedded surfaces.
  *
  * The page declares `session-manager.conversation` and binds it with `SessionProvider`; this
  * component is the occupant. It instantiates the shared `conversation.content` Factory exactly the
@@ -42,7 +42,10 @@ function ChatOnlyView(props: ConversationViewsProps): ReactNode {
 }
 
 /**
- * Render the native Conversation for the bound preview Session.
+ * Render the native Conversation for the bound preview or new-conversation Session.
+ *
+ * A blank Session reaches the Factory's hero phase, which supplies the hero row and the native Agent
+ * preset chip; the Workspace picker in that row's options seat is this plugin's own entry.
  * @param props - session standard props, Factory rendering, and copy.
  * @returns the shared Conversation body, or a fallback when its Factory is not installed.
  */

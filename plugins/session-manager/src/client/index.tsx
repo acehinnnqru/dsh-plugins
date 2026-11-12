@@ -1,10 +1,11 @@
 /**
  * `dsh-plugin-session-manager`, browser half.
  *
- * One panel, four registrations: the sidebar row that launches it, the page itself in the main
- * column, the session-scoped host for the waiting dialog's embedded Conversation, and the leading
- * control that returns to the board. The page and the sidebar row share the same id because the
- * sidebar resolves a panel row by selecting the main key of the same name.
+ * One panel, five registrations: the sidebar row that launches it, the page itself in the main
+ * column, the session-scoped host for the board's embedded Conversations, the searchable Workspace
+ * picker in the native hero's options row, and the leading control that returns to the board. The
+ * page and the sidebar row share the same id because the sidebar resolves a panel row by selecting
+ * the main key of the same name.
  *
  * Only values from DSH baseline modules may be imported; every cross-package import below is
  * type-only and exists for its declaration merge. The bundle build refuses the alternative on
@@ -14,12 +15,14 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: they carry the declaration merges for ctx.locale, ctx.slots, ctx.sessions,
 // ctx.uiWorkspace, and the 'main' / 'sidebar.panellist' SlotMap rows.
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
@@ -31,6 +34,7 @@ import { startCompletionTracker } from './completion-tracker.ts'
 import { SessionConversationHost } from './ConversationHost.tsx'
 import { SessionBoardPage, type SessionManagerInjected } from './SessionBoardPage.tsx'
 import { SessionManagerIcon } from './SessionManagerIcon.tsx'
+import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, NS, zh } from './locales.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
 
@@ -60,9 +64,44 @@ export function apply(ctx: ClientContext): void {
 
   const retainSession = (sessionId: SessionId): SessionReference =>
     ctx.sessions.retain(sessionId, { source: 'sessionManager' })
+  // The native hero's Agent preset control only works on a blank Session retained as the main view.
+  // The board stays the selected panel, so this adds no navigation; the page releases it with the
+  // overlay. It is deliberately separate from the Session's own lifecycle reference above.
+  const retainMainView = (sessionId: SessionId): SessionReference =>
+    ctx.sessions.retain(sessionId, { source: 'mainView' })
   const openSession = (sessionId: SessionId): void => {
     ctx.uiWorkspace.openSession(sessionId)
   }
+  const createSession = (options: {
+    readonly workspaceId?: WorkspaceId
+    readonly sessionId?: SessionId
+    readonly agentPreset?: string
+  }): Promise<SessionId> => ctx.sessions.create(options)
+  const inputFor = (sessionId: SessionId) => {
+    try {
+      const conversation = ctx.get('conversation')
+      const scope = ctx.sessions.scope(sessionId)
+      if (conversation === undefined || scope === undefined) return undefined
+      return conversation.input.for(scope)
+    } catch {
+      return undefined
+    }
+  }
+  // Moving a draft across Sessions is a browser-local operation: the input shell owns both the text
+  // and the attachment ids. Text travels; attachments stay with the Session they were added to,
+  // which is why the page refuses a Workspace switch while the draft has any.
+  const moveDraft = (from: SessionId, to: SessionId): void => {
+    if (from === to) return
+    const source = inputFor(from)
+    const target = inputFor(to)
+    if (source === undefined || target === undefined) return
+    const draft = source.state.getSnapshot().draft
+    if (draft === '') return
+    target.setDraft(draft)
+    source.setDraft('')
+  }
+  const draftAttachmentCount = (sessionId: SessionId): number =>
+    inputFor(sessionId)?.state.getSnapshot().attachmentIds.length ?? 0
 
   ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',
@@ -71,7 +110,14 @@ export function apply(ctx: ClientContext): void {
     children: {
       [CONVERSATION_SLOT]: { kind: 'single', scope: 'session' },
     },
-    inject: (): SessionManagerInjected => ({ retainSession, openSession }),
+    inject: (): SessionManagerInjected => ({
+      retainSession,
+      retainMainView,
+      openSession,
+      createSession,
+      moveDraft,
+      draftAttachmentCount,
+    }),
   }, SessionBoardPage))
 
   // The page declares the child slot above; waiting for its declaration lets the host register in
@@ -80,6 +126,16 @@ export function apply(ctx: ClientContext): void {
     name: CONVERSATION_SLOT,
     locale: NS,
   }, SessionConversationHost))
+
+  // The native hero renders the options row after the Workspace and Agent preset controls. The
+  // picker claims a seat there and renders nothing outside the overlay, so the main new-session page
+  // keeps its native Workspace chip.
+  ctx.slots.inject('conversation.hero.options', () => ctx.slots.register({
+    name: 'conversation.hero.options',
+    id: 'session-manager-workspace',
+    order: -10,
+    locale: NS,
+  }, WorkspacePicker))
 
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',
