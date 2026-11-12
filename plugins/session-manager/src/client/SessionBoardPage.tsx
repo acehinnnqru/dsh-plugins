@@ -14,6 +14,8 @@ import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@d
 import {
   IconChevronLeftOutlineRegular,
   IconCloseOutlineRegular,
+  IconPinFillRegular,
+  IconPinOutlineRegular,
   Modal,
   relativeTime,
   StateDot,
@@ -29,14 +31,17 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import {
   BOARD_COLUMNS,
   deriveBoard,
+  derivePinned,
   previewMode,
   visibleCompleted,
   waitingCopyKey,
   type BoardColumn,
+  type PinnedState,
   type SessionCard,
 } from './board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
 import { NS, type SessionManagerKey } from './locales.ts'
+import { pinnedSessionIds, subscribePins, togglePin } from './pins.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
 import css from './SessionBoard.module.css'
 
@@ -178,9 +183,11 @@ const TIME_COPY: Record<RelativeTimeUnit, SessionManagerKey> = {
  * @param t - this namespace's translate function.
  * @returns the visible state text.
  */
-function stateText(column: BoardColumn, card: SessionCard, t: Translate): string {
-  if (column === 'waiting') return t(waitingCopyKey(card.waitingKind))
-  return column === 'running' ? t('card.running') : t('card.completed')
+function stateText(state: PinnedState, card: SessionCard, t: Translate): string {
+  if (state === 'waiting') return t(waitingCopyKey(card.waitingKind))
+  if (state === 'running') return t('card.running')
+  if (state === 'completed') return t('card.completed')
+  return t('card.idle')
 }
 
 /**
@@ -216,6 +223,64 @@ function fullDate(at: number): string {
   return new Date(at).toLocaleString()
 }
 
+/** One card's content, its state, and the pin toggle. */
+interface SessionCardViewProps {
+  readonly card: SessionCard
+  readonly state: PinnedState
+  readonly pinned: boolean
+  readonly t: Translate
+  readonly now: number
+  readonly onOpen: () => void
+  readonly onTogglePin: () => void
+}
+
+/**
+ * Render one Session card.
+ *
+ * The body is a button so the whole card opens the preview; the pin is a sibling button in the
+ * corner, not a nested control. It is hidden until the card is hovered or focused, and stays
+ * visible while the card is pinned.
+ * @param props - the card, its state label, pin state, copy, clock, and two actions.
+ * @returns the card.
+ */
+function SessionCardView({
+  card,
+  state,
+  pinned,
+  t,
+  now,
+  onOpen,
+  onTogglePin,
+}: SessionCardViewProps): ReactNode {
+  return (
+    <article className={css.card} data-state={state} data-pinned={pinned ? 'true' : undefined}>
+      <button type="button" className={css.cardBody} onClick={onOpen}>
+        <span className={css.cardTitle} title={card.title}>{card.title}</span>
+        <span className={css.cardLine}>
+          <span className={css.cardState}>{stateText(state, card, t)}</span>
+          <span className={css.time} title={fullDate(card.updatedAt)}>
+            {timeText(card.updatedAt, now, t)}
+          </span>
+        </span>
+        {card.cwd !== undefined && (
+          <span className={css.cwd} title={card.cwd}>{baseName(card.cwd)}</span>
+        )}
+      </button>
+      <button
+        type="button"
+        className={css.pin}
+        data-pinned={pinned ? 'true' : undefined}
+        aria-label={pinned ? t('pin.remove') : t('pin.add')}
+        aria-pressed={pinned}
+        title={pinned ? t('pin.remove') : t('pin.add')}
+        onClick={onTogglePin}
+      >
+        {pinned ? <IconPinFillRegular size={14} /> : <IconPinOutlineRegular size={14} />}
+      </button>
+    </article>
+  )
+}
+
 /**
  * Render the board, or the preview subpage when a card is open.
  * @param props - main-slot standard props, the preview child, translate seat, and retention.
@@ -238,11 +303,17 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const [preview, setPreview] = useState<Preview | undefined>(undefined)
   const [previewError, setPreviewError] = useState<string | undefined>(undefined)
   const [, bumpBoardRevision] = useState(0)
+  const [, bumpPinRevision] = useState(0)
 
   // The tracker is global; this board only needs to re-render when its local completion map moves.
   useEffect(() => subscribeLocalCompletions(() => {
     bumpBoardRevision((value) => value + 1)
   }), [bumpBoardRevision])
+
+  // Pins are module state so a panel round trip keeps them; this page subscribes to redraw.
+  useEffect(() => subscribePins(() => {
+    bumpPinRevision((value) => value + 1)
+  }), [bumpPinRevision])
 
   // Relative labels are the only clock-dependent copy on the page. A slow tick keeps them honest
   // without re-deriving the board, which only changes when Session state does. The tick pauses while
@@ -268,23 +339,29 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   }, [previewReference])
 
   const locallyCompleted = localCompletionIds(list)
+  const pinned = derivePinned(list, statuses, archived, pinnedSessionIds(), previewedAt, locallyCompleted)
+  const pinnedIds = new Set(pinned.map((card) => card.id))
   const board = deriveBoard(list, statuses, archived, locallyCompleted)
-  const completed = visibleCompleted(board.completed, previewedAt, locallyCompleted)
-
-  const total = board.running.length + board.waiting.length + completed.length
+  const columns: Record<BoardColumn, readonly SessionCard[]> = {
+    running: board.running.filter((card) => !pinnedIds.has(card.id)),
+    waiting: board.waiting.filter((card) => !pinnedIds.has(card.id)),
+    completed: visibleCompleted(board.completed, previewedAt, locallyCompleted)
+      .filter((card) => !pinnedIds.has(card.id)),
+  }
+  const total = columns.running.length + columns.waiting.length + columns.completed.length + pinned.length
 
   /**
-   * Retain one Session and open the preview surface its column calls for.
+   * Retain one Session and open the preview surface its state calls for.
    * @param card - the clicked card.
-   * @param column - the column that owns the card.
+   * @param state - the column or pinned state that owns the card.
    */
-  function openPreview(card: SessionCard, column: BoardColumn): void {
+  function openPreview(card: SessionCard, state: PinnedState): void {
     setPreviewError(undefined)
     try {
       const reference = retainSession(card.id)
       // Only a card that was already completed is an explicit read acknowledgement. A Running
       // Session that finishes while its preview is open must still land in Completed.
-      if (column === 'completed') {
+      if (state === 'completed') {
         clearLocalCompletion(card.id)
         previewedAt.set(card.id, card.updatedAt)
         bumpBoardRevision((value) => value + 1)
@@ -293,7 +370,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
         id: card.id,
         title: card.title,
         reference,
-        mode: previewMode(column),
+        mode: previewMode(state),
       })
     } catch (cause) {
       setPreviewError(cause instanceof Error ? cause.message : String(cause))
@@ -345,10 +422,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       <div className={css.page}>
       <div className={css.content}>
         <header className={css.header}>
-          <div className={css.heading}>
-            <h1 className={css.title}>{t('page.title')}</h1>
-            <p className={css.description}>{t('page.description')}</p>
-          </div>
+          <h1 className={css.title}>{t('page.title')}</h1>
           {total > 0 && <span className={css.total}>{t('page.count', { count: total })}</span>}
         </header>
 
@@ -362,17 +436,39 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           <p className={css.loading} role="status">{t('state.loading')}</p>
         )}
 
-        {total === 0 && list.phase === 'ready' && (
-          <p className={css.emptyHint}>
-            <strong>{t('state.empty')}</strong>
-            <span>{t('state.emptyHint')}</span>
-          </p>
+        {pinned.length > 0 && (
+          <section className={css.pinned} aria-labelledby="session-manager-pinned">
+            <header className={css.pinnedHead}>
+              <IconPinFillRegular size={14} />
+              <h2 className={css.pinnedTitle} id="session-manager-pinned">{t('pinned.title')}</h2>
+              <span className={css.columnCount}>{pinned.length}</span>
+            </header>
+            <ul className={css.pinnedRail}>
+              {pinned.map((card) => (
+                <li className={css.pinnedItem} key={card.id}>
+                  <SessionCardView
+                    card={card}
+                    state={card.state}
+                    pinned
+                    t={t}
+                    now={now}
+                    onOpen={() => {
+                      openPreview(card, card.state)
+                    }}
+                    onTogglePin={() => {
+                      togglePin(card.id)
+                    }}
+                  />
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
 
         {(total > 0 || list.phase === 'ready') && (
           <div className={css.board}>
             {BOARD_COLUMNS.map((column) => {
-              const cards = column === 'completed' ? completed : board[column]
+              const cards = columns[column]
               const meta = COLUMN_COPY[column]
               return (
                 <section
@@ -392,24 +488,19 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                       <ul className={css.cards}>
                         {cards.map((card) => (
                           <li key={card.id}>
-                            <button
-                              type="button"
-                              className={css.card}
-                              onClick={() => {
+                            <SessionCardView
+                              card={card}
+                              state={column}
+                              pinned={false}
+                              t={t}
+                              now={now}
+                              onOpen={() => {
                                 openPreview(card, column)
                               }}
-                            >
-                              <span className={css.cardTitle} title={card.title}>{card.title}</span>
-                              <span className={css.cardLine}>
-                                <span className={css.cardState}>{stateText(column, card, t)}</span>
-                                <span className={css.time} title={fullDate(card.updatedAt)}>
-                                  {timeText(card.updatedAt, now, t)}
-                                </span>
-                              </span>
-                              {card.cwd !== undefined && (
-                                <span className={css.cwd} title={card.cwd}>{baseName(card.cwd)}</span>
-                              )}
-                            </button>
+                              onTogglePin={() => {
+                                togglePin(card.id)
+                              }}
+                            />
                           </li>
                         ))}
                       </ul>

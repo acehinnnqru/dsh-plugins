@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { deriveBoard, previewMode, visibleCompleted, waitingCopyKey, type SessionCard } from '../src/client/board.ts'
+import { deriveBoard, derivePinned, previewMode, visibleCompleted, waitingCopyKey, type SessionCard } from '../src/client/board.ts'
 
 /** Brand a literal string as a Session id. */
 function id(value: string): SessionId {
@@ -212,14 +212,75 @@ describe('deriveBoard', () => {
   })
 })
 
+describe('derivePinned', () => {
+  it('keeps pinned Sessions in pin order with their runtime state', () => {
+    const running = id('running')
+    const waiting = id('waiting')
+    const done = id('done')
+    const idle = id('idle')
+    const pinned = derivePinned(
+      listOf([summary('running'), summary('waiting'), summary('done'), summary('idle')]),
+      statusesOf([
+        [running, status({ running: true })],
+        [waiting, status({ pendingInteraction: pending('question', waiting) })],
+        [done, status({ completionUnread: true })],
+        [idle, status()],
+      ]),
+      [],
+      [idle, done, running, waiting],
+    )
+
+    expect(pinned.map((card) => [card.id, card.state])).toEqual([
+      [idle, 'idle'],
+      [done, 'completed'],
+      [running, 'running'],
+      [waiting, 'waiting'],
+    ])
+  })
+
+  it('turns a read completion into idle but keeps a locally observed stop', () => {
+    const done = id('done')
+    const local = id('local')
+    const list = listOf([summary('done'), summary('local')])
+    const statuses = statusesOf([
+      [done, status({ completionUnread: true })],
+      [local, status()],
+    ])
+    const readAt = new Map<SessionId, number>([[done, 1], [local, 1]])
+
+    const pinned = derivePinned(list, statuses, [], [done, local], readAt, new Set([local]))
+
+    expect(pinned.map((card) => [card.id, card.state])).toEqual([
+      [done, 'idle'],
+      [local, 'completed'],
+    ])
+  })
+
+  it('skips archived, blank, and subagent pinned rows', () => {
+    const normal = summary('normal')
+    const blank = summary('blank', { blank: true })
+    const child = summary('child', { origin: 'subagent' })
+    const archived = summary('archived')
+    const pinned = derivePinned(
+      listOf([normal, blank, child, archived]),
+      statusesOf([[normal.id, status({ running: true })]]),
+      [archived.id],
+      [blank.id, child.id, archived.id, normal.id],
+    )
+
+    expect(pinned.map((card) => card.id)).toEqual([normal.id])
+  })
+})
+
 describe('previewMode', () => {
   it('opens a waiting Session in the question dialog', () => {
     expect(previewMode('waiting')).toBe('dialog')
   })
 
-  it('opens every other column in the full preview page', () => {
+  it('opens every other state in the full preview page', () => {
     expect(previewMode('running')).toBe('page')
     expect(previewMode('completed')).toBe('page')
+    expect(previewMode('idle')).toBe('page')
   })
 })
 

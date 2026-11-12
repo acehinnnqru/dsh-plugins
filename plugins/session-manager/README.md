@@ -14,12 +14,16 @@ by runtime state.
     is an approval, a plan review, an ordinary question, or an unrecognized domain.
   - **Completed** — the turn finished and that completion has not been read. The board also catches a
     stop DSH leaves unmarked because the Session stayed `mainView`-retained behind this panel.
-- Omits idle Sessions, Sessions whose completion has already been read, blank drafts, subagent-origin
-  rows, and archived Sessions. A **Waiting for input** card opens a dialog that surfaces the native
-  question immediately; every other card opens a full-screen preview **inside this page**. The
-  native Conversation, including its composer and any question/approval takeover, renders in either
-  surface. The dialog's **Full conversation** action expands to the page, and the page's back bar
-  returns to the board.
+- Omits idle Sessions from the three columns (a pinned idle Session stays in **Pinned**), Sessions
+  whose completion has already been read, blank drafts, subagent-origin rows, and archived Sessions.
+  A **Waiting for input** card opens a dialog that surfaces the native question immediately; every
+  other card opens a full-screen preview **inside this page**. The native Conversation, including
+  its composer and any question/approval takeover, renders in either surface. The dialog's **Full
+  conversation** action expands to the page, and the page's back bar returns to the board.
+- Pins a Session from the icon that appears when its card is hovered or focused. Pinned Sessions move
+  to a full-width **Pinned** rail above the columns and keep their runtime label there; the rail is
+  absent until at least one pin exists. Pins are browser-local and survive a panel round trip and a
+  reload; they do not change host state.
 - Embeds the native Conversation through the shared `conversation.content` Factory — the same host
   the subagent right-Sidebar chat uses — with a `SessionProvider` bound to a retained Session
   reference. It does not navigate, does not replace the main Conversation panel, and releases the
@@ -77,8 +81,9 @@ requests. The browser half reads the Session list and unified UI status from the
 archive set from the Workspace Controller. Opening a card retains one Session reference and renders
 the native Conversation through the `conversation.content` Factory; closing the preview releases
 the reference. The board itself never starts, stops, renames, or archives a Session; the embedded
-native composer is the Session's own input surface, used by the person in front of it. Nothing is
-persisted beyond the in-memory preview mark, which resets with the page.
+native composer is the Session's own input surface, used by the person in front of it. The only
+stored value is the browser-local pin list in `localStorage`; preview read marks and local stop
+notes live in memory and reset with the page.
 
 ## How the columns are decided
 
@@ -93,6 +98,7 @@ persisted beyond the in-memory preview mark, which resets with the page.
    Session's summary `updatedAt` advances; that mark is local and does not change DSH's own state.
 6. Everything else is omitted, which is what makes a read Session disappear.
 
-`tests/board.spec.ts` covers the precedence, the filters, the preview mark, and the surface
-choice; `tests/conversation-input.spec.ts` covers the embedded Factory phase; `tests/client.spec.ts`
+`tests/board.spec.ts` covers the precedence, the filters, the preview mark, the pinned states, and
+the surface choice; `tests/pins.spec.ts` covers persistence and subscriptions;
+`tests/conversation-input.spec.ts` covers the embedded Factory phase; `tests/client.spec.ts`
 executes the built bundle and checks its registrations, baseline imports, CSS, and source map.

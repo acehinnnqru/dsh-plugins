@@ -35,15 +35,24 @@ export interface SessionCard {
   readonly waitingKind: string | undefined
 }
 
+/** A pinned card's runtime state, or idle when the listed Session has no active stop. */
+export type PinnedState = BoardColumn | 'idle'
+
+/** One pinned card and the state its label uses. */
+export interface PinnedCard extends SessionCard {
+  readonly state: PinnedState
+}
+
 /**
  * How a card's Session opens.
  *
  * A Session waiting for the user opens the compact question dialog so the native question card is
- * on screen immediately; every other card opens the full-screen conversation preview.
- * @param column - the card's column.
- * @returns the preview surface for that column.
+ * on screen immediately; every other card, including an idle pinned card, opens the full-screen
+ * conversation preview.
+ * @param column - the card's column or pinned state.
+ * @returns the preview surface for that state.
  */
-export function previewMode(column: BoardColumn): 'dialog' | 'page' {
+export function previewMode(column: PinnedState): 'dialog' | 'page' {
   return column === 'waiting' ? 'dialog' : 'page'
 }
 
@@ -143,6 +152,68 @@ export function deriveBoard(
     waiting: newestFirst(waiting),
     completed: newestFirst(completed),
   }
+}
+
+/**
+ * Build cards for pinned Sessions, in pin order.
+ *
+ * A pinned Session stays at the top even when it is idle or already read, so this reads the whole
+ * listed set rather than one column. Archived, blank, and subagent rows are skipped. A completion
+ * still counts after the Session was opened from the board only when it is in `locallyCompleted`;
+ * otherwise an up-to-date preview mark turns the label to idle.
+ * @param list - Session Controller list snapshot.
+ * @param statuses - unified UI status by Session.
+ * @param archivedSessionIds - registry-global archive set.
+ * @param pinnedSessionIds - pinned Session ids, in the order the user pinned them.
+ * @param readAt - preview read marks, keyed by Session, valued by the summary `updatedAt` shown.
+ * @param locallyCompleted - stops the board observed itself and has not acknowledged.
+ * @returns pinned cards in pin order.
+ */
+export function derivePinned(
+  list: SessionListState,
+  statuses: SessionStatusSnapshot,
+  archivedSessionIds: readonly SessionId[],
+  pinnedSessionIds: readonly SessionId[],
+  readAt: ReadonlyMap<SessionId, number> = new Map(),
+  locallyCompleted: ReadonlySet<SessionId> = new Set(),
+): PinnedCard[] {
+  const archived = new Set(archivedSessionIds)
+  const seen = new Set<SessionId>()
+  const cards: PinnedCard[] = []
+
+  for (const id of pinnedSessionIds) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    const row = list.byId[id]
+    if (row === undefined || row.blank || row.origin === 'subagent' || archived.has(id)) continue
+
+    const status = statuses.get(id)
+    const pendingInteraction = status?.pendingInteraction
+    const isRunning = status?.running ?? row.running
+    const completionUnread = status?.completionUnread === true
+    const locallyDone = locallyCompleted.has(id)
+    const read = (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt
+
+    const state: PinnedState = pendingInteraction !== undefined
+      ? 'waiting'
+      : isRunning
+        ? 'running'
+        : (completionUnread || locallyDone) && (locallyDone || !read)
+          ? 'completed'
+          : 'idle'
+
+    const card: PinnedCard = {
+      id,
+      title: row.displayTitle,
+      cwd: row.cwd,
+      updatedAt: row.updatedAt,
+      waitingKind: pendingInteraction?.kind,
+      state,
+    }
+    cards.push(card)
+  }
+
+  return cards
 }
 
 /**
