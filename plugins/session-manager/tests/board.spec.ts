@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { deriveBoard, waitingCopyKey } from '../src/client/board.ts'
+import { deriveBoard, previewMode, visibleCompleted, waitingCopyKey, type SessionCard } from '../src/client/board.ts'
 
 /** Brand a literal string as a Session id. */
 function id(value: string): SessionId {
@@ -179,5 +179,57 @@ describe('deriveBoard', () => {
     expect(waitingCopyKey('question')).toBe('waiting.question')
     expect(waitingCopyKey('background-job')).toBe('waiting.input')
     expect(waitingCopyKey(undefined)).toBe('waiting.input')
+  })
+})
+
+describe('previewMode', () => {
+  it('opens a waiting Session in the question dialog', () => {
+    expect(previewMode('waiting')).toBe('dialog')
+  })
+
+  it('opens every other column in the full preview page', () => {
+    expect(previewMode('running')).toBe('page')
+    expect(previewMode('completed')).toBe('page')
+  })
+})
+
+describe('visibleCompleted', () => {
+  /** One completed card at a known activity time. */
+  function card(name: string, updatedAt: number): SessionCard {
+    return {
+      id: id(name),
+      title: name,
+      cwd: undefined,
+      updatedAt,
+      waitingKind: undefined,
+    }
+  }
+
+  it('hides a completion whose activity the preview already showed', () => {
+    const done = card('done', 100)
+    const readAt = new Map<SessionId, number>([[done.id, 100]])
+
+    expect(visibleCompleted([done], readAt)).toEqual([])
+  })
+
+  it('keeps a completion newer than the preview mark', () => {
+    const done = card('done', 100)
+    const readAt = new Map<SessionId, number>([[done.id, 90]])
+
+    expect(idsOf(visibleCompleted([done], readAt))).toEqual([done.id])
+  })
+
+  it('keeps completions the preview never showed', () => {
+    const done = card('done', 100)
+
+    expect(idsOf(visibleCompleted([done], new Map()))).toEqual([done.id])
+  })
+
+  it('hides only the marked card in a mixed column', () => {
+    const older = card('older', 100)
+    const newer = card('newer', 300)
+    const readAt = new Map<SessionId, number>([[older.id, 100]])
+
+    expect(idsOf(visibleCompleted([older, newer], readAt))).toEqual([newer.id])
   })
 })

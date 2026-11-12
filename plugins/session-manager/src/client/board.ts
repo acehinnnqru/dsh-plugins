@@ -35,6 +35,18 @@ export interface SessionCard {
   readonly waitingKind: string | undefined
 }
 
+/**
+ * How a card's Session opens.
+ *
+ * A Session waiting for the user opens the compact question dialog so the native question card is
+ * on screen immediately; every other card opens the full-screen conversation preview.
+ * @param column - the card's column.
+ * @returns the preview surface for that column.
+ */
+export function previewMode(column: BoardColumn): 'dialog' | 'page' {
+  return column === 'waiting' ? 'dialog' : 'page'
+}
+
 /** The derived board: one newest-first card list per column. */
 export interface SessionBoard {
   /** Sessions with a running turn and no pending interaction. */
@@ -127,4 +139,22 @@ export function deriveBoard(
     waiting: newestFirst(waiting),
     completed: newestFirst(completed),
   }
+}
+
+/**
+ * Drop completed cards the preview has already shown.
+ *
+ * DSH's own `completionUnread` is only cleared when a Session is retained as `mainView`; the preview
+ * deliberately is not that. The preview therefore keeps its own mark: the summary `updatedAt` it
+ * showed. A card is hidden while the mark is at least as new as the card, and returns as soon as
+ * newer activity makes the completion current again.
+ * @param cards - the derived completed column.
+ * @param readAt - preview read marks, keyed by Session, valued by the summary `updatedAt` shown.
+ * @returns cards that are unmarked, or whose completion is newer than their mark.
+ */
+export function visibleCompleted(
+  cards: readonly SessionCard[],
+  readAt: ReadonlyMap<SessionId, number>,
+): readonly SessionCard[] {
+  return cards.filter((card) => (readAt.get(card.id) ?? Number.NEGATIVE_INFINITY) < card.updatedAt)
 }

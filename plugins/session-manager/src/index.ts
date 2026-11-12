@@ -2,9 +2,9 @@
  * `dsh-plugin-session-manager`, host half.
  *
  * The board is browser-only: it reads the live Session list and the unified UI status the Web client
- * already owns, then opens a Session through the Workspace navigation service. The host half exists
- * because the browser module graph is built from live Loader rows — an empty `apply` is what puts
- * this package's `./client` export into that graph.
+ * already owns, then retains a Session to render the native Conversation in a preview inside the
+ * page. The host half exists because the browser module graph is built from live Loader rows — an
+ * empty `apply` is what puts this package's `./client` export into that graph.
  * @module dsh-plugin-session-manager
  */
 

@@ -15,13 +15,24 @@ by runtime state.
   - **Completed** — the turn finished while the Session was not in the main view, and that completion
     has not been read yet.
 - Omits idle Sessions, Sessions whose completion has already been read, blank drafts, subagent-origin
-  rows, and archived Sessions. Opening a card is the read acknowledgement: it navigates to that
-  Session and the card leaves the board.
+  rows, and archived Sessions. A **Waiting for input** card opens a dialog that surfaces the native
+  question immediately; every other card opens a full-screen preview **inside this page**. The
+  native Conversation, including its composer and any question/approval takeover, renders in either
+  surface. The dialog's **Full conversation** action expands to the page, and the page's back bar
+  returns to the board.
+- Embeds the native Conversation through the shared `conversation.content` Factory — the same host
+  the subagent right-Sidebar chat uses — with a `SessionProvider` bound to a retained Session
+  reference. It does not navigate, does not replace the main Conversation panel, and releases the
+  reference when the preview closes.
 - Reads only the live client state DSH already publishes — the Session list, the unified Session
   status, and the Workspace archive set — so the board follows running state, pending interactions,
   and reads without polling or a host route. **Completed** uses DSH's own unread-completion marker:
   it is local viewing state, so a completion observed by this client stays unread until the Session
   is opened, and a reload never invents unread turns.
+- Shows a completion in the preview and the board treats it as read: the card is hidden until that
+  Session's summary `updatedAt` advances. DSH's own `completionUnread` is only cleared by a
+  `mainView` retention, which a preview deliberately is not; this plugin therefore keeps its own
+  browser-local mark keyed by Session and the activity time it showed.
 - Carries no host behavior. The host half is an empty `apply`; it exists because a browser half is
   attached to a live Loader row.
 
@@ -60,8 +71,11 @@ nothing else. A later profile layer can still override that row by `id: session-
 
 Safety: the host half registers nothing, reads nothing, writes nothing, and makes no network
 requests. The browser half reads the Session list and unified UI status from the Web client, and the
-archive set from the Workspace Controller; selecting a card calls the existing Session navigation
-service. The board never starts, stops, renames, or archives a Session, and it persists nothing.
+archive set from the Workspace Controller. Opening a card retains one Session reference and renders
+the native Conversation through the `conversation.content` Factory; closing the preview releases
+the reference. The board itself never starts, stops, renames, or archives a Session; the embedded
+native composer is the Session's own input surface, used by the person in front of it. Nothing is
+persisted beyond the in-memory preview mark, which resets with the page.
 
 ## How the columns are decided
 
@@ -72,7 +86,10 @@ service. The board never starts, stops, renames, or archives a Session, and it p
 3. Otherwise a running turn puts it in **Running**. Until the status snapshot knows the row, the
    list row's own running flag is the fallback, matching the Workspace row.
 4. Otherwise `completionUnread` puts it in **Completed**.
-5. Everything else is omitted, which is what makes a read Session disappear.
+5. A completion already shown in the preview is omitted until the Session's summary `updatedAt`
+   advances; that mark is local to the board and does not change DSH's own read state.
+6. Everything else is omitted, which is what makes a read Session disappear.
 
-`tests/board.spec.ts` covers the precedence and the filters; `tests/client.spec.ts` executes the
-built bundle and checks its registrations, baseline imports, CSS, and source map.
+`tests/board.spec.ts` covers the precedence, the filters, the preview mark, and the surface
+choice; `tests/conversation-input.spec.ts` covers the embedded Factory phase; `tests/client.spec.ts`
+executes the built bundle and checks its registrations, baseline imports, CSS, and source map.

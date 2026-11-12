@@ -113,8 +113,10 @@ function stubCtx(seen: Registered[], wait: string[]): unknown {
         return () => undefined
       },
     },
-    uiWorkspace: {
-      openSession() {},
+    sessions: {
+      retain() {
+        return { release() {} }
+      },
     },
   }
 }
@@ -134,10 +136,10 @@ describe('session-manager browser half', () => {
     expect(requested.sort()).toEqual([...BASELINE].sort())
     expect(plugin?.apply).toBeTypeOf('function')
     // The source's `inject` is the Cordis service list; `dsh.client.inject` in the manifest is not this.
-    expect(plugin?.inject).toEqual(['slots', 'locale', 'uiWorkspace'])
+    expect(plugin?.inject).toEqual(['slots', 'locale', 'sessions', 'uiSession'])
   })
 
-  it('contributes one main page and one sidebar row under the same id', async () => {
+  it('contributes a main page, its preview child, and one sidebar row', async () => {
     const [registration] = await registrations()
     if (registration === undefined) throw new Error('no registration')
     const { plugin } = instantiate(registration)
@@ -146,21 +148,32 @@ describe('session-manager browser half', () => {
     const wait: string[] = []
     plugin?.apply?.(stubCtx(seen, wait))
 
-    // Both declarations are waited for, then filled with one registration each.
-    expect(wait).toEqual(['main', 'sidebar.panellist'])
-    expect(seen).toHaveLength(2)
-    expect(seen[0]?.options).toMatchObject({ name: 'main', key: 'session-manager' })
+    // The page's main declaration owns the child slot; the host waits for that declaration.
+    expect(wait).toEqual(['main', 'session-manager.conversation', 'sidebar.panellist'])
+    expect(seen).toHaveLength(3)
+    expect(seen[0]?.options).toMatchObject({
+      name: 'main',
+      key: 'session-manager',
+      children: {
+        'session-manager.conversation': { kind: 'single', scope: 'session' },
+      },
+    })
     expect(seen[1]?.options).toMatchObject({
+      name: 'session-manager.conversation',
+      locale: 'sessionManager',
+    })
+    expect(seen[2]?.options).toMatchObject({
       name: 'sidebar.panellist',
       id: 'session-manager',
       order: 30,
     })
 
-    const label = seen[1]?.options['label']
+    const label = seen[2]?.options['label']
     expect(label).toBeTypeOf('function')
     expect((label as () => string)()).toBe('panel.title')
     expect(seen[0]?.component).toBeTypeOf('function')
     expect(seen[1]?.component).toBeTypeOf('function')
+    expect(seen[2]?.component).toBeTypeOf('function')
   })
 
   it('carries its stylesheet inside the bundle', async () => {
@@ -176,7 +189,9 @@ describe('session-manager browser half', () => {
     }
     expect(map.sources?.some((source) => source.includes('client/index.tsx'))).toBe(true)
     expect(map.sources?.some((source) => source.includes('client/board.ts'))).toBe(true)
+    expect(map.sources?.some((source) => source.includes('client/ConversationHost.tsx'))).toBe(true)
     expect(map.sourcesContent?.some((content) => content.includes('sidebar.panellist'))).toBe(true)
     expect(map.sourcesContent?.some((content) => content.includes('completionUnread'))).toBe(true)
+    expect(map.sourcesContent?.some((content) => content.includes('conversation.content'))).toBe(true)
   })
 })
