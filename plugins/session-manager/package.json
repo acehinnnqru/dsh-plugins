@@ -1,0 +1,63 @@
+{
+  "name": "dsh-plugin-session-manager",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "A sidebar session board that shows running, waiting-for-input, and unread-completed sessions.",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/client.js.map",
+    "lib/types/**/*.d.ts",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json && tsdown",
+    "watch": "tsc -b tsconfig.json --watch --preserveWatchOutput & tsdown --watch",
+    "prepare": "tsc -b tsconfig.json && tsdown"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.1.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-api-session-controller": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-api-workspace-controller": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-locale": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-store": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-layout": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-session": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-session": "0.2.2-rc.1",
+    "@types/node": "22.20.4",
+    "@types/react": "18.3.31",
+    "dsh-client-preset": "file:../../tooling/dsh-client-preset",
+    "tsdown": "0.22.14",
+    "typescript": "6.0.3"
+  }
+}

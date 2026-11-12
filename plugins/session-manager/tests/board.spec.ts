@@ -1,0 +1,183 @@
+import { describe, expect, it } from 'vitest'
+import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { deriveBoard, waitingCopyKey } from '../src/client/board.ts'
+
+/** Brand a literal string as a Session id. */
+function id(value: string): SessionId {
+  return value as SessionId
+}
+
+/** One list row with every required field filled in. */
+function summary(name: string, overrides: Partial<Omit<SessionSummary, 'id'>> = {}): SessionSummary {
+  return {
+    id: id(name),
+    displayTitle: name,
+    running: false,
+    retainedBy: {},
+    blank: false,
+    updatedAt: 1,
+    ...overrides,
+  }
+}
+
+/** A list snapshot over the given rows. */
+function listOf(rows: readonly SessionSummary[]): SessionListState {
+  const byId: Record<SessionId, SessionSummary> = {}
+  for (const row of rows) byId[row.id] = row
+  return {
+    ids: rows.map((row) => row.id),
+    byId,
+    phase: 'ready',
+    projectionsBySession: {},
+  }
+}
+
+/** A status with every fact absent unless the test supplies it. */
+function status(overrides: Partial<SessionStatus> = {}): SessionStatus {
+  return {
+    running: undefined,
+    pendingInteraction: undefined,
+    completionUnread: false,
+    ...overrides,
+  }
+}
+
+/** Index statuses by Session. */
+function statusesOf(entries: ReadonlyArray<readonly [SessionId, SessionStatus]>): SessionStatusSnapshot {
+  return new Map(entries)
+}
+
+/** The ids a column carries, in render order. */
+function idsOf(cards: readonly { readonly id: SessionId }[]): SessionId[] {
+  return cards.map((card) => card.id)
+}
+
+/** A pending interaction of one runtime kind. */
+function pending(kind: string, sessionId: SessionId): NonNullable<SessionStatus['pendingInteraction']> {
+  return { key: `test-${kind}`, kind, sessionId }
+}
+
+describe('deriveBoard', () => {
+  it('places a running Session in the running column only', () => {
+    const session = id('running')
+    const board = deriveBoard(
+      listOf([summary('running')]),
+      statusesOf([[session, status({ running: true })]]),
+      [],
+    )
+
+    expect(idsOf(board.running)).toEqual([session])
+    expect(board.waiting).toEqual([])
+    expect(board.completed).toEqual([])
+  })
+
+  it('falls back to the list running flag while the status snapshot is unknown', () => {
+    const session = id('early')
+    const board = deriveBoard(listOf([summary('early', { running: true })]), new Map(), [])
+
+    expect(idsOf(board.running)).toEqual([session])
+  })
+
+  it('lets a pending interaction outrank a running turn', () => {
+    const session = id('approval')
+    const board = deriveBoard(
+      listOf([summary('approval')]),
+      statusesOf([[session, status({ running: true, pendingInteraction: pending('approval', session) })]]),
+      [],
+    )
+
+    expect(board.running).toEqual([])
+    expect(board.waiting).toHaveLength(1)
+    expect(board.waiting[0]).toMatchObject({ id: session, waitingKind: 'approval' })
+  })
+
+  it('places an unread completion in the completed column', () => {
+    const session = id('done')
+    const board = deriveBoard(
+      listOf([summary('done')]),
+      statusesOf([[session, status({ running: false, completionUnread: true })]]),
+      [],
+    )
+
+    expect(idsOf(board.completed)).toEqual([session])
+    expect(board.running).toEqual([])
+    expect(board.waiting).toEqual([])
+  })
+
+  it('drops idle and already-read Sessions', () => {
+    const read = id('read')
+    const idle = id('idle')
+    const board = deriveBoard(
+      listOf([summary('read'), summary('idle')]),
+      statusesOf([
+        [read, status({ running: false, completionUnread: false })],
+        [idle, status()],
+      ]),
+      [],
+    )
+
+    expect(board.running).toEqual([])
+    expect(board.waiting).toEqual([])
+    expect(board.completed).toEqual([])
+  })
+
+  it('drops blank, subagent, archived, and unstatused rows', () => {
+    const blank = summary('blank', { blank: true })
+    const child = summary('child', { origin: 'subagent' })
+    const archived = summary('archived')
+    const unstatused = summary('unstatused')
+    const normal = summary('normal')
+    const rows = [blank, child, archived, unstatused, normal]
+    const board = deriveBoard(
+      listOf(rows),
+      statusesOf([
+        [blank.id, status({ running: true })],
+        [child.id, status({ running: true })],
+        [archived.id, status({ running: true })],
+        [normal.id, status({ running: true })],
+      ]),
+      [archived.id],
+    )
+
+    expect(idsOf(board.running)).toEqual([normal.id])
+  })
+
+  it('orders each column newest first with the Session id as a tie-break', () => {
+    const older = summary('a', { updatedAt: 100 })
+    const newerB = summary('b', { updatedAt: 300 })
+    const newerC = summary('c', { updatedAt: 300 })
+    const statuses = statusesOf([
+      [older.id, status({ running: true })],
+      [newerB.id, status({ running: true })],
+      [newerC.id, status({ running: true })],
+    ])
+    const board = deriveBoard(listOf([older, newerB, newerC]), statuses, [])
+
+    expect(idsOf(board.running)).toEqual([newerB.id, newerC.id, older.id])
+  })
+
+  it('carries the display title and working directory onto a card', () => {
+    const session = id('titled')
+    const board = deriveBoard(
+      listOf([summary('titled', { displayTitle: 'Fix the parser', cwd: '/work/repo' })]),
+      statusesOf([[session, status({ running: true })]]),
+      [],
+    )
+
+    expect(board.running[0]).toMatchObject({
+      id: session,
+      title: 'Fix the parser',
+      cwd: '/work/repo',
+    })
+  })
+
+  it('maps every shipped interaction kind and falls back for unknown ones', () => {
+    expect(waitingCopyKey('approval')).toBe('waiting.approval')
+    expect(waitingCopyKey('plan-review')).toBe('waiting.planReview')
+    expect(waitingCopyKey('question')).toBe('waiting.question')
+    expect(waitingCopyKey('background-job')).toBe('waiting.input')
+    expect(waitingCopyKey(undefined)).toBe('waiting.input')
+  })
+})

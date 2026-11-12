@@ -1,0 +1,232 @@
+/* A main-column page, like the product's other panels: one scroll container holding a three-column
+   board. Every color is a semantic `--dsw-*` token, so both themes hold. */
+
+.page {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+}
+
+.content {
+  box-sizing: border-box;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px clamp(20px, 4vw, 48px) 48px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.heading {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 28px;
+}
+
+.description {
+  max-width: 720px;
+  margin: 6px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.total {
+  flex: none;
+  padding-top: 5px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.column {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.column[data-column='running'] {
+  --session-board-accent: var(--dsw-alias-state-business-primary);
+}
+
+.column[data-column='waiting'] {
+  --session-board-accent: var(--dsw-alias-state-warn-label);
+}
+
+.column[data-column='completed'] {
+  --session-board-accent: var(--dsw-alias-state-success-primary);
+}
+
+.columnHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 10px;
+}
+
+.columnTitle {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.columnCount {
+  flex: none;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.columnEmpty {
+  margin: 0;
+  padding: 12px 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-left: 3px solid var(--session-board-accent, var(--dsw-alias-border-l3));
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+
+.cardTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardLine {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.cardState {
+  flex: none;
+  color: var(--session-board-accent, var(--dsw-alias-label-tertiary));
+  white-space: nowrap;
+}
+
+.cwd {
+  display: block;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time {
+  flex: none;
+  white-space: nowrap;
+}
+
+.emptyHint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 0.5px dashed var(--dsw-alias-border-l3);
+  border-radius: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.emptyHint strong {
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+}
+
+.loading {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+@media (max-width: 820px) {
+  .header {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .total {
+    padding-top: 0;
+  }
+}

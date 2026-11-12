@@ -5,6 +5,7 @@
     { "path": "./tsconfig.scripts.json" },
     { "path": "./plugins/now" },
     { "path": "./plugins/workspace-diff" },
+    { "path": "./plugins/session-manager" },
     { "path": "./tooling/dsh-client-preset" },
     { "path": "./tooling/dsh-compat" },
     { "path": "./tooling/market-index" },
