@@ -41,7 +41,12 @@ import {
   subscribeChooseWorkspace,
   type ChooseWorkspace,
 } from './workspace-choice.ts'
-import { DEFAULT_WORKSPACE_TITLE, matchWorkspaces, workspaceLabel } from './workspace-search.ts'
+import {
+  DEFAULT_WORKSPACE_TITLE,
+  compactDirectory,
+  matchWorkspaces,
+  workspaceLabel,
+} from './workspace-search.ts'
 import css from './SessionBoard.module.css'
 
 /** Session standard props for the hero's options row plus this plugin's copy. */
@@ -105,12 +110,15 @@ function WorkspacePickerBody({
     gap: 6,
     margin: 12,
   })
+  const positioned = placement !== null
   useDismissOnOutsidePointer(root, open, setOpen)
 
-  // The menu owns the keyboard while it is open; the search field takes it first.
+  // The menu owns the keyboard while it is open; the search field takes it first. Wait for the
+  // anchored position: the panel starts hidden until it is measured, and hidden elements cannot
+  // take focus.
   useEffect(() => {
-    if (open) search.current?.focus()
-  }, [open])
+    if (open && positioned) search.current?.focus()
+  }, [open, positioned])
 
   // Keep the arrow-key highlight visible in a long registry.
   useEffect(() => {
@@ -243,6 +251,7 @@ function WorkspacePickerBody({
           <ul ref={list} className={css.workspaceList} role="listbox" aria-label={t('workspace.title')}>
             {items.map((workspace, index) => {
               const selected = workspace.workspaceId === current?.workspaceId
+              const directory = compactDirectory(workspace.path)
               return (
                 <li key={workspace.workspaceId} role="none">
                   <button
@@ -259,9 +268,11 @@ function WorkspacePickerBody({
                     <IconFolderCloseRegular size={14} className={css.workspaceRowIcon} />
                     <span className={css.workspaceRowText}>
                       <span className={css.workspaceRowTitle}>{label(workspace)}</span>
-                      <span className={css.workspaceRowPath} title={workspace.path}>
-                        {workspace.path}
-                      </span>
+                      {directory !== '' && (
+                        <span className={css.workspaceRowPath} title={workspace.path}>
+                          {directory}
+                        </span>
+                      )}
                     </span>
                     {selected && (
                       <IconCheckOutlineRegular size={14} className={css.workspaceRowCheck} />

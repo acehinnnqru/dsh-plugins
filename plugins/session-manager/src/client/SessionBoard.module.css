@@ -672,7 +672,7 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  width: min(380px, calc(100vw - 24px));
+  width: min(560px, calc(100vw - 24px));
   max-height: min(360px, var(--dsh-anchored-max-height, calc(100vh - 24px)));
   padding: 4px;
   overflow: hidden;
@@ -687,6 +687,7 @@
 }
 
 .workspaceSearchInput {
+  box-sizing: border-box;
   width: 100%;
 }
 
@@ -742,27 +743,26 @@
   min-width: 0;
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .workspaceRowTitle {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
+  flex: 0 0 auto;
   font-size: 13px;
   font-weight: 500;
   line-height: 18px;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .workspaceRowPath {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   line-height: 16px;
+  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
