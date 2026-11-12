@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { deriveBoard, derivePinned, visibleCompleted, waitingCopyKey, type SessionCard } from '../src/client/board.ts'
+import { deriveBoard, derivePinned, waitingCopyKey, withinRecent, type SessionCard } from '../src/client/board.ts'
 
 /** Brand a literal string as a Session id. */
 function id(value: string): SessionId {
@@ -69,8 +69,8 @@ describe('deriveBoard', () => {
     )
 
     expect(idsOf(board.running)).toEqual([session])
-    expect(board.waiting).toEqual([])
-    expect(board.completed).toEqual([])
+    expect(board.unread).toEqual([])
+    expect(board.recent).toEqual([])
   })
 
   it('falls back to the list running flag while the status snapshot is unknown', () => {
@@ -89,11 +89,12 @@ describe('deriveBoard', () => {
     )
 
     expect(board.running).toEqual([])
-    expect(board.waiting).toHaveLength(1)
-    expect(board.waiting[0]).toMatchObject({ id: session, waitingKind: 'approval' })
+    expect(board.unread).toHaveLength(1)
+    expect(board.unread[0]).toMatchObject({ id: session, waitingKind: 'approval' })
+    expect(board.recent).toEqual([])
   })
 
-  it('places an unread completion in the completed column', () => {
+  it('places an unread completion in the unread column', () => {
     const session = id('done')
     const board = deriveBoard(
       listOf([summary('done')]),
@@ -101,12 +102,12 @@ describe('deriveBoard', () => {
       [],
     )
 
-    expect(idsOf(board.completed)).toEqual([session])
+    expect(idsOf(board.unread)).toEqual([session])
     expect(board.running).toEqual([])
-    expect(board.waiting).toEqual([])
+    expect(board.recent).toEqual([])
   })
 
-  it('places a stop observed by the board in completed even without an unread marker', () => {
+  it('places a stop observed by the board in unread even without an unread marker', () => {
     const session = id('stopped')
     const board = deriveBoard(
       listOf([summary('stopped')]),
@@ -115,28 +116,28 @@ describe('deriveBoard', () => {
       new Set([session]),
     )
 
-    expect(idsOf(board.completed)).toEqual([session])
+    expect(idsOf(board.unread)).toEqual([session])
   })
 
-  it('keeps running and waiting Sessions out of completed even when marked stopped', () => {
+  it('uses running before a stale completion and unread before a running pending row', () => {
     const running = id('running')
     const waiting = id('waiting')
     const board = deriveBoard(
       listOf([summary('running'), summary('waiting')]),
       statusesOf([
-        [running, status({ running: true })],
-        [waiting, status({ pendingInteraction: pending('question', waiting) })],
+        [running, status({ running: true, completionUnread: true })],
+        [waiting, status({ running: true, pendingInteraction: pending('question', waiting) })],
       ]),
       [],
       new Set([running, waiting]),
     )
 
     expect(idsOf(board.running)).toEqual([running])
-    expect(idsOf(board.waiting)).toEqual([waiting])
-    expect(board.completed).toEqual([])
+    expect(idsOf(board.unread)).toEqual([waiting])
+    expect(board.recent).toEqual([])
   })
 
-  it('drops idle and already-read Sessions', () => {
+  it('keeps idle and already-read Sessions in recent', () => {
     const read = id('read')
     const idle = id('idle')
     const board = deriveBoard(
@@ -149,17 +150,44 @@ describe('deriveBoard', () => {
     )
 
     expect(board.running).toEqual([])
-    expect(board.waiting).toEqual([])
-    expect(board.completed).toEqual([])
+    expect(board.unread).toEqual([])
+    expect([...idsOf(board.recent)].sort()).toEqual(['idle', 'read'])
   })
 
-  it('drops blank, subagent, archived, and unstatused rows', () => {
+  it('moves an unread completion to recent when a current read mark exists', () => {
+    const done = id('done')
+    const board = deriveBoard(
+      listOf([summary('done')]),
+      statusesOf([[done, status({ completionUnread: true })]]),
+      [],
+      new Set(),
+      new Map([[done, 1]]),
+    )
+
+    expect(idsOf(board.recent)).toEqual([done])
+    expect(board.unread).toEqual([])
+  })
+
+  it('keeps an unread completion in unread when the read mark is older', () => {
+    const done = id('done')
+    const board = deriveBoard(
+      listOf([summary('done')]),
+      statusesOf([[done, status({ completionUnread: true })]]),
+      [],
+      new Set(),
+      new Map([[done, 0]]),
+    )
+
+    expect(idsOf(board.unread)).toEqual([done])
+    expect(board.recent).toEqual([])
+  })
+
+  it('drops blank, subagent, and archived rows', () => {
     const blank = summary('blank', { blank: true })
     const child = summary('child', { origin: 'subagent' })
     const archived = summary('archived')
-    const unstatused = summary('unstatused')
     const normal = summary('normal')
-    const rows = [blank, child, archived, unstatused, normal]
+    const rows = [blank, child, archived, normal]
     const board = deriveBoard(
       listOf(rows),
       statusesOf([
@@ -172,9 +200,10 @@ describe('deriveBoard', () => {
     )
 
     expect(idsOf(board.running)).toEqual([normal.id])
+    expect(board.recent).toEqual([])
   })
 
-  it('orders each column newest first with the Session id as a tie-break', () => {
+  it('orders running newest first with the Session id as a tie-break', () => {
     const older = summary('a', { updatedAt: 100 })
     const newerB = summary('b', { updatedAt: 300 })
     const newerC = summary('c', { updatedAt: 300 })
@@ -186,6 +215,20 @@ describe('deriveBoard', () => {
     const board = deriveBoard(listOf([older, newerB, newerC]), statuses, [])
 
     expect(idsOf(board.running)).toEqual([newerB.id, newerC.id, older.id])
+  })
+
+  it('orders recent newest first with the Session id as a tie-break', () => {
+    const older = summary('a', { updatedAt: 100 })
+    const newerB = summary('b', { updatedAt: 300 })
+    const newerC = summary('c', { updatedAt: 300 })
+    const statuses = statusesOf([
+      [older.id, status()],
+      [newerB.id, status()],
+      [newerC.id, status()],
+    ])
+    const board = deriveBoard(listOf([older, newerB, newerC]), statuses, [])
+
+    expect(idsOf(board.recent)).toEqual([newerB.id, newerC.id, older.id])
   })
 
   it('carries the display title and working directory onto a card', () => {
@@ -272,8 +315,9 @@ describe('derivePinned', () => {
   })
 })
 
-describe('visibleCompleted', () => {
-  /** One completed card at a known activity time. */
+describe('withinRecent', () => {
+  const day = 86_400_000
+
   function card(name: string, updatedAt: number): SessionCard {
     return {
       id: id(name),
@@ -284,38 +328,19 @@ describe('visibleCompleted', () => {
     }
   }
 
-  it('hides a completion whose activity the preview already showed', () => {
-    const done = card('done', 100)
-    const readAt = new Map<SessionId, number>([[done.id, 100]])
+  it('keeps the inclusive window and drops older cards', () => {
+    const now = 10 * day
+    const inside = card('inside', now - 3 * day)
+    const older = card('older', now - 3 * day - 1)
 
-    expect(visibleCompleted([done], readAt)).toEqual([])
+    expect(idsOf(withinRecent([inside, older], now, 3))).toEqual([inside.id])
   })
 
-  it('keeps a completion newer than the preview mark', () => {
-    const done = card('done', 100)
-    const readAt = new Map<SessionId, number>([[done.id, 90]])
+  it('uses the selected window', () => {
+    const now = 10 * day
+    const week = card('week', now - 7 * day)
 
-    expect(idsOf(visibleCompleted([done], readAt))).toEqual([done.id])
-  })
-
-  it('keeps completions the preview never showed', () => {
-    const done = card('done', 100)
-
-    expect(idsOf(visibleCompleted([done], new Map()))).toEqual([done.id])
-  })
-
-  it('hides only the marked card in a mixed column', () => {
-    const older = card('older', 100)
-    const newer = card('newer', 300)
-    const readAt = new Map<SessionId, number>([[older.id, 100]])
-
-    expect(idsOf(visibleCompleted([older, newer], readAt))).toEqual([newer.id])
-  })
-
-  it('keeps a locally observed completion even when an older read mark exists', () => {
-    const done = card('done', 100)
-    const readAt = new Map<SessionId, number>([[done.id, 100]])
-
-    expect(idsOf(visibleCompleted([done], readAt, new Set([done.id])))).toEqual([done.id])
+    expect(idsOf(withinRecent([week], now, 7))).toEqual([week.id])
+    expect(withinRecent([week], now, 3)).toEqual([])
   })
 })

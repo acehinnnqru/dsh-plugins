@@ -1,10 +1,10 @@
 /**
  * Pure derivation for the session board.
  *
- * The board is a kanban over the three runtime facts the Web client already publishes per Session:
- * a turn is running, a domain is waiting for the user, or a finished turn has not been acknowledged
- * yet. Everything else — a blank draft, an archived row, an idle Session the user has already read —
- * deliberately has no column, so it never appears.
+ * The board is a kanban over three useful states: a turn is running, something is unread (a pending
+ * interaction or an unacknowledged completion), or the Session is recent but already read. Recent
+ * keeps a Session findable after it leaves Unread; blank drafts, archived rows, and subagent-origin
+ * rows still have no column.
  *
  * Keeping the derivation here, apart from React and the slot props, is what lets the classification
  * be tested without a browser.
@@ -15,8 +15,8 @@ import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/c
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-/** The three runtime states the board shows, in column order. */
-export const BOARD_COLUMNS = ['running', 'waiting', 'completed'] as const
+/** The three board columns, in order. */
+export const BOARD_COLUMNS = ['running', 'unread', 'recent'] as const
 
 /** One board column. */
 export type BoardColumn = (typeof BOARD_COLUMNS)[number]
@@ -35,8 +35,17 @@ export interface SessionCard {
   readonly waitingKind: string | undefined
 }
 
-/** A pinned card's runtime state, or idle when the listed Session has no active stop. */
-export type PinnedState = BoardColumn | 'idle'
+/** A card's label state: pending interaction, running, unread completion, or idle. */
+export type PinnedState = 'waiting' | 'running' | 'completed' | 'idle'
+
+/** Recent-window choices, in days. */
+export const RECENT_WINDOW_DAYS = [1, 3, 7, 30] as const
+
+/** One allowed Recent window length. */
+export type RecentWindowDays = (typeof RECENT_WINDOW_DAYS)[number]
+
+/** Default Recent window: three days. */
+export const DEFAULT_RECENT_WINDOW_DAYS: RecentWindowDays = 3
 
 /** One pinned card and the state its label uses. */
 export interface PinnedCard extends SessionCard {
@@ -47,10 +56,10 @@ export interface PinnedCard extends SessionCard {
 export interface SessionBoard {
   /** Sessions with a running turn and no pending interaction. */
   readonly running: readonly SessionCard[]
-  /** Sessions whose highest-precedence domain is waiting for the user. */
-  readonly waiting: readonly SessionCard[]
-  /** Sessions that finished while not in the main view and are still unread. */
-  readonly completed: readonly SessionCard[]
+  /** Pending interactions and completions that have not been acknowledged. */
+  readonly unread: readonly SessionCard[]
+  /** Read and idle Sessions, kept newest first so they remain findable. */
+  readonly recent: readonly SessionCard[]
 }
 
 /** Copy keys that name a pending interaction. */
@@ -60,7 +69,7 @@ export type WaitingCopyKey = 'waiting.approval' | 'waiting.planReview' | 'waitin
  * Map a runtime interaction kind to the card's copy key.
  *
  * The Web client's row presentation names three shipped domains; any future or plugin-contributed
- * domain still lands in the waiting column, just under the generic label.
+ * domain still lands in **Unread**, just under the generic label.
  * @param kind - `pendingInteraction.kind`, or undefined when there is no interaction.
  * @returns the locale key naming why the Session waits.
  */
@@ -71,6 +80,22 @@ export function waitingCopyKey(kind: string | undefined): WaitingCopyKey {
     case 'question': return 'waiting.question'
     default: return 'waiting.input'
   }
+}
+
+/**
+ * Keep recent cards inside the configured window.
+ * @param cards - cards from the Recent column.
+ * @param now - current epoch ms.
+ * @param days - window length in days.
+ * @returns cards whose latest activity is inside the inclusive window.
+ */
+export function withinRecent(
+  cards: readonly SessionCard[],
+  now: number,
+  days: RecentWindowDays,
+): readonly SessionCard[] {
+  const since = now - days * 86_400_000
+  return cards.filter((card) => card.updatedAt >= since)
 }
 
 /**
@@ -86,19 +111,22 @@ function newestFirst(cards: SessionCard[]): SessionCard[] {
 }
 
 /**
- * Derive the three columns from the live Session list, status snapshot, and archive set.
+ * Derive the three columns from the live Session list, status snapshot, archive set, and marks.
  *
  * A row is considered only when it is a non-blank ordinary Session that is still listed and not
  * archived. Its status then decides the column, in precedence order: a pending interaction outranks
- * a running turn (the same rule the Session row uses), and an unread completion is the last
- * fallback. Before the status snapshot knows a row, its list-run flag is the fallback — exactly the
- * one the Workspace row uses. An idle/read Session means no card.
+ * a running turn (the same rule the Session row uses); a running turn outranks an unread completion;
+ * and an unread completion that has not been acknowledged goes to **Unread**. Everything left is
+ * **Recent**, so a Session stays visible after it is read. Before the status snapshot knows a row,
+ * its list-run flag is the fallback — exactly the one the Workspace row uses.
  * @param list - Session Controller list snapshot.
  * @param statuses - unified UI status by Session.
  * @param archivedSessionIds - registry-global archive set.
  * @param locallyCompleted - Sessions the board watched stop while it was mounted. DSH leaves
  *   `completionUnread` false when the Session is still retained as `mainView` behind a global
  *   panel, so the board keeps its own stop observation.
+ * @param readAt - completion read marks, keyed by Session, valued by the summary `updatedAt` shown.
+ *   A mark at least as new as the row moves an unread completion to Recent.
  * @returns the board, one newest-first list per column.
  */
 export function deriveBoard(
@@ -106,11 +134,12 @@ export function deriveBoard(
   statuses: SessionStatusSnapshot,
   archivedSessionIds: readonly SessionId[],
   locallyCompleted: ReadonlySet<SessionId> = new Set(),
+  readAt: ReadonlyMap<SessionId, number> = new Map(),
 ): SessionBoard {
   const archived = new Set(archivedSessionIds)
   const running: SessionCard[] = []
-  const waiting: SessionCard[] = []
-  const completed: SessionCard[] = []
+  const unread: SessionCard[] = []
+  const recent: SessionCard[] = []
 
   for (const id of list.ids) {
     const row = list.byId[id]
@@ -120,6 +149,8 @@ export function deriveBoard(
     const pendingInteraction = status?.pendingInteraction
     const isRunning = status?.running ?? row.running
     const completionUnread = status?.completionUnread === true
+    const locallyDone = locallyCompleted.has(id)
+    const read = (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt
 
     const card: SessionCard = {
       id,
@@ -129,15 +160,16 @@ export function deriveBoard(
       waitingKind: pendingInteraction?.kind,
     }
 
-    if (pendingInteraction !== undefined) waiting.push(card)
+    if (pendingInteraction !== undefined) unread.push(card)
     else if (isRunning) running.push(card)
-    else if (completionUnread || locallyCompleted.has(id)) completed.push(card)
+    else if (locallyDone || (completionUnread && !read)) unread.push(card)
+    else recent.push(card)
   }
 
   return {
     running: newestFirst(running),
-    waiting: newestFirst(waiting),
-    completed: newestFirst(completed),
+    unread: newestFirst(unread),
+    recent: newestFirst(recent),
   }
 }
 
@@ -201,27 +233,4 @@ export function derivePinned(
   }
 
   return cards
-}
-
-/**
- * Drop completed cards whose completion has already been acknowledged.
- *
- * DSH's own `completionUnread` is only cleared when a Session is retained as `mainView`; a card
- * opened from the board navigates to that view, but the board still keeps its own mark for the
- * summary `updatedAt` it showed. A card is hidden while the mark is at least as new as the card, and
- * returns as soon as newer activity makes the completion current again.
- * @param cards - the derived completed column.
- * @param readAt - completion read marks, keyed by Session, valued by the summary `updatedAt` shown.
- * @param locallyCompleted - stops the board observed itself; these are newer than an older read mark.
- * @returns cards that are unmarked, locally observed, or newer than their mark.
- */
-export function visibleCompleted(
-  cards: readonly SessionCard[],
-  readAt: ReadonlyMap<SessionId, number>,
-  locallyCompleted: ReadonlySet<SessionId> = new Set(),
-): readonly SessionCard[] {
-  return cards.filter((card) =>
-    locallyCompleted.has(card.id)
-    || (readAt.get(card.id) ?? Number.NEGATIVE_INFINITY) < card.updatedAt,
-  )
 }

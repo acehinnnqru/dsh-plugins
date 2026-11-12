@@ -17,9 +17,12 @@ import {
   IconPinFillRegular,
   IconPinOutlineRegular,
   IconRightUpOutlineRegular,
+  IconSettingsOutlineRegular,
+  Menu,
   Modal,
   relativeTime,
   StateDot,
+  type MenuEntry,
   type StateDotState,
   type RelativeTimeUnit,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -31,10 +34,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import {
   BOARD_COLUMNS,
+  RECENT_WINDOW_DAYS,
   deriveBoard,
   derivePinned,
-  visibleCompleted,
   waitingCopyKey,
+  withinRecent,
   type BoardColumn,
   type PinnedState,
   type SessionCard,
@@ -43,6 +47,7 @@ import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
 import { NS, type SessionManagerKey } from './locales.ts'
 import { pinnedSessionIds, subscribePins, togglePin } from './pins.ts'
+import { recentWindowDays, setRecentWindowDays, subscribeRecentWindow } from './recent-window.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
 import css from './SessionBoard.module.css'
 
@@ -159,12 +164,12 @@ function PreviewDialog({
 }
 
 /**
- * Read marks for completions that were already in **Completed** when opened.
+ * Read marks for completions acknowledged from the board.
  *
- * DSH clears `completionUnread` only for a `mainView` retention; the board keeps its own mark so a
- * completed card leaves after it has been opened from the board. The value is the summary
- * `updatedAt` the card showed, so newer activity brings it back. Module-level so a panel round trip
- * does not resurrect the card; browser-local, like DSH's own reminder.
+ * DSH clears `completionUnread` only for a `mainView` retention; the board keeps its own mark so an
+ * unread completion moves to **Recent** after it has been opened from the board. The value is the
+ * summary `updatedAt` the card showed, so newer activity makes the completion current again.
+ * Module-level so a panel round trip keeps the classification; browser-local, like DSH's reminder.
  */
 const completionReadAt = new Map<SessionId, number>()
 
@@ -178,8 +183,8 @@ interface ColumnCopy {
 /** Column copy, in the same order as {@link BOARD_COLUMNS}. */
 const COLUMN_COPY: Record<BoardColumn, ColumnCopy> = {
   running: { title: 'column.running', empty: 'column.running.empty', dot: 'ongoing' },
-  waiting: { title: 'column.waiting', empty: 'column.waiting.empty', dot: 'warning' },
-  completed: { title: 'column.completed', empty: 'column.completed.empty', dot: 'done' },
+  unread: { title: 'column.unread', empty: 'column.unread.empty', dot: 'warning' },
+  recent: { title: 'column.recent', empty: 'column.recent.empty', dot: 'idle' },
 }
 
 /** Relative-time buckets, localized in this plugin's own dictionary. */
@@ -335,8 +340,10 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const [now, setNow] = useState(() => Date.now())
   const [preview, setPreview] = useState<Preview | undefined>(undefined)
   const [previewError, setPreviewError] = useState<string | undefined>(undefined)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [, bumpBoardRevision] = useState(0)
   const [, bumpPinRevision] = useState(0)
+  const [, bumpWindowRevision] = useState(0)
 
   // The tracker is global; this board only needs to re-render when its local completion map moves.
   useEffect(() => subscribeLocalCompletions(() => {
@@ -347,6 +354,11 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   useEffect(() => subscribePins(() => {
     bumpPinRevision((value) => value + 1)
   }), [bumpPinRevision])
+
+  // The Recent window is another browser-local preference; redraw when it changes.
+  useEffect(() => subscribeRecentWindow(() => {
+    bumpWindowRevision((value) => value + 1)
+  }), [bumpWindowRevision])
 
   // The board is visible, so a return marker from an earlier Session visit is stale.
   useEffect(() => {
@@ -379,14 +391,22 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const locallyCompleted = localCompletionIds(list)
   const pinned = derivePinned(list, statuses, archived, pinnedSessionIds(), completionReadAt, locallyCompleted)
   const pinnedIds = new Set(pinned.map((card) => card.id))
-  const board = deriveBoard(list, statuses, archived, locallyCompleted)
+  const board = deriveBoard(list, statuses, archived, locallyCompleted, completionReadAt)
+  const windowDays = recentWindowDays()
+  const recent = withinRecent(board.recent, now, windowDays)
   const columns: Record<BoardColumn, readonly SessionCard[]> = {
     running: board.running.filter((card) => !pinnedIds.has(card.id)),
-    waiting: board.waiting.filter((card) => !pinnedIds.has(card.id)),
-    completed: visibleCompleted(board.completed, completionReadAt, locallyCompleted)
-      .filter((card) => !pinnedIds.has(card.id)),
+    unread: board.unread.filter((card) => !pinnedIds.has(card.id)),
+    recent: recent.filter((card) => !pinnedIds.has(card.id)),
   }
-  const total = columns.running.length + columns.waiting.length + columns.completed.length + pinned.length
+  const total = columns.running.length + columns.unread.length + columns.recent.length + pinned.length
+  const windowItems: MenuEntry[] = [
+    { type: 'label', id: 'recent-window', text: t('settings.recent') },
+    ...RECENT_WINDOW_DAYS.map((days) => ({
+      id: String(days),
+      label: t(days === 1 ? 'settings.day' : 'settings.days', { n: days }),
+    })),
+  ]
 
   /**
    * Open the card's preview dialog.
@@ -499,7 +519,41 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       <div className={css.content}>
         <header className={css.header}>
           <h1 className={css.title}>{t('page.title')}</h1>
-          {total > 0 && <span className={css.total}>{t('page.count', { count: total })}</span>}
+          <div className={css.headerTools}>
+            {total > 0 && <span className={css.total}>{t('page.count', { count: total })}</span>}
+            <Menu
+              open={settingsOpen}
+              anchor={(
+                <button
+                  type="button"
+                  className={css.settings}
+                  aria-label={t('settings.open')}
+                  aria-haspopup="menu"
+                  aria-expanded={settingsOpen}
+                  title={t('settings.open')}
+                  onClick={() => {
+                    setSettingsOpen((open) => !open)
+                  }}
+                >
+                  <IconSettingsOutlineRegular size={16} />
+                </button>
+              )}
+              items={windowItems}
+              selectedId={String(windowDays)}
+              onSelect={(id) => {
+                setRecentWindowDays(Number(id))
+                setSettingsOpen(false)
+              }}
+              onClose={() => {
+                setSettingsOpen(false)
+              }}
+              align="end"
+              side="bottom"
+              autoFocus
+              portal
+              className={css.settingsAnchor}
+            />
+          </div>
         </header>
 
         {previewError !== undefined && (
@@ -565,26 +619,35 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                     ? <p className={css.columnEmpty}>{t(meta.empty)}</p>
                     : (
                       <ul className={css.cards}>
-                        {cards.map((card) => (
-                          <li key={card.id}>
-                            <SessionCardView
-                              card={card}
-                              state={column}
-                              pinned={false}
-                              t={t}
-                              now={now}
-                              onOpen={() => {
-                                openPreview(card, column)
-                              }}
-                              onOpenSession={() => {
-                                openSessionPage(card, column)
-                              }}
-                              onTogglePin={() => {
-                                togglePin(card.id)
-                              }}
-                            />
-                          </li>
-                        ))}
+                        {cards.map((card) => {
+                          const state: PinnedState = column === 'running'
+                            ? 'running'
+                            : column === 'unread'
+                              ? statuses.get(card.id)?.pendingInteraction !== undefined
+                                ? 'waiting'
+                                : 'completed'
+                              : 'idle'
+                          return (
+                            <li key={card.id}>
+                              <SessionCardView
+                                card={card}
+                                state={state}
+                                pinned={false}
+                                t={t}
+                                now={now}
+                                onOpen={() => {
+                                  openPreview(card, state)
+                                }}
+                                onOpenSession={() => {
+                                  openSessionPage(card, state)
+                                }}
+                                onTogglePin={() => {
+                                  togglePin(card.id)
+                                }}
+                              />
+                            </li>
+                          )
+                        })}
                       </ul>
                     )}
                 </section>
