@@ -53,11 +53,11 @@ is an informational **package name** list and decides nothing.
 ## Install into a profile
 
 Build first — the profile installs `lib/index.js` and `lib/client.js`, and a `link:`/path install
-serves those files straight from this directory:
+serves those files straight from this directory. Run this from the repo root:
 
 ```sh
 direnv exec . pnpm --filter dsh-plugin-now build
-dsh plugin --profile dev add /Users/rqc/r/github.com/acehinnnqru/dsh-plugins/plugins/now
+dsh plugin --profile dev add "$PWD/plugins/now"
 dsh --profile dev --dump-config | grep -A3 'dsh-plugin-now'   # the layer is in the composed config
 dsh --profile dev
 ```

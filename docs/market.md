@@ -26,8 +26,9 @@ repo publishes to npm.
 
 ## Generate the index
 
+From the repo root:
+
 ```sh
-cd /Users/rqc/r/github.com/acehinnnqru/dsh-plugins
 direnv exec . pnpm market:index
 direnv exec . pnpm verify:market
 ```

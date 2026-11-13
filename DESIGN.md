@@ -194,7 +194,7 @@ Not now; the path is recorded here so the research does not have to be redone:
 
 ## 7. Sources
 
-The facts come from the local DSH checkout (`/Users/rqc/r/github.com/deepseek-ai/deepseek-harness`) and from measurements against the npm registry. The market facts come from the installed `@deepseek-ai/dsh-plugin-market-index` 0.2.2-rc.1 validator and types, the `@deepseek-ai/dsh-plugin-market` README, and the upstream note `.agents/notes/implemented/feature/2026-10-02-plugin-market-index-format.md`.
+The facts come from the local DSH checkout (read-only) and from measurements against the npm registry. The market facts come from the installed `@deepseek-ai/dsh-plugin-market-index` 0.2.2-rc.1 validator and types, the `@deepseek-ai/dsh-plugin-market` README, and the upstream note `.agents/notes/implemented/feature/2026-10-02-plugin-market-index-format.md`.
 
 The three research notes, item by item with file paths and code snippets:
 
@@ -219,4 +219,4 @@ Key source locations:
 | HMR driver | `packages/client/hmr/src/index.ts` |
 | How to use the test-support packages | `packages/test-support/loader-smoke/README.md` |
 
-**Local toolchain**: Node `v22.22.3` from the repo's nix devshell (`/nix/store/...-nodejs-22.22.3`), pnpm `11.7.0` from pnpm's own version management. Neither is a system install.
+**Local toolchain**: Node `v22.22.3` from the repo's nix devshell, pnpm `11.7.0` from pnpm's own version management. Neither is a system install.

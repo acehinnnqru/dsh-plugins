@@ -1,6 +1,6 @@
 # Out-of-tree DSH **browser-half (client) plugin** — exact contract
 
-All paths relative to the DSH checkout `/Users/rqc/r/github.com/deepseek-ai/deepseek-harness` (read-only investigation).
+All paths relative to the DSH checkout root (read-only investigation).
 
 ## 1. `dsh.client` in package.json — schema, meaning, validation
 

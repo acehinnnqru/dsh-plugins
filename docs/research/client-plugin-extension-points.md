@@ -1,7 +1,7 @@
 # DSH client plugin extension points — what an out-of-tree plugin with a host half + browser half can do
 
-Read-only investigation of the DSH checkout `/Users/rqc/r/github.com/deepseek-ai/deepseek-harness`
-(version line 0.1.5-rc.1). Line numbers are from the files as read; nothing in the checkout was modified.
+Read-only investigation of the DSH checkout (version line 0.1.5-rc.1). Line numbers are from the
+files as read; nothing in the checkout was modified.
 Companion notes: `client-half-build-contract.md` (manifest + bundle format), `host-and-bundle-contract.md`.
 
 ## 0. Answers in one table

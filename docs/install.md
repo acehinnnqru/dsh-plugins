@@ -14,11 +14,12 @@ example throughout.
 
 ## 0. Build and pack it first
 
+From the repo root:
+
 ```sh
-cd /Users/rqc/r/github.com/acehinnnqru/dsh-plugins
 direnv exec . pnpm install                              # once per clone
 direnv exec . pnpm --filter dsh-plugin-now build
-direnv exec . pnpm --filter dsh-plugin-now pack --pack-destination /tmp/dsh-plugin-pkg
+direnv exec . pnpm --filter dsh-plugin-now pack --pack-destination "$PWD/dsh-plugin-pkg"
 ```
 
 `--pack-destination` creates the directory itself, so there is no `mkdir` step.
@@ -29,13 +30,14 @@ real path stays in this repo, so the plugin resolves its peers from here instead
 ([DESIGN.md](../DESIGN.md) §3.5). The path install is still the fast everyday loop:
 
 ```sh
-dsh plugin --profile demo add /Users/rqc/r/github.com/acehinnnqru/dsh-plugins/plugins/now
-dsh plugin --profile demo add /tmp/dsh-plugin-pkg/dsh-plugin-now-0.0.0.tgz
+dsh plugin --profile demo add "$PWD/plugins/now"
+dsh plugin --profile demo add "$PWD/dsh-plugin-pkg/dsh-plugin-now-0.0.0.tgz"
 ```
 
 The first one is `link:`: pnpm copies nothing and does not install the plugin's own dependencies —
 they come from this repo's `node_modules`, which is why `pnpm install` has to have run here. The
-second one installs them into the profile.
+second one installs them into the profile. Run both from the repo root: the shell expands `$PWD`
+before dsh runs pnpm inside the profile, and a bare relative path would resolve there instead.
 
 ## 1. Create a profile to demo in
 
@@ -55,7 +57,7 @@ initialize `demo` from the plain default, which is `dsh-base` alone.
 ## 2. Add the plugin
 
 ```sh
-dsh plugin --profile demo add /tmp/dsh-plugin-pkg/dsh-plugin-now-0.0.0.tgz
+dsh plugin --profile demo add "$PWD/dsh-plugin-pkg/dsh-plugin-now-0.0.0.tgz"
 ```
 
 Expected: pnpm reports `dsh-plugin-now` added, and the profile's `package.json` gains

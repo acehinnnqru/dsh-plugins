@@ -1,6 +1,6 @@
 # DSH out-of-tree plugin contract — evidence report
 
-Repo: `/Users/rqc/r/github.com/deepseek-ai/deepseek-harness` (read-only; HEAD 183f08e9c).
+Repo: the DSH checkout (read-only; HEAD 183f08e9c).
 All line numbers below were read directly unless marked UNCERTAIN.
 
 ## 1. Host plugin entry-module export contract
