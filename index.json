@@ -28,12 +28,41 @@
       "versions": [
         {
           "version": "0.0.0",
-          "publishTimestamp": 1794197475,
+          "publishTimestamp": 1794555901,
           "source": {
             "type": "git",
             "url": "https://github.com/acehinnnqru/dsh-plugins",
-            "commit": "f7ad15fb004a89212598533e9cdc5606b547091a",
+            "commit": "13fbfae37a038996c985dc23d3286801d0ff6533",
             "path": "plugins/now"
+          },
+          "engines": {
+            "dsh": "0.2.2-rc.1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-plugin-session-manager",
+      "description": "A sidebar session board that shows running, waiting-for-input, and unread-completed sessions.",
+      "author": "acehinnnqru",
+      "repository": {
+        "url": "https://github.com/acehinnnqru/dsh-plugins",
+        "directory": "plugins/session-manager"
+      },
+      "metadata": {
+        "keywords": [],
+        "labels": [],
+        "sortKeys": {}
+      },
+      "versions": [
+        {
+          "version": "0.0.0",
+          "publishTimestamp": 1794555901,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/acehinnnqru/dsh-plugins",
+            "commit": "13fbfae37a038996c985dc23d3286801d0ff6533",
+            "path": "plugins/session-manager"
           },
           "engines": {
             "dsh": "0.2.2-rc.1"
@@ -57,11 +86,11 @@
       "versions": [
         {
           "version": "0.0.0",
-          "publishTimestamp": 1794197475,
+          "publishTimestamp": 1794555901,
           "source": {
             "type": "git",
             "url": "https://github.com/acehinnnqru/dsh-plugins",
-            "commit": "f7ad15fb004a89212598533e9cdc5606b547091a",
+            "commit": "13fbfae37a038996c985dc23d3286801d0ff6533",
             "path": "plugins/workspace-diff"
           },
           "engines": {
