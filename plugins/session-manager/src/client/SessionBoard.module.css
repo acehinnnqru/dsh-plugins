@@ -473,8 +473,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 48px;
-  padding: 0 12px 0 20px;
+  min-height: 56px;
+  padding: 12px 12px 10px 20px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l3);
 }
 
@@ -482,8 +482,15 @@
   flex: 1;
   min-width: 0;
   display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.dialogTitleRow {
+  display: flex;
   align-items: baseline;
   gap: 8px;
+  min-width: 0;
 }
 
 .dialogEyebrow {
@@ -500,7 +507,18 @@
   overflow: hidden;
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
+  font-weight: 600;
   line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialogSubtitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -524,7 +542,8 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.dialogClose {
+.dialogClose,
+.dialogIconAction {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -538,7 +557,8 @@
   cursor: pointer;
 }
 
-.dialogClose:hover {
+.dialogClose:hover,
+.dialogIconAction:hover {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }

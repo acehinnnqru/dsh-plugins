@@ -31,7 +31,7 @@ import {
   type RelativeTimeUnit,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: each carries the declaration merges for the global hooks and the `main` slot row.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -53,6 +53,7 @@ import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } f
 import { NewConversation } from './NewConversation.tsx'
 import { NS, type SessionManagerKey } from './locales.ts'
 import { currentWorkspaceId, recentWorkspaceId } from './new-conversation-target.ts'
+import { DEFAULT_WORKSPACE_TITLE, workspaceLabel } from './workspace-search.ts'
 import { recentWindowDays, setRecentWindowDays, subscribeRecentWindow } from './recent-window.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
 import { setChooseWorkspace } from './workspace-choice.ts'
@@ -141,6 +142,8 @@ interface Composer {
 interface PreviewDialogProps {
   readonly preview: Preview
   readonly title: string
+  /** Workspace and last-activity hint under the title. */
+  readonly subtitle: string
   /** Current pending interaction kind; absent once the user has answered. */
   readonly waitingKind: string | undefined
   readonly t: Translate
@@ -163,6 +166,7 @@ interface PreviewDialogProps {
 function PreviewDialog({
   preview,
   title,
+  subtitle,
   waitingKind,
   t,
   SessionProvider,
@@ -176,10 +180,15 @@ function PreviewDialog({
       <div className={css.dialogFrame}>
         <header className={css.dialogBar}>
           <div className={css.dialogHeading}>
-            {preview.kind === 'question' && waitingKind !== undefined && (
-              <span className={css.dialogEyebrow}>{t(waitingCopyKey(waitingKind))}</span>
+            <div className={css.dialogTitleRow}>
+              {preview.kind === 'question' && waitingKind !== undefined && (
+                <span className={css.dialogEyebrow}>{t(waitingCopyKey(waitingKind))}</span>
+              )}
+              <span className={css.dialogTitle} title={title}>{title}</span>
+            </div>
+            {subtitle !== '' && (
+              <span className={css.dialogSubtitle} title={subtitle}>{subtitle}</span>
             )}
-            <span className={css.dialogTitle} title={title}>{title}</span>
           </div>
           {preview.kind === 'question'
             ? (
@@ -188,8 +197,14 @@ function PreviewDialog({
               </button>
             )
             : (
-              <button type="button" className={css.dialogAction} onClick={onOpenSession}>
-                {t('preview.openSession')}
+              <button
+                type="button"
+                className={css.dialogIconAction}
+                aria-label={t('preview.openSession')}
+                title={t('preview.openSession')}
+                onClick={onOpenSession}
+              >
+                <IconRightUpOutlineRegular size={14} />
               </button>
             )}
           <button
@@ -282,6 +297,29 @@ function baseName(path: string): string {
   if (trimmed === '') return path
   const at = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
   return at === -1 ? trimmed : trimmed.slice(at + 1)
+}
+
+/**
+ * Resolve the visible Workspace name for a Session.
+ *
+ * Membership wins; a cwd match covers a row whose Workspace set is still catching up. A Session
+ * outside every Workspace falls back to its directory basename, and the product's default marker
+ * is localized.
+ * @param card - Session card.
+ * @param items - Workspace rows.
+ * @param t - this namespace's translate function.
+ * @returns the Workspace name, or an empty string without a cwd.
+ */
+function workspaceName(
+  card: SessionCard,
+  items: readonly WorkspaceView[],
+  t: Translate,
+): string {
+  const workspace = items.find((item) => item.sessionIds.includes(card.id))
+    ?? items.find((item) => card.cwd !== undefined && item.path === card.cwd)
+  if (workspace === undefined) return card.cwd === undefined ? '' : baseName(card.cwd)
+  const label = workspaceLabel(workspace)
+  return label === DEFAULT_WORKSPACE_TITLE ? t('workspace.default') : label
 }
 
 /**
@@ -704,6 +742,11 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const previewTitle = preview === undefined
     ? ''
     : list.byId[preview.card.id]?.displayTitle ?? preview.card.title
+  const previewSubtitle = preview === undefined
+    ? ''
+    : [workspaceName(preview.card, workspaces.items, t), timeText(preview.card.updatedAt, now, t)]
+        .filter((part) => part !== '')
+        .join(' · ')
 
   if (preview !== undefined && preview.kind === 'question' && preview.mode === 'page') {
     return (
@@ -907,6 +950,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
         <PreviewDialog
           preview={preview}
           title={previewTitle}
+          subtitle={previewSubtitle}
           waitingKind={statuses.get(preview.card.id)?.pendingInteraction?.kind}
           t={t}
           SessionProvider={SessionProvider}
