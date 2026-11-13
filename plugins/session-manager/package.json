@@ -32,6 +32,9 @@
       "platform": "web"
     }
   },
+  "engines": {
+    "dsh": "0.2.2-rc.1"
+  },
   "scripts": {
     "build": "tsc -b tsconfig.json && tsdown",
     "watch": "tsc -b tsconfig.json --watch --preserveWatchOutput & tsdown --watch",
