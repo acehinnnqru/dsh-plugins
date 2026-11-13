@@ -14,7 +14,7 @@ export const NS = 'sessionManager'
 /** Chinese copy. */
 export const zh = {
   'panel.title': '会话管理',
-  'page.title': '会话看板',
+  'page.title': 'Board',
   'page.count': '{count} 个会话',
   'new.title': '新对话',
   'new.failed': '无法新建对话',
@@ -63,7 +63,7 @@ export const zh = {
 /** English copy, with the same keys as zh. */
 export const en: Record<keyof typeof zh, string> = {
   'panel.title': 'Session manager',
-  'page.title': 'Session board',
+  'page.title': 'Board',
   'page.count': '{count} sessions',
   'new.title': 'New conversation',
   'new.failed': 'Could not start a new conversation',
