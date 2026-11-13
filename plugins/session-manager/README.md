@@ -107,18 +107,18 @@ Build first — the profile installs `lib/index.js` and `lib/client.js`, and a `
 serves those files straight from this directory:
 
 ```sh
-direnv exec . pnpm --filter dsh-plugin-session-manager build
+pnpm --filter dsh-plugin-session-manager build
 dsh plugin --profile <profile> add ./plugins/session-manager
 ```
 
-`dsh` lives only in the maintainer's environment (DSH checkout + nix devshell); nothing in this repo
+`dsh` lives only in the maintainer's environment (DSH checkout); nothing in this repo
 calls it. The full checklist is in [`docs/install.md`](../../docs/install.md).
 
 ## Development loop
 
 ```sh
 # terminal A, in this repo
-direnv exec . pnpm --filter dsh-plugin-session-manager watch
+pnpm --filter dsh-plugin-session-manager watch
 
 # terminal B, in the maintainer's environment
 dsh --profile <profile>

@@ -21,7 +21,7 @@ What it will not do:
 - No forking DSH, no distributing DSH.
 - No publishing to a registry (if that ever happens, §6 records the path).
 - No ambition to support several DSH major versions at once.
-- **No automating any step that needs `dsh`.** `dsh` exists only in the maintainer's environment (DSH checkout + nix devshell + npx), so "install it into a profile and start it" is a manual checklist, not a script.
+- **No automating any step that needs `dsh`.** `dsh` exists only in the maintainer's environment (DSH checkout + npx), so "install it into a profile and start it" is a manual checklist, not a script.
 
 ---
 
@@ -77,7 +77,6 @@ Every item below has been verified. The design has to obey them; there is nothin
 | **Upstream has no plugin scaffold at all.** There is no `create-dsh-plugin`; the CLI has only the `web` and `plugin` subcommands |
 | Upstream does not validate an out-of-tree plugin's manifest shape, but the `0.2.2-rc.1` runtime **does** compare the plugin's declared `@deepseek-ai/dsh-*` peer requirements with its own version and refuses a mismatch; `dsh plugin allow-version` is the explicit escape hatch |
 | `0.2.2-rc.1` ships the experimental plugin-market bundle and `@deepseek-ai/dsh-plugin-market-index`; the reference generator under `apps/plugin-market-generator` is not published. An index version installs from npm or a commit-pinned Git repository — never from a tarball URL |
-| Toolchain: Node 22 comes from the repo's `flake.nix` + direnv (the same devshells input DSH uses); pnpm goes through the repo's own devshell, and every command is `direnv exec . pnpm …` |
 
 ---
 
@@ -152,12 +151,11 @@ tooling/market-index/  format-1 index builder + verifier
 scripts/            verify / verify:pack / verify:compat / verify:platform-modules / market-index
 index.json   generated index (pins commits; regenerate after a push)
 docs/research/      research notes
-flake.nix/lock      toolchain: Node 22 from nix + direnv (.envrc is personal, not tracked)
 ```
 
 **There is no profile directory in the repo.** `dsh plugin --profile <name>` operates on `$DSH_HOME/profiles/<name>`, which is the maintainer's own; the repo only ships plugins, and installing them is a manual step.
 
-**No script in the repo calls `dsh`.** It exists only in the maintainer's environment (DSH checkout + nix devshell + npx), so automation stops at "pack and self-check".
+**No script in the repo calls `dsh`.** It exists only in the maintainer's environment (DSH checkout + npx), so automation stops at "pack and self-check".
 
 ---
 
@@ -219,4 +217,4 @@ Key source locations:
 | HMR driver | `packages/client/hmr/src/index.ts` |
 | How to use the test-support packages | `packages/test-support/loader-smoke/README.md` |
 
-**Local toolchain**: Node `v22.22.3` from the repo's nix devshell, pnpm `11.7.0` from pnpm's own version management. Neither is a system install.
+**Local toolchain**: Node `v22.22.3`, pnpm `11.7.0`. Neither is a system install.

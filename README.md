@@ -2,26 +2,12 @@
 
 A local plugin repo for DeepSeek Harness. For personal use; nothing is published to a registry.
 
-## Environment
-
-Node 22 comes from the repo's `flake.nix`, entered through direnv:
-
-```sh
-direnv allow        # first time only; without direnv, use nix develop
-```
-
-`.envrc` is not tracked — a fresh clone creates its own, with the single line `use flake .`
-
 ## Installing dependencies and verifying
 
-Every command goes through the repo's own devshell:
-
 ```sh
-direnv exec . pnpm install
-direnv exec . pnpm verify
+pnpm install
+pnpm verify
 ```
-
-Once `direnv allow` has been run and the current shell is inside this repo, `pnpm …` works directly.
 
 The rules for models live in [`AGENTS.md`](./AGENTS.md).
 
@@ -46,8 +32,8 @@ The experimental DSH plugin-market bundle can browse and install these plugins o
 the index after a push, check it, and point Discover at it:
 
 ```sh
-direnv exec . pnpm market:index
-direnv exec . pnpm verify:market
+pnpm market:index
+pnpm verify:market
 ```
 
 [`docs/market.md`](./docs/market.md) covers hosting (this repo is private, so the raw GitHub URL is

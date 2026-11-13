@@ -21,9 +21,9 @@ For models working in this repo. **Read this page before you touch anything.**
 1. **Acceptance commands must actually run.** Never write "it should work". Run it once and paste the real output.
 2. **A plugin's user-facing UI copy may be Chinese** (its own locale strings) — that is the only Chinese allowed in a committed file.
 3. **One change at a time.** Finish it, get it accepted, then start the next one.
-4. **Do not call `dsh`.** It is only available in the maintainer's environment, and it needs the DSH checkout + nix devshell. No script may call it — "install it into a profile and start it" is a manual checklist, not automation.
+4. **Do not call `dsh`.** It is only available in the maintainer's environment. No script may call it — "install it into a profile and start it" is a manual checklist, not automation.
 5. **Do not add profile directories to the repo.** `dsh plugin --profile <name>` operates on `$DSH_HOME/profiles/<name>`, which is not in this repo.
-6. **Do not rebuild `flake.nix` / `flake.lock`, and do not commit `.envrc`.** The first two pin the toolchain; the last is personal (already covered by the global gitignore).
+6. **Do not commit `.envrc`.** It is personal and already covered by the global gitignore.
 7. **Write exact dependency versions, never carets.** Every DSH release is a prerelease and `^0.1.5-rc.1` does not actually match `0.1.6-rc.1`; a caret is a single-point pin disguised as a range. See DESIGN.md §3.4.
 8. **Split dependencies by "must the identity be shared", not by package name.**
    - Must be unique (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-*`) → `peerDependencies` + `devDependencies`, never in `dependencies`
@@ -36,7 +36,6 @@ For models working in this repo. **Read this page before you touch anything.**
 ## The shape of this repo
 
 ```
-flake.nix            toolchain (node 22 + pnpm), do not rebuild
 plugins/<name>/      every directory = one installable plugin (the only place that declares dsh.bundle)
 packages/<lib>/      internal shared libraries, inlined at build time, never installed on their own
 tooling/<tool>/      build and validation tools (dsh-compat version constants, plugin-lint, dsh-client-preset)

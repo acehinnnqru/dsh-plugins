@@ -29,8 +29,8 @@ repo publishes to npm.
 From the repo root:
 
 ```sh
-direnv exec . pnpm market:index
-direnv exec . pnpm verify:market
+pnpm market:index
+pnpm verify:market
 ```
 
 `market:index` reads **the commit**, not the working tree. Commit and push the plugin changes first;

@@ -56,13 +56,13 @@ Build first — the profile installs `lib/index.js` and `lib/client.js`, and a `
 serves those files straight from this directory. Run this from the repo root:
 
 ```sh
-direnv exec . pnpm --filter dsh-plugin-now build
+pnpm --filter dsh-plugin-now build
 dsh plugin --profile dev add "$PWD/plugins/now"
 dsh --profile dev --dump-config | grep -A3 'dsh-plugin-now'   # the layer is in the composed config
 dsh --profile dev
 ```
 
-`dsh` lives only in the maintainer's environment (DSH checkout + nix devshell); nothing in this repo
+`dsh` lives only in the maintainer's environment (DSH checkout); nothing in this repo
 calls it. The full checklist, including how to change the config and uninstall, is
 [`docs/install.md`](../../docs/install.md).
 
@@ -70,7 +70,7 @@ calls it. The full checklist, including how to change the config and uninstall, 
 
 ```sh
 # terminal A, in this repo
-direnv exec . pnpm --filter dsh-plugin-now watch
+pnpm --filter dsh-plugin-now watch
 
 # terminal B, in the maintainer's environment
 dsh --profile dev

@@ -23,7 +23,7 @@ import { addPluginReference, packageName, writePlugin } from '../src/index.ts'
 
 /** Repo root: this file lives at `<root>/tooling/new-plugin/tests/`. */
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
-/** The devshell's binaries, as pnpm links them at the repo root. */
+/** The toolchain's binaries, as pnpm links them at the repo root. */
 const BIN = join(ROOT, 'node_modules', '.bin')
 /** `plugins/now` depends on everything both variants need — host and browser alike. */
 const DEPENDENCIES = join(ROOT, 'plugins', 'now', 'node_modules')

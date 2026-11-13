@@ -8,18 +8,17 @@ declares `dsh.bundle.patch` becomes a profile layer, every one that does not get
 > [`market.md`](./market.md). That path needs a build-script approval because `lib/` is not committed;
 > the tarball path below does not.
 
-Nothing in this repo runs `dsh`. It exists only in the maintainer's environment (DSH checkout + nix
-devshell + npx), so this page is a manual checklist: copy, paste, compare. `dsh-plugin-now` is the
-example throughout.
+Nothing in this repo runs `dsh`. It exists only in the maintainer's environment (DSH checkout + npx),
+so this page is a manual checklist: copy, paste, compare. `dsh-plugin-now` is the example throughout.
 
 ## 0. Build and pack it first
 
 From the repo root:
 
 ```sh
-direnv exec . pnpm install                              # once per clone
-direnv exec . pnpm --filter dsh-plugin-now build
-direnv exec . pnpm --filter dsh-plugin-now pack --pack-destination "$PWD/dsh-plugin-pkg"
+pnpm install   # once per clone
+pnpm --filter dsh-plugin-now build
+pnpm --filter dsh-plugin-now pack --pack-destination "$PWD/dsh-plugin-pkg"
 ```
 
 `--pack-destination` creates the directory itself, so there is no `mkdir` step.
@@ -163,7 +162,7 @@ dsh --profile demo --dump-config | tail -20                        # what did th
   physical path. This plugin only imports functions and types, so both behave identically; a plugin
   that depends on module identity (extending `Service`, say) has to be accepted through a tarball
   ([DESIGN.md](../DESIGN.md) §3.5). To close [DESIGN.md](../DESIGN.md) §5 V1, add this to `apply`,
-  rebuild (`direnv exec . pnpm --filter dsh-plugin-now build`), and boot once per install:
+  rebuild (`pnpm --filter dsh-plugin-now build`), and boot once per install:
 
   ```ts
   console.log('[probe] cordis =', import.meta.resolve('@deepseek-ai/cordis'))

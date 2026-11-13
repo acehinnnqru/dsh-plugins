@@ -3,13 +3,13 @@ node_modules/
 lib/
 *.tsbuildinfo
 
-# Toolchain environment: node/pnpm come from flake.nix, and both are regenerable
+# Toolchain environment: regenerable, not tracked
 .direnv/
 
 # pnpm 11 keeps its store at the repo root (.pnpm-store/v11); not tracked
 /.pnpm-store/
 
-# Personal environment: every clone creates its own, one line `use flake .`.
+# Personal environment: every clone creates its own `.envrc`.
 # The global gitignore has one too, but that is machine config; pinning it here is safer.
 /.envrc
 
