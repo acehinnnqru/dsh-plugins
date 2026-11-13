@@ -52,7 +52,7 @@ import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
 import { NewConversation } from './NewConversation.tsx'
 import { NS, type SessionManagerKey } from './locales.ts'
-import { recentWorkspaceId, reusableBlankSession } from './new-conversation-target.ts'
+import { currentWorkspaceId, recentWorkspaceId } from './new-conversation-target.ts'
 import { pinnedSessionIds, subscribePins, togglePin } from './pins.ts'
 import { recentWindowDays, setRecentWindowDays, subscribeRecentWindow } from './recent-window.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
@@ -81,15 +81,15 @@ export interface SessionManagerInjected {
   /** Open the real Session page, preserving the user's Conversation customizations. */
   readonly openSession: (sessionId: SessionId) => void
   /**
-   * Create, or reuse, the blank Session a new conversation starts in, without navigating.
-   * @param options - target Workspace and the optional blank Session to reuse.
+   * Resolve a new conversation's blank Session in one Workspace without navigating.
+   *
+   * The Workspace controller names the first reusable blank and the Host reuses it under its
+   * recorded preset or creates another under the Host default — the same resolution the native
+   * New Session action uses.
+   * @param workspaceId - target Workspace.
    * @returns the catalogued Session the Host created or reused.
    */
-  readonly createSession: (options: {
-    readonly workspaceId?: WorkspaceId
-    readonly sessionId?: SessionId
-    readonly agentPreset?: string
-  }) => Promise<SessionId>
+  readonly connectWorkspace: (workspaceId: WorkspaceId) => Promise<SessionId>
   /**
    * Move the unsent draft text from one Session to another. Attachments cannot travel, so the page
    * checks {@link SessionManagerInjected.draftAttachmentCount} first.
@@ -372,7 +372,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     retainSession,
     retainMainView,
     openSession,
-    createSession,
+    connectWorkspace,
     moveDraft,
     draftAttachmentCount,
     SessionProvider,
@@ -395,10 +395,8 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const opening = useRef(false)
   const switching = useRef(false)
   const mounted = useRef(true)
-  // Callbacks published to the picker read the latest snapshots through refs; they outlive the
-  // render that created them and must not keep its stale list.
-  const listRef = useRef(list)
-  listRef.current = list
+  // The picker callback outlives the render that created it and must read the latest Workspace
+  // registry through a ref rather than keeping a stale snapshot.
   const workspacesRef = useRef(workspaces)
   workspacesRef.current = workspaces
   const composerRef = useRef<Composer | undefined>(undefined)
@@ -550,21 +548,19 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   /**
    * Start a new conversation without navigating.
    *
-   * The board is a global panel, so the target is the Workspace with the most recent activity. A
-   * blank Session parked there is reused, which keeps abandoned drafts from piling up; the retained
-   * references then show the native new-session hero in the overlay.
+   * The target follows the native New Session order: the Workspace of the Session the app currently
+   * shows, then the Workspace with the most recent activity. The Workspace controller resolves the
+   * blank itself, so the overlay gets the same reused Session and Agent preset the main New Session
+   * would.
    */
   async function startConversation(): Promise<void> {
     if (opening.current) return
     opening.current = true
     setStartError(undefined)
     try {
-      const workspaceId = recentWorkspaceId(workspaces, list)
-      const blankId = reusableBlankSession(workspaces, list, workspaceId)
-      const sessionId = await createSession({
-        ...(workspaceId === undefined ? {} : { workspaceId }),
-        ...(blankId === undefined ? {} : { sessionId: blankId }),
-      })
+      const workspaceId = currentWorkspaceId(workspaces, list) ?? recentWorkspaceId(workspaces, list)
+      if (workspaceId === undefined) throw new Error(t('new.failed'))
+      const sessionId = await connectWorkspace(workspaceId)
       const reference = retainSession(sessionId)
       let mainView: SessionReference
       try {
@@ -596,10 +592,10 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   /**
    * Move the open new conversation to another Workspace without leaving the overlay.
    *
-   * There is no Host command that re-homes a Session, so the move is a swap: reuse or create a blank
-   * Session in the target Workspace under the old Session's Agent preset, then carry the draft text
-   * over. Attachments cannot travel between input shells, so a draft that has any refuses the switch
-   * instead of dropping them.
+   * There is no Host command that re-homes a Session, so the move is a swap: connect a blank Session
+   * in the target Workspace through the same resolution the native Workspace picker uses (its own
+   * Agent preset or the Host default), then carry the draft text over. Attachments cannot travel
+   * between input shells, so a draft that has any refuses the switch instead of dropping them.
    * @param fromId - the blank Session the overlay is showing.
    * @param workspaceId - the Workspace the user picked.
    * @returns a localized failure, or undefined after the overlay moved.
@@ -610,26 +606,13 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   ): Promise<string | undefined> {
     const current = composerRef.current
     if (current === undefined || current.reference.sessionId !== fromId) return undefined
-    const registry = workspacesRef.current
-    const owner = registry.items.find((workspace) => workspace.sessionIds.includes(fromId))
+    const owner = workspacesRef.current.items.find((workspace) => workspace.sessionIds.includes(fromId))
     if (owner?.workspaceId === workspaceId) return undefined
     if (switching.current) return undefined
     switching.current = true
     try {
       if (draftAttachmentCount(fromId) > 0) return t('workspace.attachments')
-      const summary = listRef.current.byId[fromId]
-      // The agent-preset projection is declared by the product's agent-preset plugin, which is not
-      // a dependency of this one; read the id from the summary's opaque projection bag.
-      const preset = (summary?.projectionValues as Record<string, unknown> | undefined)?.['agentPreset']
-      const parked = reusableBlankSession(registry, listRef.current, workspaceId)
-      // A parked blank with attachments would mix its files into the draft being moved; start a
-      // fresh blank instead and leave that one parked.
-      const blankId = parked !== undefined && draftAttachmentCount(parked) === 0 ? parked : undefined
-      const sessionId = await createSession({
-        workspaceId,
-        ...(blankId === undefined ? {} : { sessionId: blankId }),
-        ...(typeof preset === 'string' && preset !== '' ? { agentPreset: preset } : {}),
-      })
+      const sessionId = await connectWorkspace(workspaceId)
       // A lagging client snapshot can make the Host reuse the very Session being shown; there is
       // nothing to move in that case.
       if (sessionId === fromId) return undefined

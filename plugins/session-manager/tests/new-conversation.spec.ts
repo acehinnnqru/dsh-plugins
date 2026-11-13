@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import { recentWorkspaceId, reusableBlankSession } from '../src/client/new-conversation-target.ts'
+import { currentWorkspaceId, recentWorkspaceId } from '../src/client/new-conversation-target.ts'
 
 /**
  * Target selection for the new-conversation overlay.
  *
  * The module is pure, so the tests build the two snapshots the board already reads: the Session list
- * and the Workspace registry. They cover the native rule the board copies — the Workspace with the
- * most recent activity, and the blank Session the Host may reuse there.
+ * and the Workspace registry. They cover the native order the board copies — the current main
+ * Session's Workspace, then the Workspace with the most recent activity.
  */
 
 /** One Session row the helpers care about. */
@@ -16,6 +16,7 @@ interface Row {
   readonly id: string
   readonly updatedAt: number
   readonly blank: boolean
+  readonly mainView?: number
 }
 
 /**
@@ -34,6 +35,7 @@ function list(rows: readonly Row[]): SessionListState {
       blank: row.blank,
       origin: 'user',
       running: false,
+      retainedBy: { mainView: row.mainView ?? 0 },
     }])),
     phase: 'ready',
     projectionsBySession: {},
@@ -98,35 +100,44 @@ describe('recentWorkspaceId', () => {
   })
 })
 
-describe('reusableBlankSession', () => {
-  it('reuses the newest unarchived blank in the target Workspace', () => {
-    const registry = workspaces([{ id: 'alpha', sessionIds: ['a1', 'a2', 'a3'], createdAt: OLD }])
-    const sessions = list([
-      { id: 'a1', updatedAt: 10, blank: true },
-      { id: 'a2', updatedAt: 20, blank: true },
-      { id: 'a3', updatedAt: 30, blank: false },
-    ])
-
-    expect(reusableBlankSession(registry, sessions, 'alpha')).toBe('a2')
-  })
-
-  it('skips an archived blank and a blank of another Workspace', () => {
+describe('currentWorkspaceId', () => {
+  it('prefers the Workspace of the session retained as the main view', () => {
     const registry = workspaces([
       { id: 'alpha', sessionIds: ['a1'], createdAt: OLD },
       { id: 'beta', sessionIds: ['b1'], createdAt: OLD },
-    ], ['a1'])
+    ])
     const sessions = list([
-      { id: 'a1', updatedAt: 10, blank: true },
-      { id: 'b1', updatedAt: 20, blank: true },
+      { id: 'a1', updatedAt: 300, blank: false },
+      { id: 'b1', updatedAt: 100, blank: false, mainView: 1 },
     ])
 
-    expect(reusableBlankSession(registry, sessions, 'alpha')).toBeUndefined()
+    expect(currentWorkspaceId(registry, sessions)).toBe('beta')
   })
 
-  it('returns nothing without a target Workspace', () => {
-    const registry = workspaces([{ id: 'alpha', sessionIds: ['a1'], createdAt: OLD }])
-    const sessions = list([{ id: 'a1', updatedAt: 10, blank: true }])
+  it('uses the first retained row in the list map', () => {
+    const registry = workspaces([
+      { id: 'alpha', sessionIds: ['a1'], createdAt: OLD },
+      { id: 'beta', sessionIds: ['b1'], createdAt: OLD },
+    ])
+    const sessions = list([
+      { id: 'b1', updatedAt: 100, blank: false, mainView: 1 },
+      { id: 'a1', updatedAt: 200, blank: false, mainView: 1 },
+    ])
 
-    expect(reusableBlankSession(registry, sessions, undefined)).toBeUndefined()
+    expect(currentWorkspaceId(registry, sessions)).toBe('beta')
+  })
+
+  it('returns nothing without a retained main Session', () => {
+    const registry = workspaces([{ id: 'alpha', sessionIds: ['a1'], createdAt: OLD }])
+    const sessions = list([{ id: 'a1', updatedAt: 100, blank: false }])
+
+    expect(currentWorkspaceId(registry, sessions)).toBeUndefined()
+  })
+
+  it('returns nothing when the main Session belongs to no Workspace', () => {
+    const registry = workspaces([{ id: 'alpha', sessionIds: ['a1'], createdAt: OLD }])
+    const sessions = list([{ id: 'orphan', updatedAt: 100, blank: false, mainView: 1 }])
+
+    expect(currentWorkspaceId(registry, sessions)).toBeUndefined()
   })
 })

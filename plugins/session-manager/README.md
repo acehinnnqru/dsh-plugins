@@ -30,12 +30,16 @@ full-screen new-conversation overlay that embeds the native composer.
   absent until at least one pin exists. Pins are browser-local and survive a panel round trip and a
   reload; they do not change host state.
 - Starts a new conversation from the **New conversation** control in the page's top-right. The control
-  creates (or reuses) the blank Session of the Workspace with the most recent activity, retains it, and
-  shows the native new-session controls — a searchable Workspace picker, the Agent preset chip, and the
-  composer — in a white rounded panel over a backdrop mask, without the hero headline. Sending hands
-  the board back and leaves the Session running in **Running**; closing without sending leaves the
-  blank Session reusable. The Workspace picker opens as a menu under its chip and stays inside the
-  overlay: choosing another Workspace reuses or creates a blank Session there, carries the draft text
+  resolves the target the way the native New Session action does: the Workspace of the Session the app
+  currently shows, falling back to the Workspace with the most recent activity. The Workspace
+  controller reuses the first parked blank there or creates one under the Host default, so the overlay
+  opens with the same Session and Agent preset the main New Session would show. It retains that
+  Session and shows the native new-session controls — a searchable Workspace picker, the Agent preset
+  chip, and the composer — in a white rounded panel over a backdrop mask, without the hero headline.
+  Sending hands the board back and leaves the Session running in **Running**; closing without sending
+  leaves the blank Session reusable. The Workspace picker opens as a menu under its chip and stays
+  inside the overlay: choosing another Workspace connects a blank Session there through the same
+  controller resolution (the target's own Agent preset or the Host default), carries the draft text
   across, and releases the previous Session; a draft with attachments refuses the switch rather than
   dropping them.
 - Configures the **Recent** window from the gear in the page's top-right: 1, 3, 7, or 30 days.
@@ -101,11 +105,11 @@ requests. The browser half reads the Session list and unified UI status from the
 archive set from the Workspace Controller. Opening a card retains one Session reference and renders
 the native Conversation through the `conversation.content` Factory in the preview dialog; closing
 releases the reference. The **New conversation** control creates or reuses the target Workspace's
-blank Session through `ctx.sessions.create` and retains it for the overlay, together with a
+blank Session through `uiWorkspace.connectWorkspace` and retains it for the overlay, together with a
 `mainView` handle that the native Agent preset control requires (the board panel stays selected, so
-this adds no navigation); sending or closing releases both. A Workspace switch repeats that pair for
-the chosen Workspace and moves the draft text between the two input shells, so it costs no
-navigation either. The card's open-session control and the
+this adds no navigation); sending or closing releases both. A Workspace switch resolves a blank in
+the chosen Workspace through the same controller call and moves the draft text between the two input
+shells, so it costs no navigation either. The card's open-session control and the
 session dialog's **Open session** action navigate through `uiWorkspace.openSession` to the real
 Session panel; the leading back control selects the board again. The board never stops, renames, or archives a Session, and never pauses or
 resumes one; the native composer is the Session's own input surface, used by the person in front of
@@ -131,7 +135,7 @@ it. The only stored values are the browser-local pin list and Recent-window choi
 boundary, and the pinned states; `tests/pins.spec.ts` covers pin persistence;
 `tests/recent-window.spec.ts` covers the window preference; `tests/back-to-board.spec.ts` covers the
 return marker; `tests/conversation-input.spec.ts` covers the embedded Factory phase;
-`tests/new-conversation.spec.ts` covers the target Workspace and the reusable blank Session;
+`tests/new-conversation.spec.ts` covers the current and most-recent target Workspace;
 `tests/workspace-search.spec.ts` covers the picker's label rule and filter;
 `tests/client.spec.ts` executes the built bundle and checks its registrations, baseline imports, CSS,
 and source map.

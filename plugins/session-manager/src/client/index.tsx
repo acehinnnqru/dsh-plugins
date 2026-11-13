@@ -72,11 +72,8 @@ export function apply(ctx: ClientContext): void {
   const openSession = (sessionId: SessionId): void => {
     ctx.uiWorkspace.openSession(sessionId)
   }
-  const createSession = (options: {
-    readonly workspaceId?: WorkspaceId
-    readonly sessionId?: SessionId
-    readonly agentPreset?: string
-  }): Promise<SessionId> => ctx.sessions.create(options)
+  const connectWorkspace = (workspaceId: WorkspaceId): Promise<SessionId> =>
+    ctx.uiWorkspace.connectWorkspace(workspaceId)
   const inputFor = (sessionId: SessionId) => {
     try {
       const conversation = ctx.get('conversation')
@@ -114,7 +111,7 @@ export function apply(ctx: ClientContext): void {
       retainSession,
       retainMainView,
       openSession,
-      createSession,
+      connectWorkspace,
       moveDraft,
       draftAttachmentCount,
     }),

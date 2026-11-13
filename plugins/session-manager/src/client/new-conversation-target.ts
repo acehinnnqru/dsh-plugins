@@ -1,16 +1,38 @@
 /**
  * Target selection for the board's new-conversation overlay.
  *
- * The board is a global panel, so it has no selected Session whose Workspace could be the target. It
- * follows the rule the native New Session action uses when nothing is selected: the Workspace with
- * the most recent Session activity. A blank Session already parked there is reused, exactly as the
- * Host reuses the first reusable blank member instead of creating another one.
+ * The native New Session action prefers the Workspace of the Session the app currently shows,
+ * falling back to the Workspace with the most recent Session activity. The Client keeps that current
+ * Session retained under the `mainView` source, so the board can follow the same order without
+ * reaching into navigation state. The blank Session itself is resolved by the Workspace controller,
+ * which reuses the first member blank or creates one under the Host default.
  * @module dsh-plugin-session-manager/client/new-conversation-target
  */
 
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+// Type-only: declares the `mainView` reference source on the Session retain counts.
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+
+/**
+ * Find the Workspace of the Session the app currently shows.
+ *
+ * The Session Client retains the current main Session under `mainView`; the Workspace navigation
+ * uses that membership as its "current Workspace" before falling back to recent activity. The first
+ * retained row in the list's map order is the one the Client itself resolves when several rows carry
+ * the source.
+ * @param workspaces - Workspace registry snapshot.
+ * @param list - Session list snapshot.
+ * @returns the current Session's Workspace, or undefined when no main Session is retained.
+ */
+export function currentWorkspaceId(
+  workspaces: WorkspaceSnapshot,
+  list: SessionListState,
+): WorkspaceId | undefined {
+  const row = Object.values(list.byId).find((candidate) => (candidate.retainedBy.mainView ?? 0) > 0)
+  if (row === undefined) return undefined
+  return workspaces.items.find((workspace) => workspace.sessionIds.includes(row.id))?.workspaceId
+}
 
 /**
  * Pick the Workspace whose Sessions moved most recently.
@@ -41,41 +63,6 @@ export function recentWorkspaceId(
     if (selected === undefined || latest > selectedAt) {
       selected = workspace.workspaceId
       selectedAt = latest
-    }
-  }
-
-  return selected
-}
-
-/**
- * Find the blank Session the Host may reuse for a new conversation in one Workspace.
- *
- * The reuse predicate mirrors the Host's: an unarchived member of the requested Workspace. The
- * newest blank wins, so a draft parked by an earlier visit is the one that comes back.
- * @param workspaces - Workspace registry snapshot, including the archive set.
- * @param list - Session list snapshot.
- * @param workspaceId - target Workspace, or undefined when there is none.
- * @returns the reusable blank Session, or undefined when the Workspace has none.
- */
-export function reusableBlankSession(
-  workspaces: WorkspaceSnapshot,
-  list: SessionListState,
-  workspaceId: WorkspaceId | undefined,
-): SessionId | undefined {
-  if (workspaceId === undefined) return undefined
-  const workspace = workspaces.items.find((item) => item.workspaceId === workspaceId)
-  if (workspace === undefined) return undefined
-
-  const archived = new Set(workspaces.archivedSessionIds)
-  let selected: SessionId | undefined
-  let selectedAt = Number.NEGATIVE_INFINITY
-
-  for (const sessionId of workspace.sessionIds) {
-    const row = list.byId[sessionId]
-    if (row === undefined || !row.blank || archived.has(sessionId)) continue
-    if (selected === undefined || row.updatedAt > selectedAt) {
-      selected = sessionId
-      selectedAt = row.updatedAt
     }
   }
 
