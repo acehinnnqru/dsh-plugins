@@ -300,8 +300,14 @@
   cursor: pointer;
 }
 
+/* The corner controls float over the title row only, so only that row reserves their width.
+   Every other line keeps the card's own right inset, which is what right-aligns the time. */
 .card[data-open='true'] .cardBody {
-  padding-right: 60px;
+  padding-right: 12px;
+}
+
+.card[data-open='true'] .cardTitle {
+  margin-right: 48px;
 }
 
 .cardBody:focus-visible {
