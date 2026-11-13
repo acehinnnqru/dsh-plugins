@@ -557,10 +557,12 @@
 }
 
 /* The new-conversation overlay: the Modal mask is the backdrop, and the white rounded dialog holds
-   only the controls the native new-session row and composer need. No hero headline. */
+   only the controls the native new-session row and composer need. No hero headline. The 208px
+   height and 12px body inset put the row text, the card bottom, and the card sides 28px from the
+   frame edges. */
 .newDialog.newDialog {
   width: min(820px, calc(100vw - 48px));
-  height: min(220px, calc(100vh - 64px));
+  height: min(208px, calc(100vh - 64px));
   padding: 0;
   gap: 0;
   overflow: visible;
@@ -585,7 +587,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 12px 24px 16px;
+  padding: 12px 12px 16px;
 }
 
 .newBody [data-conversation-content] {
@@ -621,7 +623,11 @@
    Conversation's root clips, and its hero-phase scroll container sets overflow-y with a
    0,3,0 selector; these 0,4,0 overrides outrank both so the menu can leave the panel instead of
    forcing a taller block of empty white space. */
-.newDialog.newDialog .newBody [class*='scrollBody'],
+.newDialog.newDialog .newBody [class*='scrollBody'] {
+  overflow: visible;
+  margin-right: 0;
+}
+
 .newDialog.newDialog .newBody [class*='embeddedBody'] {
   overflow: visible;
 }
