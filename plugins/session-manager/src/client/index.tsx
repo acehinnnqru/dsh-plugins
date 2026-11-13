@@ -99,6 +99,8 @@ export function apply(ctx: ClientContext): void {
   }
   const draftAttachmentCount = (sessionId: SessionId): number =>
     inputFor(sessionId)?.state.getSnapshot().attachmentIds.length ?? 0
+  const setPinned = (sessionId: SessionId, pinned: boolean): Promise<void> =>
+    pinned ? ctx.uiWorkspace.pinSession(sessionId) : ctx.uiWorkspace.unpinSession(sessionId)
 
   ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',
@@ -114,6 +116,7 @@ export function apply(ctx: ClientContext): void {
       connectWorkspace,
       moveDraft,
       draftAttachmentCount,
+      setPinned,
     }),
   }, SessionBoardPage))
 

@@ -256,7 +256,7 @@ describe('deriveBoard', () => {
 })
 
 describe('derivePinned', () => {
-  it('keeps pinned Sessions in pin order with their runtime state', () => {
+  it('keeps pinned Sessions in Host pin order with their runtime state', () => {
     const running = id('running')
     const waiting = id('waiting')
     const done = id('done')

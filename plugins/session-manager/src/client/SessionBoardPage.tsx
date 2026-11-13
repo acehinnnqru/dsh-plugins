@@ -53,7 +53,6 @@ import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } f
 import { NewConversation } from './NewConversation.tsx'
 import { NS, type SessionManagerKey } from './locales.ts'
 import { currentWorkspaceId, recentWorkspaceId } from './new-conversation-target.ts'
-import { pinnedSessionIds, subscribePins, togglePin } from './pins.ts'
 import { recentWindowDays, setRecentWindowDays, subscribeRecentWindow } from './recent-window.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
 import { setChooseWorkspace } from './workspace-choice.ts'
@@ -97,6 +96,15 @@ export interface SessionManagerInjected {
   readonly moveDraft: (from: SessionId, to: SessionId) => void
   /** Count the draft's browser attachments, which a Workspace switch must not silently drop. */
   readonly draftAttachmentCount: (sessionId: SessionId) => number
+  /**
+   * Pin or unpin one Session on the Host.
+   *
+   * The Host pin set is registry-global and shared with the native sidebar, so the board and the
+   * sidebar always show the same pins and the same most-recently-pinned-first order.
+   * @param sessionId - Session to change.
+   * @param pinned - true to pin, false to unpin.
+   */
+  readonly setPinned: (sessionId: SessionId, pinned: boolean) => Promise<void>
 }
 
 /** The main slot's props, the preview child slot, the translate seat, and Session retention. */
@@ -290,8 +298,10 @@ interface SessionCardViewProps {
   readonly card: SessionCard
   readonly state: PinnedState
   readonly pinned: boolean
+  readonly pinPending: boolean
   readonly t: Translate
   readonly now: number
+  readonly useSessionAccess: PageProps['useSessionAccess']
   readonly onOpen: () => void
   readonly onOpenSession: () => void
   readonly onTogglePin: () => void
@@ -302,7 +312,8 @@ interface SessionCardViewProps {
  *
  * The body is a button so the whole card opens the preview dialog. The pin and open-session
  * controls are sibling buttons in the corner, not nested controls. They are hidden until the card
- * is hovered or focused; the pin stays visible while the card is pinned.
+ * is hovered or focused; the pin stays visible while the card is pinned, and only renders when the
+ * Session's access snapshot allows the toggle.
  * @param props - the card, its state label, pin state, copy, clock, and three actions.
  * @returns the card.
  */
@@ -310,12 +321,18 @@ function SessionCardView({
   card,
   state,
   pinned,
+  pinPending,
   t,
   now,
+  useSessionAccess,
   onOpen,
   onOpenSession,
   onTogglePin,
 }: SessionCardViewProps): ReactNode {
+  const pinAllowed = useSessionAccess(
+    card.id,
+    pinned ? 'workspace/unpinSession' : 'workspace/pinSession',
+  )
   return (
     <article
       className={css.card}
@@ -344,17 +361,21 @@ function SessionCardView({
       >
         <IconRightUpOutlineRegular size={14} />
       </button>
-      <button
-        type="button"
-        className={css.pin}
-        data-pinned={pinned ? 'true' : undefined}
-        aria-label={pinned ? t('pin.remove') : t('pin.add')}
-        aria-pressed={pinned}
-        title={pinned ? t('pin.remove') : t('pin.add')}
-        onClick={onTogglePin}
-      >
-        {pinned ? <IconPinFillRegular size={14} /> : <IconPinOutlineRegular size={14} />}
-      </button>
+      {pinAllowed === true && (
+        <button
+          type="button"
+          className={css.pin}
+          data-pinned={pinned ? 'true' : undefined}
+          aria-label={pinned ? t('pin.remove') : t('pin.add')}
+          aria-pressed={pinned}
+          aria-busy={pinPending}
+          title={pinned ? t('pin.remove') : t('pin.add')}
+          disabled={pinPending}
+          onClick={onTogglePin}
+        >
+          {pinned ? <IconPinFillRegular size={14} /> : <IconPinOutlineRegular size={14} />}
+        </button>
+      )}
     </article>
   )
 }
@@ -375,6 +396,8 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     connectWorkspace,
     moveDraft,
     draftAttachmentCount,
+    setPinned,
+    useSessionAccess,
     SessionProvider,
     renderSlot,
     t,
@@ -389,11 +412,13 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const [composer, setComposer] = useState<Composer | undefined>(undefined)
   const [startError, setStartError] = useState<string | undefined>(undefined)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [pinError, setPinError] = useState<string | undefined>(undefined)
+  const [pinBusy, setPinBusy] = useState<ReadonlySet<SessionId>>(() => new Set())
   const [, bumpBoardRevision] = useState(0)
-  const [, bumpPinRevision] = useState(0)
   const [, bumpWindowRevision] = useState(0)
   const opening = useRef(false)
   const switching = useRef(false)
+  const pinning = useRef<Set<SessionId>>(new Set())
   const mounted = useRef(true)
   // The picker callback outlives the render that created it and must read the latest Workspace
   // registry through a ref rather than keeping a stale snapshot.
@@ -406,11 +431,6 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   useEffect(() => subscribeLocalCompletions(() => {
     bumpBoardRevision((value) => value + 1)
   }), [bumpBoardRevision])
-
-  // Pins are module state so a panel round trip keeps them; this page subscribes to redraw.
-  useEffect(() => subscribePins(() => {
-    bumpPinRevision((value) => value + 1)
-  }), [bumpPinRevision])
 
   // The Recent window is another browser-local preference; redraw when it changes.
   useEffect(() => subscribeRecentWindow(() => {
@@ -467,7 +487,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   }, [composerReference, composerMainView])
 
   const locallyCompleted = localCompletionIds(list)
-  const pinned = derivePinned(list, statuses, archived, pinnedSessionIds(), completionReadAt, locallyCompleted)
+  const pinned = derivePinned(list, statuses, archived, workspaces.pinnedSessionIds, completionReadAt, locallyCompleted)
   const pinnedIds = new Set(pinned.map((card) => card.id))
   const board = deriveBoard(list, statuses, archived, locallyCompleted, completionReadAt)
   const windowDays = recentWindowDays()
@@ -587,6 +607,30 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   function closeConversation(): void {
     setChooseWorkspace(undefined)
     setComposer(undefined)
+  }
+
+  /**
+   * Pin or unpin one Session on the Host.
+   *
+   * The Host snapshot is the source of truth, so the rail and the columns move on their own. The ref
+   * only prevents a double click from sending pin and unpin together; a failed write is reported
+   * above the columns.
+   * @param sessionId - Session to change.
+   * @param pinned - whether the Session is pinned now.
+   */
+  async function togglePin(sessionId: SessionId, pinned: boolean): Promise<void> {
+    if (pinning.current.has(sessionId)) return
+    pinning.current.add(sessionId)
+    setPinBusy(new Set(pinning.current))
+    setPinError(undefined)
+    try {
+      await setPinned(sessionId, !pinned)
+    } catch (cause) {
+      setPinError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      pinning.current.delete(sessionId)
+      setPinBusy(new Set(pinning.current))
+    }
   }
 
   /**
@@ -752,6 +796,12 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           </p>
         )}
 
+        {pinError !== undefined && (
+          <p className={css.previewError} role="alert">
+            {t('pin.failed')}: {pinError}
+          </p>
+        )}
+
         {total === 0 && list.phase === 'pending' && (
           <p className={css.loading} role="status">{t('state.loading')}</p>
         )}
@@ -770,8 +820,10 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                     card={card}
                     state={card.state}
                     pinned
+                    pinPending={pinBusy.has(card.id)}
                     t={t}
                     now={now}
+                    useSessionAccess={useSessionAccess}
                     onOpen={() => {
                       openPreview(card, card.state)
                     }}
@@ -779,7 +831,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                       openSessionPage(card, card.state)
                     }}
                     onTogglePin={() => {
-                      togglePin(card.id)
+                      void togglePin(card.id, true)
                     }}
                   />
                 </li>
@@ -825,8 +877,10 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                                 card={card}
                                 state={state}
                                 pinned={false}
+                                pinPending={pinBusy.has(card.id)}
                                 t={t}
                                 now={now}
+                                useSessionAccess={useSessionAccess}
                                 onOpen={() => {
                                   openPreview(card, state)
                                 }}
@@ -834,7 +888,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                                   openSessionPage(card, state)
                                 }}
                                 onTogglePin={() => {
-                                  togglePin(card.id)
+                                  void togglePin(card.id, false)
                                 }}
                               />
                             </li>

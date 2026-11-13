@@ -27,8 +27,10 @@ full-screen new-conversation overlay that embeds the native composer.
   the back bar.
 - Pins a Session from the icon that appears when its card is hovered or focused. Pinned Sessions move
   to a full-width **Pinned** rail above the columns and keep their runtime label there; the rail is
-  absent until at least one pin exists. Pins are browser-local and survive a panel round trip and a
-  reload; they do not change host state.
+  absent until at least one pin exists. Pins are Host state shared with the native sidebar: the rail
+  reads the registry-global pin set (newest pin first), and pinning or unpinning from either surface
+  updates the other. The button only renders when the Session's access snapshot allows the action.
+  The earlier browser-local pin list is no longer read.
 - Starts a new conversation from the **New conversation** control in the page's top-right. The control
   resolves the target the way the native New Session action does: the Workspace of the Session the app
   currently shows, falling back to the Workspace with the most recent activity. The Workspace
@@ -102,7 +104,7 @@ window is a browser-local board setting, not a profile option.
 
 Safety: the host half registers nothing, reads nothing, writes nothing, and makes no network
 requests. The browser half reads the Session list and unified UI status from the Web client, and the
-archive set from the Workspace Controller. Opening a card retains one Session reference and renders
+archive and pin sets from the Workspace Controller. Opening a card retains one Session reference and renders
 the native Conversation through the `conversation.content` Factory in the preview dialog; closing
 releases the reference. The **New conversation** control creates or reuses the target Workspace's
 blank Session through `uiWorkspace.connectWorkspace` and retains it for the overlay, together with a
@@ -111,10 +113,11 @@ this adds no navigation); sending or closing releases both. A Workspace switch r
 the chosen Workspace through the same controller call and moves the draft text between the two input
 shells, so it costs no navigation either. The card's open-session control and the
 session dialog's **Open session** action navigate through `uiWorkspace.openSession` to the real
-Session panel; the leading back control selects the board again. The board never stops, renames, or archives a Session, and never pauses or
+Session panel; the leading back control selects the board again. Pinning writes the Host pin set
+through `uiWorkspace`; the board never stops, renames, or archives a Session, and never pauses or
 resumes one; the native composer is the Session's own input surface, used by the person in front of
-it. The only stored values are the browser-local pin list and Recent-window choice in
-`localStorage`; completion read marks and local stop notes live in memory and reset with the page.
+it. The only browser-local stored value is the Recent-window choice in `localStorage`; completion
+read marks and local stop notes live in memory and reset with the page.
 
 ## How the columns are decided
 
@@ -132,7 +135,7 @@ it. The only stored values are the browser-local pin list and Recent-window choi
    row from the board.
 
 `tests/board.spec.ts` covers the precedence, the filters, the read mark, the Recent-window
-boundary, and the pinned states; `tests/pins.spec.ts` covers pin persistence;
+boundary, and the pinned states (whose ids now come from the Host pin set);
 `tests/recent-window.spec.ts` covers the window preference; `tests/back-to-board.spec.ts` covers the
 return marker; `tests/conversation-input.spec.ts` covers the embedded Factory phase;
 `tests/new-conversation.spec.ts` covers the current and most-recent target Workspace;

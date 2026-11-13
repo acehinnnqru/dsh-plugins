@@ -183,10 +183,10 @@ export function deriveBoard(
  * @param list - Session Controller list snapshot.
  * @param statuses - unified UI status by Session.
  * @param archivedSessionIds - registry-global archive set.
- * @param pinnedSessionIds - pinned Session ids, in the order the user pinned them.
+ * @param pinnedSessionIds - Host pin set, most recently pinned first.
  * @param readAt - completion read marks, keyed by Session, valued by the summary `updatedAt` shown.
  * @param locallyCompleted - stops the board observed itself and has not acknowledged.
- * @returns pinned cards in pin order.
+ * @returns pinned cards in Host pin order.
  */
 export function derivePinned(
   list: SessionListState,
