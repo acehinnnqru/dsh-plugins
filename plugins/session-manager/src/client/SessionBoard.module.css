@@ -25,17 +25,23 @@
 .header {
   flex: none;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 20px;
 }
 
-.title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 500;
-  line-height: 28px;
+/* The page's view switch is the shared SegmentedControl; it only needs to keep its intrinsic width
+   beside the header tools. */
+.viewSwitch {
+  flex: none;
+}
+
+.tabPanel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .headerTools {
@@ -904,7 +910,8 @@
   outline-offset: 1px;
 }
 
-.searchRowTitle {
+.searchRowTitle,
+.manageRowTitle {
   overflow: hidden;
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
@@ -914,7 +921,8 @@
   white-space: nowrap;
 }
 
-.searchRowMeta {
+.searchRowMeta,
+.manageRowMeta {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -923,19 +931,22 @@
   line-height: 16px;
 }
 
-.searchRowWorkspace {
+.searchRowWorkspace,
+.manageRowWorkspace {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.searchRowState {
+.searchRowState,
+.manageRowState {
   flex: none;
   white-space: nowrap;
 }
 
-.searchRowTime {
+.searchRowTime,
+.manageRowTime {
   flex: none;
   margin-left: auto;
   white-space: nowrap;
@@ -949,6 +960,144 @@
   font-size: 13px;
   line-height: 20px;
   text-align: center;
+}
+
+/* The management tab: one bordered panel over the full listed set. The toolbar wraps so the
+   filter, the select-all control, and the archive action survive a narrow page. */
+.management {
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.manageBar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 4px 10px;
+}
+
+.manageFilter {
+  width: min(320px, 100%);
+}
+
+.manageSelectAll {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.manageCheck {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--dsw-alias-state-business-primary);
+  cursor: pointer;
+}
+
+.manageCheck:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+
+.manageCheck:disabled {
+  cursor: default;
+}
+
+.manageSelected {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.manageArchive {
+  margin-left: auto;
+}
+
+.manageError {
+  flex: none;
+  margin: 0 4px 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.manageEmpty {
+  flex: 1;
+  margin: 0;
+  padding: 32px 16px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.manageList {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0 4px 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.manageRow {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+
+.manageRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.manageRow[data-selected='true'] {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.manageRowBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.manageRowBody:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
 }
 
 .preview {
@@ -1072,9 +1221,26 @@
     overflow: visible;
   }
 
+  .tabPanel {
+    flex: none;
+  }
+
+  .management {
+    flex: none;
+    overflow: visible;
+  }
+
+  .manageList {
+    overflow: visible;
+  }
+
   .header {
     flex-direction: column;
     gap: 6px;
+  }
+
+  .viewSwitch {
+    align-self: flex-start;
   }
 
   .headerTools {

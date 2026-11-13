@@ -1,13 +1,14 @@
 # dsh-plugin-session-manager
 
 A sidebar entry, a main-column board that keeps running, unread, and recent Sessions in view, a
-full-list session search, and a full-screen new-conversation overlay that embeds the native composer.
+management tab for batch archiving, a full-list session search, and a full-screen new-conversation
+overlay that embeds the native composer.
 
 ## What it does
 
 - Adds one row to the sidebar's global panel list, after Plugins and Automation tasks. Selecting it
-  opens the board in the main column. The product owns the row button, its label, and its selected
-  state; this plugin contributes the icon and the page behind the row.
+  opens the page in the main column on the Board tab. The product owns the row button, its label, and
+  its selected state; this plugin contributes the icon and the page behind the row.
 - Draws three columns: **Running**, **Unread**, and **Recent**.
   - **Running** — the Session's turn is executing and no domain is waiting for the user.
   - **Unread** — a pending interaction or a completion that has not been acknowledged. A pending
@@ -48,10 +49,17 @@ full-list session search, and a full-screen new-conversation overlay that embeds
   controller resolution (the target's own Agent preset or the Host default), carries the draft text
   across, and releases the previous Session; a draft with attachments refuses the switch rather than
   dropping them.
-- Configures the **Recent** window from the gear in the page's top-right: 1, 3, 7, or 30 days.
+- Configures the **Recent** window from the gear in the Board tab's top-right: 1, 3, 7, or 30 days.
   The default is three days; the choice is browser-local and only filters Recent. Running and Unread
   never age out.
-- Searches the whole Session list from the magnifier in the page's top-right. Matching is a
+- Switches the page between **Board** (the three columns) and **Management** with the header's
+  segmented control. Management lists every eligible Session, newest first, with a title filter; a row opens the same
+  preview dialog a card does. A checkbox selects a row, the toolbar checkbox selects the filtered
+  set, and **Archive** removes the selected Sessions after a confirmation. The batch runs one
+  Session at a time: the Host refuses a Session whose work is still running, so the tab reports how
+  many were refused and leaves those rows listed and selected. Archived Sessions can be restored
+  from the native sidebar.
+- Searches the whole Session list from the magnifier in the Board tab's top-right. Matching is a
   case-insensitive substring test on the card title — the host-facing label — over every eligible
   Session, not just the Recent window; blank drafts, subagent-origin rows, and archived Sessions stay
   out. The dialog opens with the newest-first list and the field focused; the arrow keys and Enter
@@ -128,10 +136,11 @@ session dialog's **Open session** action navigate through `uiWorkspace.openSessi
 Session panel; the leading back control selects the board again. The preview dialog's
 new-conversation control closes the preview and opens the overlay in the previewed Session's
 Workspace under its Agent preset. The search dialog only reads the same live list snapshot and
-retains a Session when its result is previewed. Pinning writes the Host pin set through `uiWorkspace`; the board
-never stops, renames, or archives a Session, and never pauses or
-resumes one; the native composer is the Session's own input surface, used by the person in front of
-it. The only browser-local stored value is the Recent-window choice in `localStorage`; completion
+retains a Session when its result is previewed. Pinning writes the Host pin set through
+`uiWorkspace`, and the management tab writes the registry-global archive set through the same
+service; the page never stops, renames, or pauses a Session, and a batch archive leaves a Session
+whose work is still running untouched and reports the refusal. The native composer is the Session's
+own input surface, used by the person in front of it. The only browser-local stored value is the Recent-window choice in `localStorage`; completion
 read marks and local stop notes live in memory and reset with the page.
 
 ## How the columns are decided
@@ -153,6 +162,7 @@ read marks and local stop notes live in memory and reset with the page.
 `tests/board.spec.ts` covers the precedence, the filters, the read mark, the Recent-window
 boundary, and the pinned states (whose ids now come from the Host pin set);
 `tests/session-search.spec.ts` covers the full-list derivation and the title filter;
+`tests/archive.spec.ts` covers the batch archive outcome;
 `tests/recent-window.spec.ts` covers the window preference; `tests/back-to-board.spec.ts` covers the
 return marker; `tests/conversation-input.spec.ts` covers the embedded Factory phase;
 `tests/new-conversation.spec.ts` covers the current and most-recent target Workspace;

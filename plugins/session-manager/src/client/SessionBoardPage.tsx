@@ -1,9 +1,10 @@
 /**
- * The session board, its full-list session search, its full-screen conversation preview, and its
- * new-conversation overlay.
+ * The session board, its management tab, its full-list session search, its full-screen conversation
+ * preview, and its new-conversation overlay.
  *
- * The board is three columns over the live runtime state of every listed Session. A card opens a
- * preview *inside this page*: the native Conversation is embedded through the shared
+ * The page header selects between **Board**, three columns over the live runtime state of every
+ * listed Session, and **Management**, a selectable list for batch archiving. A card or a management
+ * row opens a preview *inside this page*: the native Conversation is embedded through the shared
  * `conversation.content` Factory, bound to a retained Session reference, so the composer and the
  * native question/approval takeovers travel with it. A back bar returns to the board; no Session
  * navigation happens.
@@ -27,12 +28,12 @@ import {
   Input,
   Menu,
   Modal,
-  relativeTime,
+  SegmentedControl,
   StateDot,
   TextShimmer,
   type MenuEntry,
+  type SegmentedControlOption,
   type StateDotState,
-  type RelativeTimeUnit,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionListState, SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -56,10 +57,11 @@ import {
 import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
 import { matchSessionTitles, searchableSessions, type SessionHit } from './session-search.ts'
+import { baseName, fullDate, stateText, timeText, workspaceName, workspaceOf, type Translate } from './session-view.ts'
+import { Management } from './Management.tsx'
 import { NewConversation } from './NewConversation.tsx'
 import { NS, type SessionManagerKey } from './locales.ts'
 import { currentWorkspaceId, recentWorkspaceId } from './new-conversation-target.ts'
-import { DEFAULT_WORKSPACE_TITLE, workspaceLabel } from './workspace-search.ts'
 import { recentWindowDays, setRecentWindowDays, subscribeRecentWindow } from './recent-window.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
 import { setChooseWorkspace } from './workspace-choice.ts'
@@ -112,6 +114,15 @@ export interface SessionManagerInjected {
    * @param pinned - true to pin, false to unpin.
    */
   readonly setPinned: (sessionId: SessionId, pinned: boolean) => Promise<void>
+  /**
+   * Archive one Session from the registry-global archive set.
+   *
+   * The management tab calls this once per selected Session. The Host refuses a Session whose work
+   * is still running rather than stopping it, so the tab reports those refusals and leaves the rows
+   * listed.
+   * @param sessionId - Session to archive.
+   */
+  readonly archiveSession: (sessionId: SessionId) => Promise<void>
 }
 
 /** The main slot's props, the preview child slot, the translate seat, and Session retention. */
@@ -121,8 +132,8 @@ type PageProps =
   & PropsLocale<typeof NS>
   & InjectFace<SessionManagerInjected>
 
-/** The page's translate function. */
-type Translate = PageProps['t']
+/** The page's two tabs: the board and the management list. */
+type PageTab = 'board' | 'management'
 
 /** The Session currently shown in a preview surface. */
 interface Preview {
@@ -275,91 +286,6 @@ const COLUMN_COPY: Record<BoardColumn, ColumnCopy> = {
   recent: { title: 'column.recent', empty: 'column.recent.empty', dot: 'idle' },
 }
 
-/** Relative-time buckets, localized in this plugin's own dictionary. */
-const TIME_COPY: Record<RelativeTimeUnit, SessionManagerKey> = {
-  now: 'time.now',
-  minutes: 'time.minutes',
-  hours: 'time.hours',
-  days: 'time.days',
-  months: 'time.months',
-  years: 'time.years',
-}
-
-/**
- * The trailing state label on one card.
- * @param column - the card's column.
- * @param card - the card whose waiting kind may refine the label.
- * @param t - this namespace's translate function.
- * @returns the visible state text.
- */
-function stateText(state: PinnedState, card: SessionCard, t: Translate): string {
-  if (state === 'waiting') return t(waitingCopyKey(card.waitingKind))
-  if (state === 'running') return t('card.running')
-  if (state === 'completed') return t('card.completed')
-  return t('card.idle')
-}
-
-/**
- * Format the card's relative activity time with the shared bucket function.
- * @param at - epoch ms of the latest activity.
- * @param now - current epoch ms, injected so render stays pure.
- * @param t - this namespace's translate function.
- * @returns the localized relative time.
- */
-function timeText(at: number, now: number, t: Translate): string {
-  const bucket = relativeTime(at, now)
-  return t(TIME_COPY[bucket.unit], { n: bucket.n })
-}
-
-/**
- * Basename of a POSIX or Windows working directory.
- * @param path - absolute directory path.
- * @returns the final path segment, without trailing separators.
- */
-function baseName(path: string): string {
-  const trimmed = path.replace(/[\\/]+$/, '')
-  if (trimmed === '') return path
-  const at = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
-  return at === -1 ? trimmed : trimmed.slice(at + 1)
-}
-
-/**
- * Resolve the Workspace a Session belongs to.
- *
- * Membership wins; a cwd match covers a row whose Workspace set is still catching up.
- * @param card - Session card.
- * @param items - Workspace rows.
- * @returns the owning Workspace, or undefined for a Session outside every Workspace.
- */
-function workspaceOf(
-  card: SessionCard,
-  items: readonly WorkspaceView[],
-): WorkspaceView | undefined {
-  return items.find((item) => item.sessionIds.includes(card.id))
-    ?? items.find((item) => card.cwd !== undefined && item.path === card.cwd)
-}
-
-/**
- * Resolve the visible Workspace name for a Session.
- *
- * A Session outside every Workspace falls back to its directory basename, and the product's
- * default marker is localized.
- * @param card - Session card.
- * @param items - Workspace rows.
- * @param t - this namespace's translate function.
- * @returns the Workspace name, or an empty string without a cwd.
- */
-function workspaceName(
-  card: SessionCard,
-  items: readonly WorkspaceView[],
-  t: Translate,
-): string {
-  const workspace = workspaceOf(card, items)
-  if (workspace === undefined) return card.cwd === undefined ? '' : baseName(card.cwd)
-  const label = workspaceLabel(workspace)
-  return label === DEFAULT_WORKSPACE_TITLE ? t('workspace.default') : label
-}
-
 /**
  * Read the Agent preset a Session runs from the list projection.
  *
@@ -373,15 +299,6 @@ function sessionPreset(list: SessionListState, sessionId: SessionId): string | u
   const values = list.byId[sessionId]?.projectionValues as Record<string, unknown> | undefined
   const listed = values?.['agentPreset']
   return typeof listed === 'string' && listed !== '' ? listed : undefined
-}
-
-/**
- * Full timestamp for a card's tooltip.
- * @param at - epoch ms.
- * @returns the reader's localized date and time.
- */
-function fullDate(at: number): string {
-  return new Date(at).toLocaleString()
 }
 
 /** One card's content, its state, and the pin and real-page controls. */
@@ -631,6 +548,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     moveDraft,
     draftAttachmentCount,
     setPinned,
+    archiveSession,
     useSessionAccess,
     SessionProvider,
     renderSlot,
@@ -645,6 +563,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const [previewError, setPreviewError] = useState<string | undefined>(undefined)
   const [composer, setComposer] = useState<Composer | undefined>(undefined)
   const [startError, setStartError] = useState<string | undefined>(undefined)
+  const [tab, setTab] = useState<PageTab>('board')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [pinError, setPinError] = useState<string | undefined>(undefined)
@@ -754,6 +673,10 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       label: t(days === 1 ? 'settings.day' : 'settings.days', { n: days }),
     })),
   ]
+  const tabOptions: readonly SegmentedControlOption<PageTab>[] = [
+    { value: 'board', label: t('tab.board') },
+    { value: 'management', label: t('tab.management') },
+  ]
 
   /**
    * Open the card's preview dialog.
@@ -818,6 +741,23 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   function openSearchHit(hit: SessionHit): void {
     setSearchOpen(false)
     openPreview(hit, hit.state)
+  }
+
+  /**
+   * Open a management row in the same preview dialog the board and search use.
+   * @param hit - the picked row.
+   */
+  function openManagedSession(hit: SessionHit): void {
+    openPreview(hit, hit.state)
+  }
+
+  /**
+   * Select one page tab, closing the board's settings menu with it.
+   * @param next - the tab to show.
+   */
+  function selectTab(next: PageTab): void {
+    setTab(next)
+    setSettingsOpen(false)
   }
 
   /** Leave the preview; its effect cleanup releases the retained reference. */
@@ -1021,21 +961,32 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       <div className={css.page}>
       <div className={css.content}>
         <header className={css.header}>
-          <h1 className={css.title}>{t('page.title')}</h1>
+          <SegmentedControl
+            id="session-manager"
+            className={css.viewSwitch ?? ''}
+            value={tab}
+            options={tabOptions}
+            onChange={selectTab}
+            label={t('tab.label')}
+          />
           <div className={css.headerTools}>
-            {total > 0 && <span className={css.total}>{t('page.count', { count: total })}</span>}
-            <button
-              type="button"
-              className={css.searchTrigger}
-              aria-label={t('search.open')}
-              aria-haspopup="dialog"
-              title={t('search.open')}
-              onClick={() => {
-                setSearchOpen(true)
-              }}
-            >
-              <IconSearchOutlineRegular size={16} />
-            </button>
+            {tab === 'board' && total > 0 && (
+              <span className={css.total}>{t('page.count', { count: total })}</span>
+            )}
+            {tab === 'board' && (
+              <button
+                type="button"
+                className={css.searchTrigger}
+                aria-label={t('search.open')}
+                aria-haspopup="dialog"
+                title={t('search.open')}
+                onClick={() => {
+                  setSearchOpen(true)
+                }}
+              >
+                <IconSearchOutlineRegular size={16} />
+              </button>
+            )}
             <button
               type="button"
               className={css.newChat}
@@ -1047,38 +998,40 @@ export function SessionBoardPage(props: PageProps): ReactNode {
             >
               <IconNewChatOutlineRegular size={16} />
             </button>
-            <Menu
-              open={settingsOpen}
-              anchor={(
-                <button
-                  type="button"
-                  className={css.settings}
-                  aria-label={t('settings.open')}
-                  aria-haspopup="menu"
-                  aria-expanded={settingsOpen}
-                  title={t('settings.open')}
-                  onClick={() => {
-                    setSettingsOpen((open) => !open)
-                  }}
-                >
-                  <IconSettingsOutlineRegular size={16} />
-                </button>
-              )}
-              items={windowItems}
-              selectedId={String(windowDays)}
-              onSelect={(id) => {
-                setRecentWindowDays(Number(id))
-                setSettingsOpen(false)
-              }}
-              onClose={() => {
-                setSettingsOpen(false)
-              }}
-              align="end"
-              side="bottom"
-              autoFocus
-              portal
-              className={css.settingsAnchor}
-            />
+            {tab === 'board' && (
+              <Menu
+                open={settingsOpen}
+                anchor={(
+                  <button
+                    type="button"
+                    className={css.settings}
+                    aria-label={t('settings.open')}
+                    aria-haspopup="menu"
+                    aria-expanded={settingsOpen}
+                    title={t('settings.open')}
+                    onClick={() => {
+                      setSettingsOpen((open) => !open)
+                    }}
+                  >
+                    <IconSettingsOutlineRegular size={16} />
+                  </button>
+                )}
+                items={windowItems}
+                selectedId={String(windowDays)}
+                onSelect={(id) => {
+                  setRecentWindowDays(Number(id))
+                  setSettingsOpen(false)
+                }}
+                onClose={() => {
+                  setSettingsOpen(false)
+                }}
+                align="end"
+                side="bottom"
+                autoFocus
+                portal
+                className={css.settingsAnchor}
+              />
+            )}
           </div>
         </header>
 
@@ -1094,109 +1047,124 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           </p>
         )}
 
-        {pinError !== undefined && (
+        {tab === 'board' && pinError !== undefined && (
           <p className={css.previewError} role="alert">
             {t('pin.failed')}: {pinError}
           </p>
         )}
 
-        {total === 0 && list.phase === 'pending' && (
-          <p className={css.loading} role="status">{t('state.loading')}</p>
-        )}
+        {tab === 'board' ? (
+          <div className={css.tabPanel} role="tabpanel" id="session-manager-board-panel" aria-labelledby="session-manager-board">
+            {total === 0 && list.phase === 'pending' && (
+              <p className={css.loading} role="status">{t('state.loading')}</p>
+            )}
 
-        {pinned.length > 0 && (
-          <section className={css.pinned} aria-labelledby="session-manager-pinned">
-            <header className={css.pinnedHead}>
-              <IconPinFillRegular size={14} />
-              <h2 className={css.pinnedTitle} id="session-manager-pinned">{t('pinned.title')}</h2>
-              <span className={css.columnCount}>{pinned.length}</span>
-            </header>
-            <ul className={css.pinnedRail}>
-              {pinned.map((card) => (
-                <li className={css.pinnedItem} key={card.id}>
-                  <SessionCardView
-                    card={card}
-                    state={card.state}
-                    pinned
-                    pinPending={pinBusy.has(card.id)}
-                    t={t}
-                    now={now}
-                    useSessionAccess={useSessionAccess}
-                    onOpen={() => {
-                      openPreview(card, card.state)
-                    }}
-                    onOpenSession={() => {
-                      openSessionPage(card, card.state)
-                    }}
-                    onTogglePin={() => {
-                      void togglePin(card.id, true)
-                    }}
-                  />
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+            {pinned.length > 0 && (
+              <section className={css.pinned} aria-labelledby="session-manager-pinned">
+                <header className={css.pinnedHead}>
+                  <IconPinFillRegular size={14} />
+                  <h2 className={css.pinnedTitle} id="session-manager-pinned">{t('pinned.title')}</h2>
+                  <span className={css.columnCount}>{pinned.length}</span>
+                </header>
+                <ul className={css.pinnedRail}>
+                  {pinned.map((card) => (
+                    <li className={css.pinnedItem} key={card.id}>
+                      <SessionCardView
+                        card={card}
+                        state={card.state}
+                        pinned
+                        pinPending={pinBusy.has(card.id)}
+                        t={t}
+                        now={now}
+                        useSessionAccess={useSessionAccess}
+                        onOpen={() => {
+                          openPreview(card, card.state)
+                        }}
+                        onOpenSession={() => {
+                          openSessionPage(card, card.state)
+                        }}
+                        onTogglePin={() => {
+                          void togglePin(card.id, true)
+                        }}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
 
-        {(total > 0 || list.phase === 'ready') && (
-          <div className={css.board}>
-            {BOARD_COLUMNS.map((column) => {
-              const cards = columns[column]
-              const meta = COLUMN_COPY[column]
-              return (
-                <section
-                  className={css.column}
-                  key={column}
-                  data-column={column}
-                  aria-labelledby={`session-manager-${column}`}
-                >
-                  <header className={css.columnHead}>
-                    {column === 'running'
-                      ? <StateDot state="done" className={css.runningDot} />
-                      : <StateDot state={meta.dot} />}
-                    <h2 className={css.columnTitle} id={`session-manager-${column}`}>{t(meta.title)}</h2>
-                    <span className={css.columnCount}>{cards.length}</span>
-                  </header>
-                  {cards.length === 0
-                    ? <p className={css.columnEmpty}>{t(meta.empty)}</p>
-                    : (
-                      <ul className={css.cards}>
-                        {cards.map((card) => {
-                          const state: PinnedState = column === 'running'
-                            ? 'running'
-                            : column === 'unread'
-                              ? statuses.get(card.id)?.pendingInteraction !== undefined
-                                ? 'waiting'
-                                : 'completed'
-                              : 'idle'
-                          return (
-                            <li key={card.id}>
-                              <SessionCardView
-                                card={card}
-                                state={state}
-                                pinned={false}
-                                pinPending={pinBusy.has(card.id)}
-                                t={t}
-                                now={now}
-                                useSessionAccess={useSessionAccess}
-                                onOpen={() => {
-                                  openPreview(card, state)
-                                }}
-                                onOpenSession={() => {
-                                  openSessionPage(card, state)
-                                }}
-                                onTogglePin={() => {
-                                  void togglePin(card.id, false)
-                                }}
-                              />
-                            </li>
-                          )
-                        })}
-                      </ul>
-                    )}
-                </section>
-              )
-            })}
+            {(total > 0 || list.phase === 'ready') && (
+              <div className={css.board}>
+                {BOARD_COLUMNS.map((column) => {
+                  const cards = columns[column]
+                  const meta = COLUMN_COPY[column]
+                  return (
+                    <section
+                      className={css.column}
+                      key={column}
+                      data-column={column}
+                      aria-labelledby={`session-manager-${column}`}
+                    >
+                      <header className={css.columnHead}>
+                        {column === 'running'
+                          ? <StateDot state="done" className={css.runningDot} />
+                          : <StateDot state={meta.dot} />}
+                        <h2 className={css.columnTitle} id={`session-manager-${column}`}>{t(meta.title)}</h2>
+                        <span className={css.columnCount}>{cards.length}</span>
+                      </header>
+                      {cards.length === 0
+                        ? <p className={css.columnEmpty}>{t(meta.empty)}</p>
+                        : (
+                          <ul className={css.cards}>
+                            {cards.map((card) => {
+                              const state: PinnedState = column === 'running'
+                                ? 'running'
+                                : column === 'unread'
+                                  ? statuses.get(card.id)?.pendingInteraction !== undefined
+                                    ? 'waiting'
+                                    : 'completed'
+                                  : 'idle'
+                              return (
+                                <li key={card.id}>
+                                  <SessionCardView
+                                    card={card}
+                                    state={state}
+                                    pinned={false}
+                                    pinPending={pinBusy.has(card.id)}
+                                    t={t}
+                                    now={now}
+                                    useSessionAccess={useSessionAccess}
+                                    onOpen={() => {
+                                      openPreview(card, state)
+                                    }}
+                                    onOpenSession={() => {
+                                      openSessionPage(card, state)
+                                    }}
+                                    onTogglePin={() => {
+                                      void togglePin(card.id, false)
+                                    }}
+                                  />
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        )}
+                    </section>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className={css.tabPanel} role="tabpanel" id="session-manager-management-panel" aria-labelledby="session-manager-management">
+            <Management
+              sessions={searchableSessions(list, statuses, archived, completionReadAt, locallyCompleted)}
+              workspaces={workspaces.items}
+              now={now}
+              t={t}
+              archiveSession={archiveSession}
+              onPreview={openManagedSession}
+            />
           </div>
         )}
         </div>

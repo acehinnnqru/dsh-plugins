@@ -101,6 +101,9 @@ export function apply(ctx: ClientContext): void {
     inputFor(sessionId)?.state.getSnapshot().attachmentIds.length ?? 0
   const setPinned = (sessionId: SessionId, pinned: boolean): Promise<void> =>
     pinned ? ctx.uiWorkspace.pinSession(sessionId) : ctx.uiWorkspace.unpinSession(sessionId)
+  // The management tab batches this command; the Host refuses a Session whose work still runs.
+  const archiveSession = (sessionId: SessionId): Promise<void> =>
+    ctx.uiWorkspace.archiveSession(sessionId)
 
   ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',
@@ -117,6 +120,7 @@ export function apply(ctx: ClientContext): void {
       moveDraft,
       draftAttachmentCount,
       setPinned,
+      archiveSession,
     }),
   }, SessionBoardPage))
 
