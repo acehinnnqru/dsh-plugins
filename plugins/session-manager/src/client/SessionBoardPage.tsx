@@ -12,7 +12,7 @@
  * @module dsh-plugin-session-manager/client/page
  */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconChevronLeftOutlineRegular,
@@ -42,6 +42,7 @@ import {
   RECENT_WINDOW_DAYS,
   deriveBoard,
   derivePinned,
+  previewReadMark,
   waitingCopyKey,
   withinRecent,
   type BoardColumn,
@@ -512,6 +513,20 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       previewReference.release()
     }
   }, [previewReference])
+
+  // A preview is a live conversation. DSH retires its own unread marker only for a `mainView`
+  // retention, and an embedded preview is deliberately not one, so the board settles the mark
+  // itself: a turn that finishes while its conversation is on screen has been read. The layout
+  // effect writes the mark before the paint, so the card never flashes through Unread.
+  const presentedId = preview?.card.id
+  useLayoutEffect(() => {
+    if (presentedId === undefined) return
+    const mark = previewReadMark(list, statuses, presentedId, completionReadAt)
+    if (mark === undefined) return
+    completionReadAt.set(presentedId, mark)
+    clearLocalCompletion(presentedId)
+    bumpBoardRevision((value) => value + 1)
+  }, [presentedId, list, statuses, bumpBoardRevision])
 
   // The overlay owns both handles; the cleanup runs after the Conversation unmounts.
   const composerReference = composer?.reference

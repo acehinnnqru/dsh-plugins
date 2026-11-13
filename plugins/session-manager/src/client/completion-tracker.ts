@@ -4,18 +4,18 @@
  * DSH's `completionUnread` is precise about the conversation it considers main, but a global panel
  * keeps the last conversation `mainView`-retained behind it. That makes a stop look read while the
  * board is the visible surface. This tracker observes the running→stopped edge globally and records
- * it, unless the stopping Session is actually the visible conversation.
+ * it, unless the stopping Session's conversation is actually on screen.
  * @module dsh-plugin-session-manager/client/completion-tracker
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionListState, SessionReferenceSource } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: they carry the declarations for ctx.uiSession and ctx.layout.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 
-/** Stops the tracker observed while the Session was not the visible conversation. */
+/** Stops the tracker observed while the Session's conversation was off screen. */
 const localCompleted = new Set<SessionId>()
 
 /** Page subscriptions, so a recorded stop can re-render an already mounted board. */
@@ -36,6 +36,25 @@ export function subscribeLocalCompletions(listener: () => void): () => void {
   return () => {
     listeners.delete(listener)
   }
+}
+
+/**
+ * Whether a Session's conversation is on screen right now.
+ *
+ * Two surfaces show one: the native page, which retains the Session as `mainView` while no global
+ * panel is selected, and the board's own preview, which retains it as `sessionManager` for as long
+ * as the embedded conversation is mounted. The preview is interactive, so a stop there is a stop
+ * the reader watched.
+ * @param retainedBy - retention counts from the listed Session row.
+ * @param activePanelId - the selected global panel, or null when a Session page is showing.
+ * @returns true when a stop is already being watched.
+ */
+function conversationShown(
+  retainedBy: Readonly<Partial<Record<SessionReferenceSource, number>>>,
+  activePanelId: string | null,
+): boolean {
+  if ((retainedBy.sessionManager ?? 0) > 0) return true
+  return activePanelId === null && (retainedBy.mainView ?? 0) > 0
 }
 
 /**
@@ -62,10 +81,9 @@ export function localCompletionIds(list: SessionListState): Set<SessionId> {
 /**
  * Start the global running→stopped tracker.
  *
- * A stop is recorded only when the Session is not the visible conversation: the conversation is
- * selected (`activePanelId === null`) and the Session is the one retained as `mainView`. Opening
- * that conversation later clears the local mark, so the board does not resurrect a completion the
- * user has since read.
+ * A stop is recorded only when the Session's conversation is off screen, in neither the native page
+ * nor a board preview. Opening that conversation later clears the local mark, so the board does not
+ * resurrect a completion the user has since read.
  * @param ctx - client context carrying sessions, the Session UI status, and layout.
  */
 export function startCompletionTracker(ctx: ClientContext): void {
@@ -83,7 +101,7 @@ export function startCompletionTracker(ctx: ClientContext): void {
       if (row === undefined || row.blank || row.origin === 'subagent') continue
       const running = statuses.get(id)?.running ?? row.running
       const was = previous.get(id)
-      const visible = activePanelId === null && (row.retainedBy.mainView ?? 0) > 0
+      const visible = conversationShown(row.retainedBy, activePanelId)
 
       if (was === true && !running) {
         if (visible) {
@@ -103,14 +121,14 @@ export function startCompletionTracker(ctx: ClientContext): void {
     if (changed) publish()
   }
 
-  /** A Session that becomes the visible conversation has been read; drop its local mark. */
+  /** A Session that comes on screen has been read; drop its local mark. */
   const clearVisible = (): void => {
-    if (ctx.layout.panelInfo.getSnapshot().activePanelId !== null) return
+    const { activePanelId } = ctx.layout.panelInfo.getSnapshot()
     const list = ctx.sessions.list.getSnapshot()
     let changed = false
     for (const id of list.ids) {
       const row = list.byId[id]
-      if (row === undefined || (row.retainedBy.mainView ?? 0) === 0) continue
+      if (row === undefined || !conversationShown(row.retainedBy, activePanelId)) continue
       if (localCompleted.delete(id)) changed = true
     }
     if (changed) publish()

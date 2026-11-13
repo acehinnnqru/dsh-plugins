@@ -23,8 +23,10 @@ full-screen new-conversation overlay that embeds the native composer.
   conversation** action still expands to the embedded page.
 - When the open-session control or the session dialog's **Open session** action opens the real page,
   a compact back control appears before the Session title and returns to the board; selecting any
-  global panel clears it. The pending dialog keeps its own close control, and its expanded page keeps
-  the back bar.
+  global panel clears it. Beside it, and alone when the page was not reached from the board, a
+  new-conversation control starts a Session in the current Session's Workspace under its Agent preset
+  through `uiWorkspace.startSession`; it is absent on a blank Session. The pending dialog keeps its
+  own close control, and its expanded page keeps the back bar.
 - Pins a Session from the icon that appears when its card is hovered or focused. Pinned Sessions move
   to a full-width **Pinned** rail above the columns and keep their runtime label there; the rail is
   absent until at least one pin exists. Pins are Host state shared with the native sidebar: the rail
@@ -57,14 +59,16 @@ full-screen new-conversation overlay that embeds the native composer.
   status, and the Workspace archive set — so the board follows running state, pending interactions,
   and reads without polling or a host route. **Unread** combines pending interactions, DSH's own
   unread-completion marker, and a running→stopped edge the plugin observes globally. A stop counts
-  unless that Session is the visible conversation (conversation selected and retained as
-  `mainView`): DSH leaves its own marker false when the Session stays `mainView`-retained behind a
-  global panel, which is exactly the board's situation.
-- Opening an unread completion marks it read: both the preview dialog and the open-session control
-  acknowledge it. The card moves from **Unread** to **Recent** and stays findable; it is not hidden.
-  A **Running** Session that finishes on its visible real page is read and goes to **Recent**; one
-  that finishes while the board is visible, or behind it, lands in **Unread**. Both the read mark and
-  the local stop note are browser-local and reset with the page.
+  unless that Session's conversation is on screen: the native page (conversation selected and
+  retained as `mainView`) or a board preview, which retains the Session as `sessionManager` for as
+  long as the embedded conversation is open. DSH leaves its own marker false when the Session stays
+  `mainView`-retained behind a global panel, which is exactly the board's situation.
+- Opening an unread completion marks it read: the preview dialog, the open-session control, and the
+  conversation itself for as long as it stays open acknowledge it. The card moves from **Unread** to
+  **Recent** and stays findable; it is not hidden. A **Running** Session that finishes on its
+  visible real page or in an open preview is read and goes to **Recent**; one that finishes with no
+  conversation on screen — while the board is visible, or behind it — lands in **Unread**. Both the
+  read mark and the local stop note are browser-local and reset with the page.
 - Carries no host behavior. The host half is an empty `apply`; it exists because a browser half is
   attached to a live Loader row.
 
@@ -113,8 +117,10 @@ this adds no navigation); sending or closing releases both. A Workspace switch r
 the chosen Workspace through the same controller call and moves the draft text between the two input
 shells, so it costs no navigation either. The card's open-session control and the
 session dialog's **Open session** action navigate through `uiWorkspace.openSession` to the real
-Session panel; the leading back control selects the board again. Pinning writes the Host pin set
-through `uiWorkspace`; the board never stops, renames, or archives a Session, and never pauses or
+Session panel; the leading back control selects the board again, and the new-conversation control
+starts a Session in the visible Session's Workspace under its Agent preset through
+`uiWorkspace.startSession`. Pinning writes the Host pin set through `uiWorkspace`; the board never
+stops, renames, or archives a Session, and never pauses or
 resumes one; the native composer is the Session's own input surface, used by the person in front of
 it. The only browser-local stored value is the Recent-window choice in `localStorage`; completion
 read marks and local stop notes live in memory and reset with the page.
@@ -128,7 +134,8 @@ read marks and local stop notes live in memory and reset with the page.
 3. Otherwise a running turn puts it in **Running**. Until the status snapshot knows the row, the
    list row's own running flag is the fallback, matching the Workspace row.
 4. Otherwise `completionUnread`, or a stop this plugin observed, puts it in **Unread**. A completion
-   whose read mark is at least as new as the row does not count.
+   whose read mark is at least as new as the row does not count; an open preview keeps that mark
+   current, so a turn that finishes there is read.
 5. Everything else inside the configured **Recent** window goes to **Recent**, newest first, so read
    and idle Sessions remain findable.
 6. Opening an unread completion only moves it from **Unread** to **Recent**; it never removes the

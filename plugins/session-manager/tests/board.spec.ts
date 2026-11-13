@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { deriveBoard, derivePinned, waitingCopyKey, withinRecent, type SessionCard } from '../src/client/board.ts'
+import {
+  deriveBoard,
+  derivePinned,
+  previewReadMark,
+  waitingCopyKey,
+  withinRecent,
+  type SessionCard,
+} from '../src/client/board.ts'
 
 /** Brand a literal string as a Session id. */
 function id(value: string): SessionId {
@@ -312,6 +319,33 @@ describe('derivePinned', () => {
     )
 
     expect(pinned.map((card) => card.id)).toEqual([normal.id])
+  })
+})
+
+describe('previewReadMark', () => {
+  it('records the row once a previewed Session reports an unread completion', () => {
+    const session = id('shown')
+    const list = listOf([summary('shown', { updatedAt: 40 })])
+    const statuses = statusesOf([[session, status({ completionUnread: true })]])
+
+    expect(previewReadMark(list, statuses, session, new Map())).toBe(40)
+  })
+
+  it('leaves an acknowledged completion alone', () => {
+    const session = id('shown')
+    const list = listOf([summary('shown', { updatedAt: 40 })])
+    const statuses = statusesOf([[session, status({ completionUnread: true })]])
+    const readAt = new Map<SessionId, number>([[session, 40]])
+
+    expect(previewReadMark(list, statuses, session, readAt)).toBeUndefined()
+  })
+
+  it('ignores a Session with no unread completion or no row', () => {
+    const session = id('shown')
+    const list = listOf([summary('shown', { updatedAt: 40 })])
+
+    expect(previewReadMark(list, statusesOf([[session, status()]]), session, new Map())).toBeUndefined()
+    expect(previewReadMark(list, statusesOf([]), id('gone'), new Map())).toBeUndefined()
   })
 })
 

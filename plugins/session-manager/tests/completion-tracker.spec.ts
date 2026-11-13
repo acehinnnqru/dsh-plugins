@@ -34,7 +34,10 @@ class Source<T> {
 }
 
 /** One ordinary list row; the tracker only reads running, retention, and the filter flags. */
-function row(id: SessionId, options: { running: boolean; mainView?: number }): Record<string, unknown> {
+function row(
+  id: SessionId,
+  options: { running: boolean; mainView?: number; sessionManager?: number },
+): Record<string, unknown> {
   return {
     id,
     workspaceId: 'workspace',
@@ -42,7 +45,10 @@ function row(id: SessionId, options: { running: boolean; mainView?: number }): R
     origin: 'user',
     running: options.running,
     updatedAt: 100,
-    retainedBy: { mainView: options.mainView ?? 0 },
+    retainedBy: {
+      mainView: options.mainView ?? 0,
+      sessionManager: options.sessionManager ?? 0,
+    },
   }
 }
 
@@ -96,6 +102,35 @@ describe('completion tracker', () => {
     start(list, statuses, panel)
 
     statuses.set(new Map([[id, { running: false }]]))
+
+    expect(localCompletionIds(list.getSnapshot()).has(id)).toBe(false)
+  })
+
+  it('does not record a stop while the board previews the Session', () => {
+    const id = 'previewed' as SessionId
+    const list = new Source(listOf([id], [row(id, { running: true, sessionManager: 1 })]))
+    const statuses = new Source(new Map([[id, { running: true }]]))
+    const panel = new Source({ activePanelId: 'session-manager' })
+    clearLocalCompletion(id)
+    start(list, statuses, panel)
+
+    statuses.set(new Map([[id, { running: false }]]))
+
+    expect(localCompletionIds(list.getSnapshot()).has(id)).toBe(false)
+  })
+
+  it('clears a local completion when the board opens the Session', () => {
+    const id = 'previewed-later' as SessionId
+    const list = new Source(listOf([id], [row(id, { running: true })]))
+    const statuses = new Source(new Map([[id, { running: true }]]))
+    const panel = new Source({ activePanelId: 'session-manager' })
+    clearLocalCompletion(id)
+    start(list, statuses, panel)
+
+    statuses.set(new Map([[id, { running: false }]]))
+    expect(localCompletionIds(list.getSnapshot()).has(id)).toBe(true)
+
+    list.set(listOf([id], [row(id, { running: false, sessionManager: 1 })]))
 
     expect(localCompletionIds(list.getSnapshot()).has(id)).toBe(false)
   })

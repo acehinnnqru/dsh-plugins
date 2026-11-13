@@ -99,6 +99,31 @@ export function withinRecent(
 }
 
 /**
+ * The read mark an open preview should record for the Session it shows.
+ *
+ * DSH retires its own unread marker only for a `mainView` retention, and an embedded preview is
+ * deliberately not one, so a turn that finishes while the conversation is on screen still reports
+ * `completionUnread`. The preview acknowledges it by keeping the read mark current, which is the
+ * value the board's classification already trusts.
+ * @param list - Session Controller list snapshot.
+ * @param statuses - unified UI status by Session.
+ * @param sessionId - Session the preview is showing.
+ * @param readAt - completion read marks recorded so far.
+ * @returns the mark to record, or undefined when the completion is already acknowledged.
+ */
+export function previewReadMark(
+  list: SessionListState,
+  statuses: SessionStatusSnapshot,
+  sessionId: SessionId,
+  readAt: ReadonlyMap<SessionId, number>,
+): number | undefined {
+  const row = list.byId[sessionId]
+  if (row === undefined || statuses.get(sessionId)?.completionUnread !== true) return undefined
+  const mark = readAt.get(sessionId)
+  return mark !== undefined && mark >= row.updatedAt ? undefined : row.updatedAt
+}
+
+/**
  * Order one column newest first, with the Session id as a stable tie-break.
  * @param cards - cards collected for one column.
  * @returns the same cards in render order.
