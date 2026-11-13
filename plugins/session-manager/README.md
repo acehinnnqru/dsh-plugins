@@ -1,7 +1,7 @@
 # dsh-plugin-session-manager
 
-A sidebar entry, a main-column board that keeps running, unread, and recent Sessions in view, and a
-full-screen new-conversation overlay that embeds the native composer.
+A sidebar entry, a main-column board that keeps running, unread, and recent Sessions in view, a
+full-list session search, and a full-screen new-conversation overlay that embeds the native composer.
 
 ## What it does
 
@@ -51,6 +51,12 @@ full-screen new-conversation overlay that embeds the native composer.
 - Configures the **Recent** window from the gear in the page's top-right: 1, 3, 7, or 30 days.
   The default is three days; the choice is browser-local and only filters Recent. Running and Unread
   never age out.
+- Searches the whole Session list from the magnifier in the page's top-right. Matching is a
+  case-insensitive substring test on the card title — the host-facing label — over every eligible
+  Session, not just the Recent window; blank drafts, subagent-origin rows, and archived Sessions stay
+  out. The dialog opens with the newest-first list and the field focused; the arrow keys and Enter
+  pick a row, and picking one opens the same preview dialog a card does, so a waiting Session still
+  surfaces its native question. Closing that preview returns to the board.
 - Embeds the native Conversation through the shared `conversation.content` Factory — the same host
   the subagent right-Sidebar chat uses — for both preview dialogs, the pending question's **Full
   conversation** page, and the new-conversation overlay, with a `SessionProvider` bound to a
@@ -121,7 +127,8 @@ shells, so it costs no navigation either. The card's open-session control and th
 session dialog's **Open session** action navigate through `uiWorkspace.openSession` to the real
 Session panel; the leading back control selects the board again. The preview dialog's
 new-conversation control closes the preview and opens the overlay in the previewed Session's
-Workspace under its Agent preset. Pinning writes the Host pin set through `uiWorkspace`; the board
+Workspace under its Agent preset. The search dialog only reads the same live list snapshot and
+retains a Session when its result is previewed. Pinning writes the Host pin set through `uiWorkspace`; the board
 never stops, renames, or archives a Session, and never pauses or
 resumes one; the native composer is the Session's own input surface, used by the person in front of
 it. The only browser-local stored value is the Recent-window choice in `localStorage`; completion
@@ -145,6 +152,7 @@ read marks and local stop notes live in memory and reset with the page.
 
 `tests/board.spec.ts` covers the precedence, the filters, the read mark, the Recent-window
 boundary, and the pinned states (whose ids now come from the Host pin set);
+`tests/session-search.spec.ts` covers the full-list derivation and the title filter;
 `tests/recent-window.spec.ts` covers the window preference; `tests/back-to-board.spec.ts` covers the
 return marker; `tests/conversation-input.spec.ts` covers the embedded Factory phase;
 `tests/new-conversation.spec.ts` covers the current and most-recent target Workspace;

@@ -1,5 +1,6 @@
 /**
- * The session board, its full-screen conversation preview, and its new-conversation overlay.
+ * The session board, its full-list session search, its full-screen conversation preview, and its
+ * new-conversation overlay.
  *
  * The board is three columns over the live runtime state of every listed Session. A card opens a
  * preview *inside this page*: the native Conversation is embedded through the shared
@@ -12,7 +13,7 @@
  * @module dsh-plugin-session-manager/client/page
  */
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconChevronLeftOutlineRegular,
@@ -21,7 +22,9 @@ import {
   IconPinFillRegular,
   IconPinOutlineRegular,
   IconRightUpOutlineRegular,
+  IconSearchOutlineRegular,
   IconSettingsOutlineRegular,
+  Input,
   Menu,
   Modal,
   relativeTime,
@@ -52,6 +55,7 @@ import {
 } from './board.ts'
 import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
+import { matchSessionTitles, searchableSessions, type SessionHit } from './session-search.ts'
 import { NewConversation } from './NewConversation.tsx'
 import { NS, type SessionManagerKey } from './locales.ts'
 import { currentWorkspaceId, recentWorkspaceId } from './new-conversation-target.ts'
@@ -471,6 +475,145 @@ function SessionCardView({
   )
 }
 
+/** Props of the full-list search dialog. */
+interface SearchDialogProps {
+  readonly hits: readonly SessionHit[]
+  readonly workspaces: readonly WorkspaceView[]
+  readonly now: number
+  readonly t: Translate
+  readonly onPick: (hit: SessionHit) => void
+  readonly onClose: () => void
+}
+
+/**
+ * Render the full-list title search in a dialog.
+ *
+ * The dialog opens with the field focused and the whole newest-first hit set listed, so it is also a
+ * quick jump list. Typing filters it by title; a row opens the board's preview dialog, which is why
+ * a waiting Session still surfaces its native question. The arrow keys and Enter work from the
+ * field, and the Modal layer keeps Escape for closing.
+ * @param props - the search hits, Workspaces for the row hint, the clock, copy, and two actions.
+ * @returns the search dialog.
+ */
+function SessionSearchDialog({
+  hits,
+  workspaces,
+  now,
+  t,
+  onPick,
+  onClose,
+}: SearchDialogProps): ReactNode {
+  const [query, setQuery] = useState('')
+  const [active, setActive] = useState(0)
+  const search = useRef<HTMLInputElement>(null)
+  const list = useRef<HTMLUListElement>(null)
+  const results = matchSessionTitles(hits, query)
+  const activeIndex = Math.min(active, Math.max(results.length - 1, 0))
+
+  // The Modal layer focuses this field on open; focusing here as well keeps the caret in it after a
+  // re-render that replaces the list.
+  useEffect(() => {
+    search.current?.focus()
+  }, [])
+
+  // Keep the arrow-key highlight visible in a long list, the same way the Workspace menu does.
+  useEffect(() => {
+    list.current?.querySelectorAll<HTMLElement>('[role="option"]')[activeIndex]?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex, results.length])
+
+  /**
+   * Walk the results with the arrow keys and open the active one with Enter.
+   * @param event - key event on the search field.
+   */
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    // An IME owns the arrow keys and Enter while it composes; picking a candidate must not move the
+    // result highlight or open a row.
+    if (event.nativeEvent.isComposing) return
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setActive(Math.min(activeIndex + 1, Math.max(results.length - 1, 0)))
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setActive(Math.max(activeIndex - 1, 0))
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      const hit = results[activeIndex]
+      if (hit !== undefined) onPick(hit)
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={t('search.title')} headless className={css.searchDialog ?? ''}>
+      <div className={css.searchFrame}>
+        <div className={css.searchBar}>
+          <Input
+            ref={search}
+            className={css.searchInput ?? ''}
+            value={query}
+            onChange={(event) => {
+              setQuery(event.currentTarget.value)
+              setActive(0)
+            }}
+            onKeyDown={onKeyDown}
+            placeholder={t('search.placeholder')}
+            aria-label={t('search.placeholder')}
+            icon={<IconSearchOutlineRegular size={16} />}
+            spellCheck={false}
+            autoComplete="off"
+            {...{ 'data-modal-autofocus': true }}
+          />
+          <button
+            type="button"
+            className={css.dialogClose}
+            aria-label={t('preview.close')}
+            title={t('preview.close')}
+            onClick={onClose}
+          >
+            <IconCloseOutlineRegular size={14} />
+          </button>
+        </div>
+        {results.length === 0
+          ? <p className={css.searchEmpty} role="status">{t('search.empty')}</p>
+          : (
+            <ul ref={list} className={css.searchList} role="listbox" aria-label={t('search.title')}>
+              {results.map((hit, index) => {
+                const workspace = workspaceName(hit, workspaces, t)
+                return (
+                  <li key={hit.id} role="none">
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={index === activeIndex}
+                      data-active={index === activeIndex ? 'true' : undefined}
+                      className={css.searchRow}
+                      onClick={() => {
+                        onPick(hit)
+                      }}
+                      onMouseMove={() => {
+                        setActive(index)
+                      }}
+                    >
+                      <span className={css.searchRowTitle} title={hit.title}>{hit.title}</span>
+                      <span className={css.searchRowMeta}>
+                        {workspace !== '' && (
+                          <span className={css.searchRowWorkspace}>{workspace}</span>
+                        )}
+                        <span className={css.searchRowState}>{stateText(hit.state, hit, t)}</span>
+                        <span className={css.searchRowTime} title={fullDate(hit.updatedAt)}>
+                          {timeText(hit.updatedAt, now, t)}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+      </div>
+    </Modal>
+  )
+}
+
 /**
  * Render the board, the waiting dialog, or that dialog's expanded embedded page.
  * @param props - main-slot standard props, the preview child, translate seat, and retention.
@@ -503,6 +646,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const [composer, setComposer] = useState<Composer | undefined>(undefined)
   const [startError, setStartError] = useState<string | undefined>(undefined)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [pinError, setPinError] = useState<string | undefined>(undefined)
   const [pinBusy, setPinBusy] = useState<ReadonlySet<SessionId>>(() => new Set())
   const [, bumpBoardRevision] = useState(0)
@@ -662,6 +806,18 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       completionReadAt.set(card.id, card.updatedAt)
     }
     return true
+  }
+
+  /**
+   * Close the search dialog and open the picked result in the preview dialog.
+   *
+   * The dialog owns no Session reference, so there is nothing to release here; `openPreview` retains
+   * the one the preview needs and acknowledges a completed result.
+   * @param hit - the picked search result.
+   */
+  function openSearchHit(hit: SessionHit): void {
+    setSearchOpen(false)
+    openPreview(hit, hit.state)
   }
 
   /** Leave the preview; its effect cleanup releases the retained reference. */
@@ -870,6 +1026,18 @@ export function SessionBoardPage(props: PageProps): ReactNode {
             {total > 0 && <span className={css.total}>{t('page.count', { count: total })}</span>}
             <button
               type="button"
+              className={css.searchTrigger}
+              aria-label={t('search.open')}
+              aria-haspopup="dialog"
+              title={t('search.open')}
+              onClick={() => {
+                setSearchOpen(true)
+              }}
+            >
+              <IconSearchOutlineRegular size={16} />
+            </button>
+            <button
+              type="button"
               className={css.newChat}
               aria-label={t('new.title')}
               title={t('new.title')}
@@ -1048,6 +1216,18 @@ export function SessionBoardPage(props: PageProps): ReactNode {
             openRealPage(preview)
           }}
           onNewSession={newSessionFromPreview}
+        />
+      )}
+      {searchOpen && (
+        <SessionSearchDialog
+          hits={searchableSessions(list, statuses, archived, completionReadAt, locallyCompleted)}
+          workspaces={workspaces.items}
+          now={now}
+          t={t}
+          onPick={openSearchHit}
+          onClose={() => {
+            setSearchOpen(false)
+          }}
         />
       )}
       {composer !== undefined && (

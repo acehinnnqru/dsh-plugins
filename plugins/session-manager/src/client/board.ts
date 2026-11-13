@@ -12,7 +12,7 @@
  */
 
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** The three board columns, in order. */
@@ -124,11 +124,37 @@ export function previewReadMark(
 }
 
 /**
- * Order one column newest first, with the Session id as a stable tie-break.
- * @param cards - cards collected for one column.
+ * Classify one eligible Session's runtime state.
+ *
+ * This is the single precedence rule behind the board's columns, the pinned rail, and the search
+ * dialog: a pending interaction outranks a running turn (the same rule the Session row uses), a
+ * running turn outranks a completion, and a completion whose read mark is current turns idle. A stop
+ * this board observed itself stays completed even after that mark, so the board never loses the
+ * unread state it just saw.
+ * @param status - unified UI status; absent until the snapshot knows the row.
+ * @param running - resolved running flag: the status's own value, or the list row's fallback.
+ * @param read - whether a recorded read mark is at least as new as the row.
+ * @param locallyDone - a stop this board observed and has not acknowledged.
+ * @returns waiting, running, completed, or idle.
+ */
+export function sessionState(
+  status: SessionStatus | undefined,
+  running: boolean,
+  read: boolean,
+  locallyDone: boolean,
+): PinnedState {
+  if (status?.pendingInteraction !== undefined) return 'waiting'
+  if (running) return 'running'
+  if (!locallyDone && status?.completionUnread !== true) return 'idle'
+  return locallyDone || !read ? 'completed' : 'idle'
+}
+
+/**
+ * Order cards newest first, with the Session id as a stable tie-break.
+ * @param cards - cards from one column or the search list.
  * @returns the same cards in render order.
  */
-function newestFirst(cards: SessionCard[]): SessionCard[] {
+export function newestFirst<T extends SessionCard>(cards: T[]): T[] {
   return cards.sort((left, right) => {
     if (left.updatedAt !== right.updatedAt) return right.updatedAt - left.updatedAt
     return left.id < right.id ? -1 : left.id > right.id ? 1 : 0
@@ -171,23 +197,23 @@ export function deriveBoard(
     if (row === undefined || row.blank || row.origin === 'subagent' || archived.has(id)) continue
 
     const status = statuses.get(id)
-    const pendingInteraction = status?.pendingInteraction
-    const isRunning = status?.running ?? row.running
-    const completionUnread = status?.completionUnread === true
-    const locallyDone = locallyCompleted.has(id)
-    const read = (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt
+    const state = sessionState(
+      status,
+      status?.running ?? row.running,
+      (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt,
+      locallyCompleted.has(id),
+    )
 
     const card: SessionCard = {
       id,
       title: row.displayTitle,
       cwd: row.cwd,
       updatedAt: row.updatedAt,
-      waitingKind: pendingInteraction?.kind,
+      waitingKind: status?.pendingInteraction?.kind,
     }
 
-    if (pendingInteraction !== undefined) unread.push(card)
-    else if (isRunning) running.push(card)
-    else if (locallyDone || (completionUnread && !read)) unread.push(card)
+    if (state === 'waiting' || state === 'completed') unread.push(card)
+    else if (state === 'running') running.push(card)
     else recent.push(card)
   }
 
@@ -232,26 +258,19 @@ export function derivePinned(
     if (row === undefined || row.blank || row.origin === 'subagent' || archived.has(id)) continue
 
     const status = statuses.get(id)
-    const pendingInteraction = status?.pendingInteraction
-    const isRunning = status?.running ?? row.running
-    const completionUnread = status?.completionUnread === true
-    const locallyDone = locallyCompleted.has(id)
-    const read = (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt
-
-    const state: PinnedState = pendingInteraction !== undefined
-      ? 'waiting'
-      : isRunning
-        ? 'running'
-        : (completionUnread || locallyDone) && (locallyDone || !read)
-          ? 'completed'
-          : 'idle'
+    const state = sessionState(
+      status,
+      status?.running ?? row.running,
+      (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt,
+      locallyCompleted.has(id),
+    )
 
     const card: PinnedCard = {
       id,
       title: row.displayTitle,
       cwd: row.cwd,
       updatedAt: row.updatedAt,
-      waitingKind: pendingInteraction?.kind,
+      waitingKind: status?.pendingInteraction?.kind,
       state,
     }
     cards.push(card)
