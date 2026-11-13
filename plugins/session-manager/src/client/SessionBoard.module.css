@@ -538,6 +538,20 @@
   white-space: nowrap;
 }
 
+/* An archive the Host refused keeps the dialog open, so the reason sits between the bar and the
+   Conversation instead of on the board behind the mask. */
+.dialogError {
+  flex: none;
+  margin: 0;
+  padding: 8px 20px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
 .dialogAction {
   flex: none;
   padding: 4px 8px;
@@ -576,6 +590,11 @@
 .dialogIconAction:hover {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
+}
+
+.dialogIconAction:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .dialogBody {

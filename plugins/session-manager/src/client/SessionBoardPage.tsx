@@ -17,6 +17,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
+  IconArchiveOutlineRegular,
   IconChevronLeftOutlineRegular,
   IconCloseOutlineRegular,
   IconNewChatOutlineRegular,
@@ -172,6 +173,10 @@ interface PreviewDialogProps {
   readonly t: Translate
   readonly SessionProvider: PageProps['SessionProvider']
   readonly renderSlot: PageProps['renderSlot']
+  /** Archive one Session on the Host; a refused archive leaves the Session as it was. */
+  readonly archiveSession: (sessionId: SessionId) => Promise<void>
+  /** Whether the current Peer may call the archive command on the previewed Session. */
+  readonly useSessionAccess: PageProps['useSessionAccess']
   readonly onClose: () => void
   readonly onOpenPage: () => void
   readonly onOpenSession: () => void
@@ -185,7 +190,13 @@ interface PreviewDialogProps {
  * The native question card lives in the Conversation composer chain, so the same embedded Factory
  * that fills the dialog puts the card at the bottom. The bar names why the Session waits and offers
  * the embedded page for context.
- * @param props - the preview, copy, the bound child slot, and the two navigation callbacks.
+ *
+ * The bar also carries the archive control, left of the new-conversation control. Archiving from
+ * here is the same Host command the sidebar and the management tab use: it succeeds and hands the
+ * board back, or the Host refuses a Session whose work still runs and the refusal is reported above
+ * the Conversation, with the dialog left open.
+ * @param props - the preview, copy, the bound child slot, the two navigation callbacks, and the
+ *   archive command with the access Hook that gates it.
  * @returns the dialog with the native Conversation.
  */
 function PreviewDialog({
@@ -196,11 +207,42 @@ function PreviewDialog({
   t,
   SessionProvider,
   renderSlot,
+  archiveSession,
+  useSessionAccess,
   onClose,
   onOpenPage,
   onOpenSession,
   onNewSession,
 }: PreviewDialogProps): ReactNode {
+  const canArchive = useSessionAccess(preview.card.id, 'workspace/archiveSession')
+  const [archiveBusy, setArchiveBusy] = useState(false)
+  const [archiveError, setArchiveError] = useState<string | undefined>(undefined)
+  const archiving = useRef(false)
+
+  /**
+   * Archive the previewed Session, then hand the board back.
+   *
+   * A refusal is reported in place: the Session still runs, so the conversation stays on screen
+   * instead of disappearing under a closed dialog.
+   */
+  async function archive(): Promise<void> {
+    // A double click must not send the command twice; the state flag only governs the UI.
+    if (archiving.current) return
+    archiving.current = true
+    setArchiveBusy(true)
+    setArchiveError(undefined)
+    try {
+      await archiveSession(preview.card.id)
+    } catch (cause) {
+      setArchiveError(cause instanceof Error ? cause.message : String(cause))
+      setArchiveBusy(false)
+      archiving.current = false
+      return
+    }
+    // The archived Session leaves every board column, so the preview has nothing left to show.
+    onClose()
+  }
+
   return (
     <Modal open onClose={onClose} title={title} headless className={css.dialog ?? ''}>
       <div className={css.dialogFrame}>
@@ -216,6 +258,21 @@ function PreviewDialog({
               <span className={css.dialogSubtitle} title={subtitle}>{subtitle}</span>
             )}
           </div>
+          {canArchive && (
+            <button
+              type="button"
+              className={css.dialogIconAction}
+              aria-label={t('preview.archive')}
+              title={t('preview.archive')}
+              aria-busy={archiveBusy}
+              disabled={archiveBusy}
+              onClick={() => {
+                void archive()
+              }}
+            >
+              <IconArchiveOutlineRegular size={16} />
+            </button>
+          )}
           <button
             type="button"
             className={css.dialogIconAction}
@@ -252,6 +309,11 @@ function PreviewDialog({
             <IconCloseOutlineRegular size={14} />
           </button>
         </header>
+        {archiveError !== undefined && (
+          <p className={css.dialogError} role="alert">
+            {t('preview.archiveFailed')}: {archiveError}
+          </p>
+        )}
         <div className={css.dialogBody}>
           <SessionProvider session={preview.reference}>
             {renderSlot(CONVERSATION_SLOT, {})}
@@ -1171,6 +1233,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       </div>
       {preview !== undefined && preview.mode === 'dialog' && (
         <PreviewDialog
+          key={preview.card.id}
           preview={preview}
           title={previewTitle}
           subtitle={previewSubtitle}
@@ -1178,6 +1241,8 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           t={t}
           SessionProvider={SessionProvider}
           renderSlot={renderSlot}
+          archiveSession={archiveSession}
+          useSessionAccess={useSessionAccess}
           onClose={closePreview}
           onOpenPage={openPage}
           onOpenSession={() => {

@@ -23,7 +23,10 @@ overlay that embeds the native composer.
   so the user's Conversation views and customizations stay intact. The pending dialog's **Full
   conversation** action still expands to the embedded page. The preview dialog's new-conversation
   control, beside **Open session**, starts the board's overlay in the previewed Session's Workspace
-  under its Agent preset, then closes the preview.
+  under its Agent preset, then closes the preview. Its archive control, left of the
+  new-conversation control, archives the previewed Session through the same Host command the native
+  sidebar uses and then closes the preview; a Session whose work still runs is refused, and the
+  dialog stays open with the refusal reported above the Conversation.
 - When the open-session control or the session dialog's **Open session** action opens the real page,
   a compact back control appears before the Session title and returns to the board; selecting any
   global panel clears it. The pending dialog keeps its own close control, and its expanded page keeps
@@ -135,7 +138,9 @@ shells, so it costs no navigation either. The card's open-session control and th
 session dialog's **Open session** action navigate through `uiWorkspace.openSession` to the real
 Session panel; the leading back control selects the board again. The preview dialog's
 new-conversation control closes the preview and opens the overlay in the previewed Session's
-Workspace under its Agent preset. The search dialog only reads the same live list snapshot and
+Workspace under its Agent preset; its archive control writes the same registry-global archive set
+through `uiWorkspace`, gated by the Session's access snapshot, and closes the preview on success.
+The search dialog only reads the same live list snapshot and
 retains a Session when its result is previewed. Pinning writes the Host pin set through
 `uiWorkspace`, and the management tab writes the registry-global archive set through the same
 service; the page never stops, renames, or pauses a Session, and a batch archive leaves a Session
