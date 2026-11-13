@@ -26,6 +26,7 @@ import {
   Modal,
   relativeTime,
   StateDot,
+  TextShimmer,
   type MenuEntry,
   type StateDotState,
   type RelativeTimeUnit,
@@ -429,7 +430,11 @@ function SessionCardView({
       <button type="button" className={css.cardBody} onClick={onOpen}>
         <span className={css.cardTitle} title={card.title}>{card.title}</span>
         <span className={css.cardLine}>
-          <span className={css.cardState}>{stateText(state, card, t)}</span>
+          <span className={css.cardState}>
+            {state === 'running'
+              ? <TextShimmer active>{stateText(state, card, t)}</TextShimmer>
+              : stateText(state, card, t)}
+          </span>
           <span className={css.time} title={fullDate(card.updatedAt)}>
             {timeText(card.updatedAt, now, t)}
           </span>
