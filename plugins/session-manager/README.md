@@ -62,18 +62,22 @@ overlay that embeds the native composer.
   The default is three days; the choice is browser-local and only filters Recent. Running and Unread
   never age out.
 - Switches the page between **Board** (the three columns) and **Management** with the header's
-  segmented control. Management lists every eligible Session, newest first, with a title filter; a row opens the same
-  preview dialog a card does. A checkbox selects a row, the toolbar checkbox selects the filtered
-  set, and **Archive** removes the selected Sessions after a confirmation. The batch runs one
+  segmented control. Management lists every eligible Session, newest first, with a title-or-Workspace
+  filter; a row opens the same preview dialog a card does. A checkbox selects a row, the toolbar
+  checkbox selects the filtered set, and **Archive** removes the selected Sessions after a
+  confirmation. The batch runs one
   Session at a time: the Host refuses a Session whose work is still running, so the tab reports how
   many were refused and leaves those rows listed and selected. Archived Sessions can be restored
   from the native sidebar.
 - Searches the whole Session list from the magnifier in the Board tab's top-right. Matching is a
-  case-insensitive substring test on the card title — the host-facing label — over every eligible
-  Session, not just the Recent window; blank drafts, subagent-origin rows, and archived Sessions stay
-  out. The dialog opens with the newest-first list and the field focused; the arrow keys and Enter
-  pick a row, and picking one opens the same preview dialog a card does, so a waiting Session still
-  surfaces its native question. Closing that preview returns to the board.
+  case-insensitive substring test over what a row shows: the card title — the host-facing label — and
+  the Workspace the Session lives in, named by the Workspace title or the directory basename. A
+  Workspace name therefore lists every Session of that project, including Sessions whose durable
+  title says nothing about it. The search covers every eligible Session, not just the Recent window;
+  blank drafts, subagent-origin rows, and archived Sessions stay out. The dialog opens with the
+  newest-first list and the field focused; the arrow keys and Enter pick a row, and picking one opens
+  the same preview dialog a card does, so a waiting Session still surfaces its native question.
+  Closing that preview returns to the board.
 - Embeds the native Conversation through the shared `conversation.content` Factory — the same host
   the subagent right-Sidebar chat uses — for both preview dialogs, the pending question's **Full
   conversation** page, and the new-conversation overlay, with a `SessionProvider` bound to a
@@ -183,7 +187,7 @@ read marks and local stop notes live in memory and reset with the page.
 
 `tests/board.spec.ts` covers the precedence, the filters, the read mark, the Recent-window
 boundary, and the pinned states (whose ids now come from the Host pin set);
-`tests/session-search.spec.ts` covers the full-list derivation and the title filter;
+`tests/session-search.spec.ts` covers the full-list derivation and the title-or-Workspace filter;
 `tests/archive.spec.ts` covers the batch archive outcome;
 `tests/recent-window.spec.ts` covers the window preference; `tests/back-to-board.spec.ts` covers the
 return marker; `tests/conversation-input.spec.ts` covers the embedded Factory phase;

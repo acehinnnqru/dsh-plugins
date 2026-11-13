@@ -3,13 +3,28 @@
  *
  * The native hero's Workspace chip lists Workspaces without a filter; the overlay's picker keeps the
  * same naming rule but needs a label and a case-insensitive filter that can be tested without React.
+ * The naming rule lives here rather than with the renderers because the board's Session search
+ * matches a row by the Workspace it lives in, and that module must stay React-free.
  * @module dsh-plugin-session-manager/client/workspace-search
  */
 
 import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { SessionCard } from './board.ts'
 
 /** The product's automatic title for the directory-backed default Workspace. */
 export const DEFAULT_WORKSPACE_TITLE = 'default-workspace'
+
+/**
+ * Basename of a POSIX or Windows working directory.
+ * @param path - absolute directory path.
+ * @returns the final path segment, without trailing separators.
+ */
+export function baseName(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  if (trimmed === '') return path
+  const at = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  return at === -1 ? trimmed : trimmed.slice(at + 1)
+}
 
 /**
  * Resolve the display label of one Workspace.
@@ -22,12 +37,23 @@ export const DEFAULT_WORKSPACE_TITLE = 'default-workspace'
  */
 export function workspaceLabel(workspace: Pick<WorkspaceView, 'title' | 'path'>): string {
   const title = workspace.title.trim()
-  if (title !== '') return title
+  return title !== '' ? title : baseName(workspace.path)
+}
 
-  const trimmed = workspace.path.replace(/[\\/]+$/, '')
-  if (trimmed === '') return workspace.path
-  const at = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
-  return at === -1 ? trimmed : trimmed.slice(at + 1)
+/**
+ * Resolve the Workspace a Session belongs to.
+ *
+ * Membership wins; a cwd match covers a row whose Workspace set is still catching up.
+ * @param card - Session card.
+ * @param items - Workspace rows.
+ * @returns the owning Workspace, or undefined for a Session outside every Workspace.
+ */
+export function workspaceOf(
+  card: SessionCard,
+  items: readonly WorkspaceView[],
+): WorkspaceView | undefined {
+  return items.find((item) => item.sessionIds.includes(card.id))
+    ?? items.find((item) => card.cwd !== undefined && item.path === card.cwd)
 }
 
 /**

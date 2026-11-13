@@ -1,16 +1,19 @@
 /**
- * Full-list title search behind the board's search dialog.
+ * Full-list search behind the board's search dialog.
  *
  * The board only shows Sessions that are running, unread, or inside the Recent window; the dialog
  * searches the whole listed set so an older Session stays reachable without widening that window.
- * Matching is a case-insensitive substring test on the card title — the host-facing label, which is
- * the durable title when the Host projected one.
+ * Matching is a case-insensitive substring test on what a row shows — the card title, which is the
+ * host-facing label and the durable title when the Host projected one, and the Workspace the
+ * Session lives in, named by the Workspace label or the directory basename. Searching a Workspace
+ * name therefore lists every Session of that project.
  *
  * The derivation lives here, apart from React, so it can be tested like `board.ts`.
  * @module dsh-plugin-session-manager/client/session-search
  */
 
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
@@ -19,6 +22,7 @@ import {
   type PinnedState,
   type SessionCard,
 } from './board.ts'
+import { baseName, workspaceLabel, workspaceOf } from './workspace-search.ts'
 
 /** One search result: a card plus the runtime state its preview opens with. */
 export interface SessionHit extends SessionCard {
@@ -72,19 +76,41 @@ export function searchableSessions(
 }
 
 /**
- * Filter search results by a free-text title query.
+ * The text one hit is matched against: its title and where it lives.
+ *
+ * The haystack is the card title plus where the Session lives: the label of the Workspace the
+ * registry accounts it to, and its directory basename. Both are included so the product's default
+ * Workspace — whose stored title is the `default-workspace` marker rather than the project name —
+ * stays reachable by the project it holds. The full path is deliberately absent, so a query does not
+ * match half the machine.
+ * @param hit - one searchable Session.
+ * @param workspaces - Workspace rows.
+ * @returns the lowercased haystack for one hit.
+ */
+function searchText(hit: SessionHit, workspaces: readonly WorkspaceView[]): string {
+  const parts = [hit.title]
+  const workspace = workspaceOf(hit, workspaces)
+  if (workspace !== undefined) parts.push(workspaceLabel(workspace))
+  if (hit.cwd !== undefined) parts.push(baseName(hit.cwd))
+  return parts.join('\n').toLowerCase()
+}
+
+/**
+ * Filter search results by a free-text query over the title and the Workspace.
  *
  * Surrounding whitespace is ignored, so a trailing space from typing does not empty the list. An
  * empty query keeps the full newest-first set, which is what the dialog shows when it opens.
  * @param hits - every searchable Session, newest first.
  * @param query - raw search text.
+ * @param workspaces - Workspace rows, so a query can name the Workspace a Session lives in.
  * @returns the matching results, in the order they were given.
  */
-export function matchSessionTitles(
+export function matchSessions(
   hits: readonly SessionHit[],
   query: string,
+  workspaces: readonly WorkspaceView[] = [],
 ): readonly SessionHit[] {
   const needle = query.trim().toLowerCase()
   if (needle === '') return hits
-  return hits.filter((hit) => hit.title.toLowerCase().includes(needle))
+  return hits.filter((hit) => searchText(hit, workspaces).includes(needle))
 }

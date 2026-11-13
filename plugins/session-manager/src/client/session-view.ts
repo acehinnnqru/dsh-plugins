@@ -12,7 +12,12 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { waitingCopyKey, type PinnedState, type SessionCard } from './board.ts'
 import { NS, type SessionManagerKey } from './locales.ts'
-import { DEFAULT_WORKSPACE_TITLE, workspaceLabel } from './workspace-search.ts'
+import {
+  DEFAULT_WORKSPACE_TITLE,
+  baseName,
+  workspaceLabel,
+  workspaceOf,
+} from './workspace-search.ts'
 
 /** This namespace's translate function. */
 export type Translate = PropsLocale<typeof NS>['t']
@@ -51,34 +56,6 @@ export function stateText(state: PinnedState, card: SessionCard, t: Translate): 
 export function timeText(at: number, now: number, t: Translate): string {
   const bucket = relativeTime(at, now)
   return t(TIME_COPY[bucket.unit], { n: bucket.n })
-}
-
-/**
- * Basename of a POSIX or Windows working directory.
- * @param path - absolute directory path.
- * @returns the final path segment, without trailing separators.
- */
-export function baseName(path: string): string {
-  const trimmed = path.replace(/[\\/]+$/, '')
-  if (trimmed === '') return path
-  const at = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
-  return at === -1 ? trimmed : trimmed.slice(at + 1)
-}
-
-/**
- * Resolve the Workspace a Session belongs to.
- *
- * Membership wins; a cwd match covers a row whose Workspace set is still catching up.
- * @param card - Session card.
- * @param items - Workspace rows.
- * @returns the owning Workspace, or undefined for a Session outside every Workspace.
- */
-export function workspaceOf(
-  card: SessionCard,
-  items: readonly WorkspaceView[],
-): WorkspaceView | undefined {
-  return items.find((item) => item.sessionIds.includes(card.id))
-    ?? items.find((item) => card.cwd !== undefined && item.path === card.cwd)
 }
 
 /**

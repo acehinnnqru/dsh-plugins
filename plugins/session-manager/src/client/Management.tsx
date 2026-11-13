@@ -18,7 +18,7 @@ import {
   Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { archiveSessions } from './archive.ts'
-import { matchSessionTitles, type SessionHit } from './session-search.ts'
+import { matchSessions, type SessionHit } from './session-search.ts'
 import { fullDate, stateText, timeText, workspaceName, type Translate } from './session-view.ts'
 import css from './SessionBoard.module.css'
 
@@ -59,7 +59,7 @@ export function Management({
   const selectAll = useRef<HTMLInputElement>(null)
   const archiving = useRef(false)
 
-  const results = matchSessionTitles(sessions, query)
+  const results = matchSessions(sessions, query, workspaces)
   // A selection can outlive the row it named (archived here or in the native sidebar); only the
   // listed ids count, so the toolbar and the batch never act on a ghost.
   const available = new Set(sessions.map((hit) => hit.id))

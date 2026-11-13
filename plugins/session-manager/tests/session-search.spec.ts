@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { matchSessionTitles, searchableSessions, type SessionHit } from '../src/client/session-search.ts'
+import { matchSessions, searchableSessions, type SessionHit } from '../src/client/session-search.ts'
+import { DEFAULT_WORKSPACE_TITLE } from '../src/client/workspace-search.ts'
 
 /**
  * The search dialog's pure half.
  *
  * The dialog owns the field and the keyboard; these tests cover the full-list derivation and the
- * title filter it feeds from that field.
+ * title-or-Workspace filter it feeds from that field.
  */
 
 /** Brand a literal string as a Session id. */
@@ -177,35 +179,63 @@ describe('searchableSessions', () => {
   })
 })
 
-describe('matchSessionTitles', () => {
+/** One Workspace row owning the given Sessions. */
+function workspace(title: string, path: string, sessionIds: readonly SessionId[]): WorkspaceView {
+  return {
+    workspaceId: path,
+    title,
+    path,
+    sessionIds,
+    createdAt: new Date(1_000).toISOString(),
+    updatedAt: new Date(1_000).toISOString(),
+  } as unknown as WorkspaceView
+}
+
+/** A named Workspace owning two Sessions whose titles never mention it. */
+const PLUGINS = workspace('dsh-plugins', '/work/dsh-plugins', [id('alpha'), id('beta')])
+/** The product's default Workspace: its stored title is the marker, not the project name. */
+const DEFAULT = workspace(DEFAULT_WORKSPACE_TITLE, '/home/me/monorepo', [id('gamma')])
+
+describe('matchSessions', () => {
   const hits = [
     { id: id('alpha'), title: 'Release checklist', cwd: '/work/alpha', updatedAt: 3, waitingKind: undefined, state: 'idle' },
     { id: id('beta'), title: 'PARSER rewrite', cwd: '/work/beta', updatedAt: 2, waitingKind: undefined, state: 'running' },
-    { id: id('gamma'), title: 'Parser notes', cwd: '/work/gamma', updatedAt: 1, waitingKind: undefined, state: 'idle' },
+    { id: id('gamma'), title: 'Parser notes', cwd: '/home/me/monorepo', updatedAt: 1, waitingKind: undefined, state: 'idle' },
   ] satisfies SessionHit[]
 
   it('keeps the given order for an empty query', () => {
-    expect(matchSessionTitles(hits, '')).toBe(hits)
-    expect(matchSessionTitles(hits, '   ')).toBe(hits)
+    expect(matchSessions(hits, '')).toBe(hits)
+    expect(matchSessions(hits, '   ')).toBe(hits)
   })
 
   it('matches a title case-insensitively', () => {
-    expect(idsOf(matchSessionTitles(hits, 'parser'))).toEqual([id('beta'), id('gamma')])
+    expect(idsOf(matchSessions(hits, 'parser'))).toEqual([id('beta'), id('gamma')])
   })
 
   it('ignores surrounding whitespace in the query', () => {
-    expect(idsOf(matchSessionTitles(hits, '  release '))).toEqual([id('alpha')])
+    expect(idsOf(matchSessions(hits, '  release '))).toEqual([id('alpha')])
   })
 
   it('matches a substring in the middle of a title', () => {
-    expect(idsOf(matchSessionTitles(hits, 'check'))).toEqual([id('alpha')])
+    expect(idsOf(matchSessions(hits, 'check'))).toEqual([id('alpha')])
   })
 
-  it('does not match the working directory', () => {
-    expect(matchSessionTitles(hits, '/work/alpha')).toEqual([])
+  it('matches every Session of a Workspace by its name', () => {
+    // Alpha and Beta live in `dsh-plugins`; neither title names it.
+    expect(idsOf(matchSessions(hits, 'dsh-plugins', [PLUGINS]))).toEqual([id('alpha'), id('beta')])
   })
 
-  it('returns nothing when no title matches', () => {
-    expect(matchSessionTitles(hits, 'missing')).toEqual([])
+  it('matches the default Workspace by its directory name', () => {
+    // The default Workspace's label is the product marker, so the directory names the project.
+    expect(idsOf(matchSessions(hits, 'monorepo', [DEFAULT]))).toEqual([id('gamma')])
+  })
+
+  it('does not match a Session or Workspace path', () => {
+    expect(matchSessions(hits, '/work/dsh-plugins', [PLUGINS, DEFAULT])).toEqual([])
+    expect(matchSessions(hits, '/home/me/monorepo', [PLUGINS, DEFAULT])).toEqual([])
+  })
+
+  it('returns nothing when no title or Workspace matches', () => {
+    expect(matchSessions(hits, 'missing', [PLUGINS, DEFAULT])).toEqual([])
   })
 })

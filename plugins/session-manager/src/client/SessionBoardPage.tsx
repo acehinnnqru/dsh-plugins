@@ -69,8 +69,9 @@ import {
 } from './board.ts'
 import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
-import { matchSessionTitles, searchableSessions, type SessionHit } from './session-search.ts'
-import { baseName, fullDate, stateText, timeText, workspaceName, workspaceOf, type Translate } from './session-view.ts'
+import { matchSessions, searchableSessions, type SessionHit } from './session-search.ts'
+import { baseName, workspaceOf } from './workspace-search.ts'
+import { fullDate, stateText, timeText, workspaceName, type Translate } from './session-view.ts'
 import { Management } from './Management.tsx'
 import { NewConversation } from './NewConversation.tsx'
 import { handsOffToSessionPage, previewDestination, type PreviewDestination } from './preview-links.ts'
@@ -512,12 +513,12 @@ interface SearchDialogProps {
 }
 
 /**
- * Render the full-list title search in a dialog.
+ * Render the full-list Session search in a dialog.
  *
  * The dialog opens with the field focused and the whole newest-first hit set listed, so it is also a
- * quick jump list. Typing filters it by title; a row opens the board's preview dialog, which is why
- * a waiting Session still surfaces its native question. The arrow keys and Enter work from the
- * field, and the Modal layer keeps Escape for closing.
+ * quick jump list. Typing filters it by title and by the Workspace each row lives in; a row opens
+ * the board's preview dialog, which is why a waiting Session still surfaces its native question.
+ * The arrow keys and Enter work from the field, and the Modal layer keeps Escape for closing.
  * @param props - the search hits, Workspaces for the row hint, the clock, copy, and two actions.
  * @returns the search dialog.
  */
@@ -533,7 +534,7 @@ function SessionSearchDialog({
   const [active, setActive] = useState(0)
   const search = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLUListElement>(null)
-  const results = matchSessionTitles(hits, query)
+  const results = matchSessions(hits, query, workspaces)
   const activeIndex = Math.min(active, Math.max(results.length - 1, 0))
 
   // The Modal layer focuses this field on open; focusing here as well keeps the caret in it after a
