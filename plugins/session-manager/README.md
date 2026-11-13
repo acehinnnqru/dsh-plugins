@@ -20,22 +20,24 @@ full-screen new-conversation overlay that embeds the native composer.
   dialog that surfaces the native question immediately; every other card body opens the general
   session preview dialog. A separate hover/focus control on the card opens the **real Session page**,
   so the user's Conversation views and customizations stay intact. The pending dialog's **Full
-  conversation** action still expands to the embedded page.
+  conversation** action still expands to the embedded page. The preview dialog's new-conversation
+  control, beside **Open session**, starts the board's overlay in the previewed Session's Workspace
+  under its Agent preset, then closes the preview.
 - When the open-session control or the session dialog's **Open session** action opens the real page,
   a compact back control appears before the Session title and returns to the board; selecting any
-  global panel clears it. Beside it, and alone when the page was not reached from the board, a
-  new-conversation control starts a Session in the current Session's Workspace under its Agent preset
-  through `uiWorkspace.startSession`; it is absent on a blank Session. The pending dialog keeps its
-  own close control, and its expanded page keeps the back bar.
+  global panel clears it. The pending dialog keeps its own close control, and its expanded page keeps
+  the back bar.
 - Pins a Session from the icon that appears when its card is hovered or focused. Pinned Sessions move
   to a full-width **Pinned** rail above the columns and keep their runtime label there; the rail is
   absent until at least one pin exists. Pins are Host state shared with the native sidebar: the rail
   reads the registry-global pin set (newest pin first), and pinning or unpinning from either surface
   updates the other. The button only renders when the Session's access snapshot allows the action.
   The earlier browser-local pin list is no longer read.
-- Starts a new conversation from the **New conversation** control in the page's top-right. The control
-  resolves the target the way the native New Session action does: the Workspace of the Session the app
-  currently shows, falling back to the Workspace with the most recent activity. The Workspace
+- Starts a new conversation from the **New conversation** control in the page's top-right, or from
+  the preview dialog's control beside **Open session**, which seeds the previewed Session's Workspace
+  and Agent preset. The header control resolves the target the way the native New Session action does: the
+  Workspace of the Session the app currently shows, falling back to the Workspace with the most
+  recent activity. The Workspace
   controller reuses the first parked blank there or creates one under the Host default, so the overlay
   opens with the same Session and Agent preset the main New Session would show. It retains that
   Session and shows the native new-session controls — a searchable Workspace picker, the Agent preset
@@ -117,10 +119,10 @@ this adds no navigation); sending or closing releases both. A Workspace switch r
 the chosen Workspace through the same controller call and moves the draft text between the two input
 shells, so it costs no navigation either. The card's open-session control and the
 session dialog's **Open session** action navigate through `uiWorkspace.openSession` to the real
-Session panel; the leading back control selects the board again, and the new-conversation control
-starts a Session in the visible Session's Workspace under its Agent preset through
-`uiWorkspace.startSession`. Pinning writes the Host pin set through `uiWorkspace`; the board never
-stops, renames, or archives a Session, and never pauses or
+Session panel; the leading back control selects the board again. The preview dialog's
+new-conversation control closes the preview and opens the overlay in the previewed Session's
+Workspace under its Agent preset. Pinning writes the Host pin set through `uiWorkspace`; the board
+never stops, renames, or archives a Session, and never pauses or
 resumes one; the native composer is the Session's own input surface, used by the person in front of
 it. The only browser-local stored value is the Recent-window choice in `localStorage`; completion
 read marks and local stop notes live in memory and reset with the page.

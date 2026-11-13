@@ -30,7 +30,7 @@ import {
   type StateDotState,
   type RelativeTimeUnit,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionListState, SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: each carries the declaration merges for the global hooks and the `main` slot row.
@@ -84,13 +84,13 @@ export interface SessionManagerInjected {
   /**
    * Resolve a new conversation's blank Session in one Workspace without navigating.
    *
-   * The Workspace controller names the first reusable blank and the Host reuses it under its
-   * recorded preset or creates another under the Host default — the same resolution the native
-   * New Session action uses.
+   * The Workspace controller names the first reusable blank and the Host reuses it under the
+   * requested preset or its default — the same resolution the native New Session action uses.
    * @param workspaceId - target Workspace.
+   * @param agentPreset - Agent preset the reused or created blank runs; the Host default when absent.
    * @returns the catalogued Session the Host created or reused.
    */
-  readonly connectWorkspace: (workspaceId: WorkspaceId) => Promise<SessionId>
+  readonly connectWorkspace: (workspaceId: WorkspaceId, agentPreset?: string) => Promise<SessionId>
   /**
    * Move the unsent draft text from one Session to another. Attachments cannot travel, so the page
    * checks {@link SessionManagerInjected.draftAttachmentCount} first.
@@ -139,6 +139,12 @@ interface Composer {
   readonly mainView: SessionReference
 }
 
+/** Optional Workspace and Agent preset for the next new-conversation overlay. */
+interface ConversationTarget {
+  readonly workspaceId?: WorkspaceId
+  readonly agentPreset?: string
+}
+
 /** Props of the question dialog. */
 interface PreviewDialogProps {
   readonly preview: Preview
@@ -153,6 +159,8 @@ interface PreviewDialogProps {
   readonly onClose: () => void
   readonly onOpenPage: () => void
   readonly onOpenSession: () => void
+  /** Start the board's new-conversation overlay in the previewed Session's context. */
+  readonly onNewSession: () => void
 }
 
 /**
@@ -175,6 +183,7 @@ function PreviewDialog({
   onClose,
   onOpenPage,
   onOpenSession,
+  onNewSession,
 }: PreviewDialogProps): ReactNode {
   return (
     <Modal open onClose={onClose} title={title} headless className={css.dialog ?? ''}>
@@ -191,6 +200,15 @@ function PreviewDialog({
               <span className={css.dialogSubtitle} title={subtitle}>{subtitle}</span>
             )}
           </div>
+          <button
+            type="button"
+            className={css.dialogIconAction}
+            aria-label={t('new.title')}
+            title={t('new.title')}
+            onClick={onNewSession}
+          >
+            <IconNewChatOutlineRegular size={16} />
+          </button>
           {preview.kind === 'question'
             ? (
               <button type="button" className={css.dialogAction} onClick={onOpenPage}>
@@ -301,11 +319,26 @@ function baseName(path: string): string {
 }
 
 /**
+ * Resolve the Workspace a Session belongs to.
+ *
+ * Membership wins; a cwd match covers a row whose Workspace set is still catching up.
+ * @param card - Session card.
+ * @param items - Workspace rows.
+ * @returns the owning Workspace, or undefined for a Session outside every Workspace.
+ */
+function workspaceOf(
+  card: SessionCard,
+  items: readonly WorkspaceView[],
+): WorkspaceView | undefined {
+  return items.find((item) => item.sessionIds.includes(card.id))
+    ?? items.find((item) => card.cwd !== undefined && item.path === card.cwd)
+}
+
+/**
  * Resolve the visible Workspace name for a Session.
  *
- * Membership wins; a cwd match covers a row whose Workspace set is still catching up. A Session
- * outside every Workspace falls back to its directory basename, and the product's default marker
- * is localized.
+ * A Session outside every Workspace falls back to its directory basename, and the product's
+ * default marker is localized.
  * @param card - Session card.
  * @param items - Workspace rows.
  * @param t - this namespace's translate function.
@@ -316,11 +349,25 @@ function workspaceName(
   items: readonly WorkspaceView[],
   t: Translate,
 ): string {
-  const workspace = items.find((item) => item.sessionIds.includes(card.id))
-    ?? items.find((item) => card.cwd !== undefined && item.path === card.cwd)
+  const workspace = workspaceOf(card, items)
   if (workspace === undefined) return card.cwd === undefined ? '' : baseName(card.cwd)
   const label = workspaceLabel(workspace)
   return label === DEFAULT_WORKSPACE_TITLE ? t('workspace.default') : label
+}
+
+/**
+ * Read the Agent preset a Session runs from the list projection.
+ *
+ * The projection is declared by the product's agent-preset plugin, which is not a dependency of
+ * this one; read the id from the summary's opaque projection bag.
+ * @param list - Session list snapshot.
+ * @param sessionId - Session to inspect.
+ * @returns the preset id, or undefined when the projection is absent or empty.
+ */
+function sessionPreset(list: SessionListState, sessionId: SessionId): string | undefined {
+  const values = list.byId[sessionId]?.projectionValues as Record<string, unknown> | undefined
+  const listed = values?.['agentPreset']
+  return typeof listed === 'string' && listed !== '' ? listed : undefined
 }
 
 /**
@@ -619,6 +666,24 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   }
 
   /**
+   * Close the preview and open the new-conversation overlay in its Workspace and Agent preset.
+   *
+   * The previewed Session supplies the target; an absent Workspace or preset falls back to the
+   * native current/recent Workspace and the Host default.
+   */
+  function newSessionFromPreview(): void {
+    if (preview === undefined) return
+    const card = preview.card
+    const workspace = workspaceOf(card, workspaces.items)
+    const agentPreset = sessionPreset(list, card.id)
+    closePreview()
+    void startConversation({
+      ...(workspace === undefined ? {} : { workspaceId: workspace.workspaceId }),
+      ...(agentPreset === undefined ? {} : { agentPreset }),
+    })
+  }
+
+  /**
    * Start a new conversation without navigating.
    *
    * The target follows the native New Session order: the Workspace of the Session the app currently
@@ -626,14 +691,16 @@ export function SessionBoardPage(props: PageProps): ReactNode {
    * blank itself, so the overlay gets the same reused Session and Agent preset the main New Session
    * would.
    */
-  async function startConversation(): Promise<void> {
+  async function startConversation(target?: ConversationTarget): Promise<void> {
     if (opening.current) return
     opening.current = true
     setStartError(undefined)
     try {
-      const workspaceId = currentWorkspaceId(workspaces, list) ?? recentWorkspaceId(workspaces, list)
+      const workspaceId = target?.workspaceId
+        ?? currentWorkspaceId(workspaces, list)
+        ?? recentWorkspaceId(workspaces, list)
       if (workspaceId === undefined) throw new Error(t('new.failed'))
-      const sessionId = await connectWorkspace(workspaceId)
+      const sessionId = await connectWorkspace(workspaceId, target?.agentPreset)
       const reference = retainSession(sessionId)
       let mainView: SessionReference
       try {
@@ -975,6 +1042,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           onOpenSession={() => {
             openRealPage(preview)
           }}
+          onNewSession={newSessionFromPreview}
         />
       )}
       {composer !== undefined && (

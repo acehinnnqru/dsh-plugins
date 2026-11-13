@@ -72,8 +72,8 @@ export function apply(ctx: ClientContext): void {
   const openSession = (sessionId: SessionId): void => {
     ctx.uiWorkspace.openSession(sessionId)
   }
-  const connectWorkspace = (workspaceId: WorkspaceId): Promise<SessionId> =>
-    ctx.uiWorkspace.connectWorkspace(workspaceId)
+  const connectWorkspace = (workspaceId: WorkspaceId, agentPreset?: string): Promise<SessionId> =>
+    ctx.uiWorkspace.connectWorkspace(workspaceId, agentPreset === undefined ? undefined : { agentPreset })
   const inputFor = (sessionId: SessionId) => {
     try {
       const conversation = ctx.get('conversation')
@@ -101,10 +101,6 @@ export function apply(ctx: ClientContext): void {
     inputFor(sessionId)?.state.getSnapshot().attachmentIds.length ?? 0
   const setPinned = (sessionId: SessionId, pinned: boolean): Promise<void> =>
     pinned ? ctx.uiWorkspace.pinSession(sessionId) : ctx.uiWorkspace.unpinSession(sessionId)
-  // New Session from the real page: inherit the current Session's Workspace and Agent preset.
-  const startSession = (workspaceId: WorkspaceId | undefined, agentPreset: string | undefined): void => {
-    ctx.uiWorkspace.startSession(workspaceId, agentPreset === undefined ? undefined : { agentPreset })
-  }
 
   ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',
@@ -149,22 +145,18 @@ export function apply(ctx: ClientContext): void {
     label: () => t('panel.title'),
   }, SessionManagerIcon))
 
-  // Before the Session title: the board return and the new-conversation action. The leading seat is
-  // single; if another navigation plugin already owns it, keep both controls in the header actions
-  // instead of failing.
+  // Before the Session title, where a back arrow belongs. The leading seat is single; if another
+  // navigation plugin already owns it, keep the control in the header actions instead of failing.
   const goBack = (): void => {
     disarmBackToBoard()
     ctx.layout.selectPanel(PANEL_ID)
   }
   const backShare: {
     readonly locale: typeof NS
-    readonly inject: () => {
-      readonly goBack: () => void
-      readonly startSession: (workspaceId: WorkspaceId | undefined, agentPreset: string | undefined) => void
-    }
+    readonly inject: () => { readonly goBack: () => void }
   } = {
     locale: NS,
-    inject: () => ({ goBack, startSession }),
+    inject: () => ({ goBack }),
   }
   ctx.slots.inject('conversation.header.leading', () => {
     try {

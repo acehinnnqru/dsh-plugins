@@ -1,12 +1,4 @@
-/* The leading group: optional return-to-board arrow and the new-conversation action. */
-.group {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.back,
-.newSession {
+.back {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -20,14 +12,12 @@
   cursor: pointer;
 }
 
-.back:hover,
-.newSession:hover {
+.back:hover {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
 
-.back:focus-visible,
-.newSession:focus-visible {
+.back:focus-visible {
   outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   outline-offset: 1px;
 }
