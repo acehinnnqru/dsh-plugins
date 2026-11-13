@@ -36,6 +36,13 @@ import { SessionBoardPage, type SessionManagerInjected } from './SessionBoardPag
 import { SessionManagerIcon } from './SessionManagerIcon.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, NS, zh } from './locales.ts'
+import type { PreviewDestination } from './preview-links.ts'
+import {
+  fileAddress,
+  replayChangesReview,
+  whenRightColumnMounts,
+  type RightColumn,
+} from './right-column.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
 
 /** The panel's id: the main column's key and the sidebar row's list id have to be the same value. */
@@ -46,6 +53,35 @@ const PANEL_ORDER = 30
 
 /** Cordis service names this half waits for: slots, locale, Session retention, Session status, and navigation. */
 export const inject = ['slots', 'locale', 'sessions', 'uiSession', 'uiWorkspace', 'layout']
+
+/** The Chat view's settings form, read for the one value that decides where a web link opens. */
+interface ChatSettingsForm {
+  getSnapshot(): { readonly value?: { readonly linkOpening?: string } }
+}
+
+/** The settings registry, reached through `ctx.get` because this plugin does not require it. */
+interface ConfigFormsFace {
+  get(namespace: string): ChatSettingsForm | undefined
+}
+
+/**
+ * Whether a web link belongs in the right column instead of a new browser tab.
+ *
+ * The Chat view owns this preference and defaults to the column. A build without the column's
+ * browser page, or without the setting, opens the link in the browser, which is also the product's
+ * fallback.
+ * @param ctx - client context carrying the two optional services.
+ * @returns true when the column should take the link.
+ */
+function linksOpenInColumn(ctx: ClientContext): boolean {
+  if (ctx.get('sidebarRightTabs')?.get('browser') === undefined) return false
+  try {
+    const form = (ctx.get('configForms') as ConfigFormsFace | undefined)?.get('ui-chat')
+    return form?.getSnapshot().value?.linkOpening !== 'new-tab'
+  } catch {
+    return true
+  }
+}
 
 /**
  * Contribute the board page, its preview child, and its sidebar row.
@@ -104,6 +140,42 @@ export function apply(ctx: ClientContext): void {
   // The management tab batches this command; the Host refuses a Session whose work still runs.
   const archiveSession = (sessionId: SessionId): Promise<void> =>
     ctx.uiWorkspace.archiveSession(sessionId)
+  /**
+   * Open a destination an embedded Conversation cannot serve, on the real Session page.
+   *
+   * The click that asked for it navigated there, so the column mounts a moment later. A change
+   * review reopens through the page's own changed-files card, whose handler holds the turn's
+   * coordinates. A build without the column keeps the navigation alone; a web link the column
+   * cannot take falls back to a new browser tab, the product's own fallback.
+   * @param sessionId - the Session whose page opens the destination.
+   * @param destination - the file, web address, or change review the click named.
+   */
+  const openPreviewDestination = (
+    sessionId: SessionId,
+    destination: PreviewDestination,
+  ): void => {
+    if (destination.kind === 'changes') {
+      // The review's own handler holds the turn's coordinates, so the page's card opens it.
+      replayChangesReview(destination.turn, destination.control)
+      return
+    }
+    // Another plugin's service: optional, so the board keeps working without it.
+    const right = ctx.get('sidebarRight') as RightColumn | undefined
+    if (destination.kind === 'file') {
+      if (right === undefined) return
+      whenRightColumnMounts(() => {
+        right.openResource(fileAddress(sessionId, destination.path))
+      })
+      return
+    }
+    if (right === undefined || !linksOpenInColumn(ctx)) {
+      window.open(destination.url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    whenRightColumnMounts(() => {
+      right.openTab('browser', { params: { url: destination.url } })
+    })
+  }
 
   ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',
@@ -121,6 +193,7 @@ export function apply(ctx: ClientContext): void {
       draftAttachmentCount,
       setPinned,
       archiveSession,
+      openPreviewDestination,
     }),
   }, SessionBoardPage))
 

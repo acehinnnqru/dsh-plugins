@@ -26,7 +26,13 @@ overlay that embeds the native composer.
   under its Agent preset, then closes the preview. Its archive control, left of the
   new-conversation control, archives the previewed Session through the same Host command the native
   sidebar uses and then closes the preview; a Session whose work still runs is refused, and the
-  dialog stays open with the refusal reported above the Conversation.
+  dialog stays open with the refusal reported above the Conversation. A click on a file reference, an
+  external link, or a turn's changed-files card moves to the real Session page and opens the
+  destination in that page's right Sidebar in the same click: the column exists only there, so the
+  embedded Conversation hands the click over instead of failing on it. A file opens at the top of
+  its viewer, and a changed-files header or row reopens the turn's review on the page the click
+  moved to. Hovering a changed-files header or row still previews that file's diff inside the
+  dialog: the shared hover card is lifted above the dialog's mask while the dialog is open.
 - When the open-session control or the session dialog's **Open session** action opens the real page,
   a compact back control appears before the Session title and returns to the board; selecting any
   global panel clears it. The pending dialog keeps its own close control, and its expanded page keeps
@@ -140,6 +146,17 @@ Session panel; the leading back control selects the board again. The preview dia
 new-conversation control closes the preview and opens the overlay in the previewed Session's
 Workspace under its Agent preset; its archive control writes the same registry-global archive set
 through `uiWorkspace`, gated by the Session's access snapshot, and closes the preview on success.
+A file or external-link click inside the embedded Conversation is captured before the product's own
+handler runs and navigates through `uiWorkspace.openSession` to the real page, which is the only
+surface with the right Sidebar those destinations open in. The destination then opens through
+`ctx.get('sidebarRight')`: a file as a `dsh-resource://file/session/…` address, a web link as the
+column's browser page unless the Chat setting sends links to a new browser tab. The command is
+retried for a few frames because the column is mounted only once that page renders, and this plugin
+treats the column as optional — a build without it keeps the navigation and opens a link in the
+browser instead. A change review is different: only the changed-files card's own handler holds the
+turn's coordinates, so the page's copy of that card is clicked rather than the column command run.
+The card sits in its turn's tail, which the page draws for the newest turns; a card the transcript
+has virtualized out is left unserved, and the click has still moved to the page.
 The search dialog only reads the same live list snapshot and
 retains a Session when its result is previewed. Pinning writes the Host pin set through
 `uiWorkspace`, and the management tab writes the registry-global archive set through the same
@@ -172,5 +189,8 @@ boundary, and the pinned states (whose ids now come from the Host pin set);
 return marker; `tests/conversation-input.spec.ts` covers the embedded Factory phase;
 `tests/new-conversation.spec.ts` covers the current and most-recent target Workspace;
 `tests/workspace-search.spec.ts` covers the picker's label rule and filter;
+`tests/preview-links.spec.ts` covers which embedded clicks leave for the real Session page and
+what they name; `tests/right-column.spec.ts` covers the file address, the mount wait, and the
+changed-files replay;
 `tests/client.spec.ts` executes the built bundle and checks its registrations, baseline imports, CSS,
 and source map.

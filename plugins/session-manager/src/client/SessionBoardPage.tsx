@@ -9,12 +9,24 @@
  * native question/approval takeovers travel with it. A back bar returns to the board; no Session
  * navigation happens.
  *
+ * The embedded Conversation has no right Sidebar, which is where the product opens a file
+ * reference or an external page. Both preview surfaces therefore send such a click to the real
+ * Session page and open the destination in that page's column, so one click has the response it
+ * has everywhere else.
+ *
  * The same Factory serves the new-conversation overlay, centered on a blank Session that this page
  * created or reused; accepted prompts hand the board back without navigating either.
  * @module dsh-plugin-session-manager/client/page
  */
 
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconArchiveOutlineRegular,
@@ -61,6 +73,7 @@ import { matchSessionTitles, searchableSessions, type SessionHit } from './sessi
 import { baseName, fullDate, stateText, timeText, workspaceName, workspaceOf, type Translate } from './session-view.ts'
 import { Management } from './Management.tsx'
 import { NewConversation } from './NewConversation.tsx'
+import { handsOffToSessionPage, previewDestination, type PreviewDestination } from './preview-links.ts'
 import { NS, type SessionManagerKey } from './locales.ts'
 import { currentWorkspaceId, recentWorkspaceId } from './new-conversation-target.ts'
 import { recentWindowDays, setRecentWindowDays, subscribeRecentWindow } from './recent-window.ts'
@@ -124,6 +137,15 @@ export interface SessionManagerInjected {
    * @param sessionId - Session to archive.
    */
   readonly archiveSession: (sessionId: SessionId) => Promise<void>
+  /**
+   * Open a destination an embedded Conversation cannot serve, on the real Session page.
+   *
+   * The click that asks for one navigates to that page first; this command opens the destination
+   * once the page can serve it.
+   * @param sessionId - the Session whose page opens the destination.
+   * @param destination - the file, web address, or change review the click named.
+   */
+  readonly openPreviewDestination: (sessionId: SessionId, destination: PreviewDestination) => void
 }
 
 /** The main slot's props, the preview child slot, the translate seat, and Session retention. */
@@ -180,6 +202,8 @@ interface PreviewDialogProps {
   readonly onClose: () => void
   readonly onOpenPage: () => void
   readonly onOpenSession: () => void
+  /** Open a destination the embedded Conversation cannot serve, through the real Session page. */
+  readonly onOpenDestination: (destination: PreviewDestination | undefined) => void
   /** Start the board's new-conversation overlay in the previewed Session's context. */
   readonly onNewSession: () => void
 }
@@ -195,6 +219,10 @@ interface PreviewDialogProps {
  * here is the same Host command the sidebar and the management tab use: it succeeds and hands the
  * board back, or the Host refuses a Session whose work still runs and the refusal is reported above
  * the Conversation, with the dialog left open.
+ *
+ * A click on a file reference or a web link leaves the dialog for the real Session page, which is
+ * the only surface with the right Sidebar those destinations open in; the destination opens there
+ * in the same click.
  * @param props - the preview, copy, the bound child slot, the two navigation callbacks, and the
  *   archive command with the access Hook that gates it.
  * @returns the dialog with the native Conversation.
@@ -212,12 +240,22 @@ function PreviewDialog({
   onClose,
   onOpenPage,
   onOpenSession,
+  onOpenDestination,
   onNewSession,
 }: PreviewDialogProps): ReactNode {
   const canArchive = useSessionAccess(preview.card.id, 'workspace/archiveSession')
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [archiveError, setArchiveError] = useState<string | undefined>(undefined)
   const archiving = useRef(false)
+
+  // The conversation's hover previews are portaled to the body below this dialog's mask; the body
+  // marker lifts them for as long as the dialog is up, so a file row still previews its diff here.
+  useEffect(() => {
+    document.body.dataset.sessionManagerPreview = ''
+    return () => {
+      delete document.body.dataset.sessionManagerPreview
+    }
+  }, [])
 
   /**
    * Archive the previewed Session, then hand the board back.
@@ -314,7 +352,16 @@ function PreviewDialog({
             {t('preview.archiveFailed')}: {archiveError}
           </p>
         )}
-        <div className={css.dialogBody}>
+        {/* A file or web link has no right Sidebar to open in here; the real page does. */}
+        <div
+          className={css.dialogBody}
+          onClickCapture={(event) => {
+            if (!handsOffToSessionPage(event)) return
+            event.preventDefault()
+            event.stopPropagation()
+            onOpenDestination(previewDestination(event))
+          }}
+        >
           <SessionProvider session={preview.reference}>
             {renderSlot(CONVERSATION_SLOT, {})}
           </SessionProvider>
@@ -611,6 +658,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     draftAttachmentCount,
     setPinned,
     archiveSession,
+    openPreviewDestination,
     useSessionAccess,
     SessionProvider,
     renderSlot,
@@ -977,6 +1025,24 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     setPreview(undefined)
   }
 
+  /**
+   * Hand a click from an embedded Conversation to the real Session page.
+   *
+   * The page owns the right column a file reference or a web link opens in, so the click navigates
+   * there and the destination opens as soon as that column mounts — the same response the click
+   * would have had on the page itself. A destination the click does not name (an image file link
+   * the renderer draws without a title) only navigates.
+   * @param destination - what the click asked to open, when the surface knows it.
+   */
+  function openDestination(destination: PreviewDestination | undefined): void {
+    if (preview === undefined) return
+    if (!openSessionPage(preview.card, preview.state)) {
+      setPreview(undefined)
+      return
+    }
+    if (destination !== undefined) openPreviewDestination(preview.card.id, destination)
+  }
+
   /** Keep the retained Session and expand the question dialog into the embedded page. */
   function openPage(): void {
     setPreview((current) => current === undefined || current.kind !== 'question'
@@ -1009,7 +1075,16 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           </button>
           <span className={css.previewTitle} title={previewTitle}>{previewTitle}</span>
         </header>
-        <div className={css.previewBody}>
+        {/* The expanded preview is embedded too, so it hands the same clicks to the real page. */}
+        <div
+          className={css.previewBody}
+          onClickCapture={(event) => {
+            if (!handsOffToSessionPage(event)) return
+            event.preventDefault()
+            event.stopPropagation()
+            openDestination(previewDestination(event))
+          }}
+        >
           <SessionProvider session={preview.reference}>
             {renderSlot(CONVERSATION_SLOT, {})}
           </SessionProvider>
@@ -1248,6 +1323,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           onOpenSession={() => {
             openRealPage(preview)
           }}
+          onOpenDestination={openDestination}
           onNewSession={newSessionFromPreview}
         />
       )}

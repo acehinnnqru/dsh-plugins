@@ -540,6 +540,13 @@
 
 /* An archive the Host refused keeps the dialog open, so the reason sits between the bar and the
    Conversation instead of on the board behind the mask. */
+/* The shared hover preview portals its card to the body at z-index 100, under a modal's mask, so a
+   file row's diff preview would be drawn behind the preview dialog. While that dialog is up, lift
+   the portaled cards above it; the marker is set on the body for exactly that long. */
+body[data-session-manager-preview] [class*='_portal_'] > [class*='_card_'] {
+  z-index: 1100;
+}
+
 .dialogError {
   flex: none;
   margin: 0;
