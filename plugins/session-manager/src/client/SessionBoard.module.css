@@ -617,6 +617,15 @@
   padding-bottom: 0;
 }
 
+/* The composer's + menu is an inline popover anchored above the button. The embedded
+   Conversation's root clips, and its hero-phase scroll container sets overflow-y with a
+   0,3,0 selector; these 0,4,0 overrides outrank both so the menu can leave the panel instead of
+   forcing a taller block of empty white space. */
+.newDialog.newDialog .newBody [class*='scrollBody'],
+.newDialog.newDialog .newBody [class*='embeddedBody'] {
+  overflow: visible;
+}
+
 .workspacePicker {
   display: inline-flex;
   min-width: 0;
