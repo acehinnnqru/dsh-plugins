@@ -1,15 +1,19 @@
 # dsh-plugin-session-manager
 
 A sidebar entry, a main-column board that keeps running, unread, and recent Sessions in view, a
-management tab for batch archiving, a full-list session search, and a full-screen new-conversation
-overlay that embeds the native composer.
+per-node Nodes board, a management tab for batch archiving, a full-list session search, and a
+full-screen new-conversation overlay that embeds the native composer.
 
 ## What it does
 
 - Adds one row to the sidebar's global panel list, after Plugins and Automation tasks. Selecting it
   opens the page in the main column on the Board tab. The product owns the row button, its label, and
   its selected state; this plugin contributes the icon and the page behind the row.
-- Draws three columns: **Running**, **Unread**, and **Recent**.
+- Draws three columns: **Running**, **Unread**, and **Recent**. Every card names its owning node
+  before the Workspace label: a remote node shows its node name and a local Session shows **self**.
+- Adds a **Nodes** tab with one vertical column per node. Pinned Sessions head their node column;
+  every other Session follows newest first. Up to three columns share the width, and more nodes
+  scroll horizontally.
   - **Running** — the Session's turn is executing and no domain is waiting for the user.
   - **Unread** — a pending interaction or a completion that has not been acknowledged. A pending
     interaction outranks a running turn; the card says whether it is an approval, a plan review, an

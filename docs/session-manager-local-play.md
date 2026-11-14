@@ -103,7 +103,10 @@ a new server's status snapshot is ignored by an old node.
 ## 5. Expected result
 
 - `GET /admin/status` reports two online nodes.
-- Node A's board shows node B's Sessions with a `[node-b]` title prefix.
+- Node A's board shows node B's Sessions with a `node-b` badge before the Workspace label;
+  its own rows carry a `self` badge.
+- The **Nodes** tab shows one vertical column per node, pinned Sessions first, and scrolls
+  horizontally after three columns.
 - Opening one renders the native Conversation on A. The host serving that
   Session remains B; A's host only forwards calls through the server.
 - A prompt or cancel from A is forwarded to B. B's board shows the turn running.

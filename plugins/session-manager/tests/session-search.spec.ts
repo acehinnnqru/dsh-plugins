@@ -198,9 +198,9 @@ const DEFAULT = workspace(DEFAULT_WORKSPACE_TITLE, '/home/me/monorepo', [id('gam
 
 describe('matchSessions', () => {
   const hits = [
-    { id: id('alpha'), title: 'Release checklist', cwd: '/work/alpha', updatedAt: 3, waitingKind: undefined, state: 'idle' },
-    { id: id('beta'), title: 'PARSER rewrite', cwd: '/work/beta', updatedAt: 2, waitingKind: undefined, state: 'running' },
-    { id: id('gamma'), title: 'Parser notes', cwd: '/home/me/monorepo', updatedAt: 1, waitingKind: undefined, state: 'idle' },
+    { id: id('alpha'), title: 'Release checklist', cwd: '/work/alpha', updatedAt: 3, waitingKind: undefined, node: { id: undefined, name: 'self', self: true }, state: 'idle' },
+    { id: id('beta'), title: 'PARSER rewrite', cwd: '/work/beta', updatedAt: 2, waitingKind: undefined, node: { id: undefined, name: 'self', self: true }, state: 'running' },
+    { id: id('gamma'), title: 'Parser notes', cwd: '/home/me/monorepo', updatedAt: 1, waitingKind: undefined, node: { id: undefined, name: 'self', self: true }, state: 'idle' },
   ] satisfies SessionHit[]
 
   it('keeps the given order for an empty query', () => {

@@ -57,18 +57,22 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import {
   BOARD_COLUMNS,
   deriveBoard,
+  deriveNodeColumns,
   derivePinned,
   previewReadMark,
+  sessionDisplayTitle,
   waitingCopyKey,
   withinRecent,
   type BoardColumn,
+  type NodeColumn,
+  type PinnedCard,
   type PinnedState,
   type SessionCard,
 } from './board.ts'
 import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
 import { matchSessions, searchableSessions, type SessionHit } from './session-search.ts'
-import { baseName, workspaceOf } from './workspace-search.ts'
+import { workspaceOf } from './workspace-search.ts'
 import { fullDate, stateText, timeText, workspaceName, type Translate } from './session-view.ts'
 import { Management } from './Management.tsx'
 import { NewConversation } from './NewConversation.tsx'
@@ -167,8 +171,8 @@ type PageProps =
   & PropsLocale<typeof NS>
   & InjectFace<SessionManagerInjected>
 
-/** The page's two tabs: the board and the management list. */
-type PageTab = 'board' | 'management'
+/** The page's three tabs: the board, per-node columns, and the management list. */
+type PageTab = 'board' | 'nodes' | 'management'
 
 /** The Session currently shown in a preview surface. */
 interface Preview {
@@ -428,6 +432,8 @@ interface SessionCardViewProps {
   readonly state: PinnedState
   readonly pinned: boolean
   readonly pinPending: boolean
+  /** Workspace label shown after the node badge. */
+  readonly workspace: string
   readonly t: Translate
   readonly now: number
   readonly useSessionAccess: PageProps['useSessionAccess']
@@ -451,6 +457,7 @@ function SessionCardView({
   state,
   pinned,
   pinPending,
+  workspace,
   t,
   now,
   useSessionAccess,
@@ -481,9 +488,18 @@ function SessionCardView({
             {timeText(card.updatedAt, now, t)}
           </span>
         </span>
-        {card.cwd !== undefined && (
-          <span className={css.cwd} title={card.cwd}>{baseName(card.cwd)}</span>
-        )}
+        <span className={css.cardMeta}>
+          <span
+            className={css.cardNode}
+            data-self={card.node.self ? 'true' : undefined}
+            title={card.node.self ? 'self' : card.node.name}
+          >
+            {card.node.self ? 'self' : card.node.name}
+          </span>
+          {workspace !== '' && (
+            <span className={css.cwd} title={card.cwd ?? workspace}>{workspace}</span>
+          )}
+        </span>
       </button>
       <button
         type="button"
@@ -510,6 +526,104 @@ function SessionCardView({
         </button>
       )}
     </article>
+  )
+}
+
+/** Props of the Nodes tab. */
+interface NodesBoardProps {
+  readonly columns: readonly NodeColumn[]
+  readonly pinBusy: ReadonlySet<SessionId>
+  readonly workspaces: readonly WorkspaceView[]
+  readonly t: Translate
+  readonly now: number
+  readonly useSessionAccess: PageProps['useSessionAccess']
+  readonly onOpen: (card: PinnedCard) => void
+  readonly onOpenSession: (card: PinnedCard) => void
+  readonly onTogglePin: (card: PinnedCard, pinned: boolean) => void
+}
+
+/**
+ * Render one vertical column per node.
+ *
+ * Pinned Sessions head each node column; the rest follow newest first. Up to three columns share the
+ * width; more nodes keep their columns and scroll horizontally.
+ * @param props - node columns, pin state, copy, clock, and the card actions.
+ * @returns the Nodes tab, or its empty state.
+ */
+function NodesBoard({
+  columns,
+  pinBusy,
+  workspaces,
+  t,
+  now,
+  useSessionAccess,
+  onOpen,
+  onOpenSession,
+  onTogglePin,
+}: NodesBoardProps): ReactNode {
+  if (columns.length === 0) return <p className={css.columnEmpty}>{t('nodes.empty')}</p>
+  const template = columns.length <= 3
+    ? `repeat(${columns.length}, minmax(0, 1fr))`
+    : `repeat(${columns.length}, calc((100% - 24px) / 3))`
+  return (
+    <div className={css.nodesScroller}>
+      <div className={css.nodesTrack} style={{ gridTemplateColumns: template }}>
+        {columns.map((column, index) => {
+          const key = column.node.self ? 'self' : column.node.id ?? column.node.name
+          const count = column.pinned.length + column.rest.length
+          const renderCard = (card: PinnedCard, pinned: boolean): ReactNode => (
+            <li key={card.id}>
+              <SessionCardView
+                card={card}
+                state={card.state}
+                pinned={pinned}
+                pinPending={pinBusy.has(card.id)}
+                workspace={workspaceName(card, workspaces, t)}
+                t={t}
+                now={now}
+                useSessionAccess={useSessionAccess}
+                onOpen={() => {
+                  onOpen(card)
+                }}
+                onOpenSession={() => {
+                  onOpenSession(card)
+                }}
+                onTogglePin={() => {
+                  onTogglePin(card, pinned)
+                }}
+              />
+            </li>
+          )
+          return (
+            <section className={css.nodeColumn} key={key} aria-labelledby={'session-manager-node-' + String(index)}>
+              <header className={css.nodeHead}>
+                <span
+                  className={css.nodeName}
+                  id={'session-manager-node-' + String(index)}
+                  data-self={column.node.self ? 'true' : undefined}
+                  title={column.node.name}
+                >
+                  {column.node.self ? 'self' : column.node.name}
+                </span>
+                <span className={css.columnCount}>{count}</span>
+              </header>
+              <div className={css.nodeBody}>
+                {column.pinned.length > 0 && (
+                  <div className={css.nodePinned}>
+                    <IconPinFillRegular size={12} />
+                    <span>{t('nodes.pinned')}</span>
+                  </div>
+                )}
+                <ul className={css.cards}>
+                  {column.pinned.map((card) => renderCard(card, true))}
+                  {column.rest.map((card) => renderCard(card, false))}
+                </ul>
+              </div>
+            </section>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -616,6 +730,8 @@ function SessionSearchDialog({
             <ul ref={list} className={css.searchList} role="listbox" aria-label={t('search.title')}>
               {results.map((hit, index) => {
                 const workspace = workspaceName(hit, workspaces, t)
+                const node = hit.node.self ? 'self' : hit.node.name
+                const scope = workspace === '' ? node : node + ' · ' + workspace
                 return (
                   <li key={hit.id} role="none">
                     <button
@@ -633,9 +749,7 @@ function SessionSearchDialog({
                     >
                       <span className={css.searchRowTitle} title={hit.title}>{hit.title}</span>
                       <span className={css.searchRowMeta}>
-                        {workspace !== '' && (
-                          <span className={css.searchRowWorkspace}>{workspace}</span>
-                        )}
+                        <span className={css.searchRowWorkspace}>{scope}</span>
                         <span className={css.searchRowState}>{stateText(hit.state, hit, t)}</span>
                         <span className={css.searchRowTime} title={fullDate(hit.updatedAt)}>
                           {timeText(hit.updatedAt, now, t)}
@@ -786,6 +900,15 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const pinned = derivePinned(list, statuses, archived, workspaces.pinnedSessionIds, completionReadAt, locallyCompleted, sharedStatuses)
   const pinnedIds = new Set(pinned.map((card) => card.id))
   const board = deriveBoard(list, statuses, archived, locallyCompleted, completionReadAt, sharedStatuses)
+  const nodeColumns = deriveNodeColumns(
+    list,
+    statuses,
+    archived,
+    workspaces.pinnedSessionIds,
+    completionReadAt,
+    locallyCompleted,
+    sharedStatuses,
+  )
   const windowDays = recentWindowDays()
   const recent = withinRecent(board.recent, now, windowDays)
   const columns: Record<BoardColumn, readonly SessionCard[]> = {
@@ -796,6 +919,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const total = columns.running.length + columns.unread.length + columns.recent.length + pinned.length
   const tabOptions: readonly SegmentedControlOption<PageTab>[] = [
     { value: 'board', label: t('tab.board') },
+    { value: 'nodes', label: t('tab.nodes') },
     { value: 'management', label: t('tab.management') },
   ]
 
@@ -1065,10 +1189,16 @@ export function SessionBoardPage(props: PageProps): ReactNode {
 
   const previewTitle = preview === undefined
     ? ''
-    : list.byId[preview.card.id]?.displayTitle ?? preview.card.title
+    : list.byId[preview.card.id] === undefined
+      ? preview.card.title
+      : sessionDisplayTitle(list.byId[preview.card.id]?.displayTitle ?? preview.card.title, preview.card.node)
   const previewSubtitle = preview === undefined
     ? ''
-    : [workspaceName(preview.card, workspaces.items, t), timeText(preview.card.updatedAt, now, t)]
+    : [
+        preview.card.node.self ? 'self' : preview.card.node.name,
+        workspaceName(preview.card, workspaces.items, t),
+        timeText(preview.card.updatedAt, now, t),
+      ]
         .filter((part) => part !== '')
         .join(' · ')
 
@@ -1148,7 +1278,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
             >
               <IconNewChatOutlineRegular size={16} />
             </button>
-            {tab === 'board' && (
+            {(tab === 'board' || tab === 'nodes') && (
               <button
                 type="button"
                 className={css.settings}
@@ -1178,7 +1308,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           </p>
         )}
 
-        {tab === 'board' && pinError !== undefined && (
+        {(tab === 'board' || tab === 'nodes') && pinError !== undefined && (
           <p className={css.previewError} role="alert">
             {t('pin.failed')}: {pinError}
           </p>
@@ -1205,6 +1335,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                         state={card.state}
                         pinned
                         pinPending={pinBusy.has(card.id)}
+                        workspace={workspaceName(card, workspaces.items, t)}
                         t={t}
                         now={now}
                         useSessionAccess={useSessionAccess}
@@ -1251,7 +1382,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                               const state: PinnedState = column === 'running'
                                 ? 'running'
                                 : column === 'unread'
-                                  ? statuses.get(card.id)?.pendingInteraction !== undefined
+                                  ? card.waitingKind !== undefined
                                     ? 'waiting'
                                     : 'completed'
                                   : 'idle'
@@ -1262,6 +1393,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                                     state={state}
                                     pinned={false}
                                     pinPending={pinBusy.has(card.id)}
+                                    workspace={workspaceName(card, workspaces.items, t)}
                                     t={t}
                                     now={now}
                                     useSessionAccess={useSessionAccess}
@@ -1286,6 +1418,28 @@ export function SessionBoardPage(props: PageProps): ReactNode {
               </div>
             )}
           </div>
+        ) : tab === 'nodes' ? (
+          <div className={css.tabPanel} role="tabpanel" id="session-manager-nodes-panel" aria-labelledby="session-manager-nodes">
+            {list.phase === 'pending' && nodeColumns.length === 0
+              ? <p className={css.loading} role="status">{t('state.loading')}</p>
+              : <NodesBoard
+              columns={nodeColumns}
+              pinBusy={pinBusy}
+              workspaces={workspaces.items}
+              t={t}
+              now={now}
+              useSessionAccess={useSessionAccess}
+              onOpen={(card) => {
+                openPreview(card, card.state)
+              }}
+              onOpenSession={(card) => {
+                openSessionPage(card, card.state)
+              }}
+              onTogglePin={(card, pinned) => {
+                void togglePin(card.id, pinned)
+              }}
+            />}
+          </div>
         ) : (
           <div className={css.tabPanel} role="tabpanel" id="session-manager-management-panel" aria-labelledby="session-manager-management">
             <Management
@@ -1306,7 +1460,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           preview={preview}
           title={previewTitle}
           subtitle={previewSubtitle}
-          waitingKind={statuses.get(preview.card.id)?.pendingInteraction?.kind}
+          waitingKind={preview.card.waitingKind}
           t={t}
           SessionProvider={SessionProvider}
           renderSlot={renderSlot}

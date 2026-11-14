@@ -18,6 +18,8 @@ import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/c
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   newestFirst,
+  sessionDisplayTitle,
+  sessionNodeOf,
   sessionState,
   type PinnedState,
   type SessionCard,
@@ -68,12 +70,14 @@ export function searchableSessions(
       pendingInteraction,
       completionUnread: shared.unread,
     }
+    const node = sessionNodeOf(list, id)
     hits.push({
       id,
-      title: row.displayTitle,
+      title: sessionDisplayTitle(row.displayTitle, node),
       cwd: row.cwd,
       updatedAt: row.updatedAt,
       waitingKind: effective?.pendingInteraction?.kind,
+      node,
       state: sessionState(
         effective,
         effective?.running ?? row.running,

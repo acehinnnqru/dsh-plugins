@@ -192,6 +192,8 @@ export function Management({
           <ul className={css.manageList}>
             {results.map((hit) => {
               const workspace = workspaceName(hit, workspaces, t)
+              const node = hit.node.self ? 'self' : hit.node.name
+              const scope = workspace === '' ? node : node + ' · ' + workspace
               return (
                 <li
                   key={hit.id}
@@ -218,9 +220,7 @@ export function Management({
                   >
                     <span className={css.manageRowTitle}>{hit.title}</span>
                     <span className={css.manageRowMeta}>
-                      {workspace !== '' && (
-                        <span className={css.manageRowWorkspace}>{workspace}</span>
-                      )}
+                      <span className={css.manageRowWorkspace}>{scope}</span>
                       <span className={css.manageRowState}>{stateText(hit.state, hit, t)}</span>
                       <span className={css.manageRowTime} title={fullDate(hit.updatedAt)}>
                         {timeText(hit.updatedAt, now, t)}

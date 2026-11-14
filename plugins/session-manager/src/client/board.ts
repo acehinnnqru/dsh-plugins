@@ -22,6 +22,19 @@ export const BOARD_COLUMNS = ['running', 'unread', 'recent'] as const
 /** One board column. */
 export type BoardColumn = (typeof BOARD_COLUMNS)[number]
 
+/** One owning node as a card or column sees it. */
+export interface SessionNode {
+  /** Server node id; absent for this host's own Sessions. */
+  readonly id: string | undefined
+  /** Display name; `self` for this host. */
+  readonly name: string
+  /** Whether the Session belongs to this host. */
+  readonly self: boolean
+}
+
+/** The local node label used on cards and the Nodes tab. */
+export const SELF_NODE: SessionNode = { id: undefined, name: 'self', self: true }
+
 /** One Session card. */
 export interface SessionCard {
   /** Session the card opens. */
@@ -34,6 +47,8 @@ export interface SessionCard {
   readonly updatedAt: number
   /** Domain kind of the pending interaction; only waiting cards carry one. */
   readonly waitingKind: string | undefined
+  /** Owning node, used for the node badge and the Nodes tab. */
+  readonly node: SessionNode
 }
 
 /** A card's label state: pending interaction, running, unread completion, or idle. */
@@ -194,6 +209,61 @@ function effectiveStatus(status: SessionStatus | undefined, shared: SharedStatus
   }
 }
 
+/** Read one row's owning node from the federation projection. */
+export function sessionNodeOf(list: SessionListState, sessionId: SessionId): SessionNode {
+  const values = list.projectionsBySession[sessionId]?.values as Readonly<Record<string, unknown>> | undefined
+  const value = values?.['sessionManagerNode']
+  if (typeof value === 'object' && value !== null) {
+    const node = value as { readonly nodeId?: unknown; readonly name?: unknown }
+    if (typeof node.name === 'string' && node.name.length > 0) {
+      return {
+        id: typeof node.nodeId === 'string' && node.nodeId.length > 0 ? node.nodeId : undefined,
+        name: node.name,
+        self: false,
+      }
+    }
+  }
+  return SELF_NODE
+}
+
+/** Drop the transport title prefix once the node badge carries the same fact. */
+export function sessionDisplayTitle(displayTitle: string, node: SessionNode): string {
+  const prefix = '[' + node.name + '] '
+  return !node.self && displayTitle.startsWith(prefix) ? displayTitle.slice(prefix.length) : displayTitle
+}
+
+/** Classify one eligible row into a card, or skip it. */
+function classify(
+  list: SessionListState,
+  statuses: SessionStatusSnapshot,
+  archived: ReadonlySet<SessionId>,
+  locallyCompleted: ReadonlySet<SessionId>,
+  readAt: ReadonlyMap<SessionId, number>,
+  sharedStatuses: ReadonlyMap<string, SharedStatus>,
+  sessionId: SessionId,
+): PinnedCard | undefined {
+  const row = list.byId[sessionId]
+  if (row === undefined || row.blank || row.origin === 'subagent' || archived.has(sessionId)) return undefined
+  const shared = sharedStatuses.get(sessionId)
+  const effective = effectiveStatus(statuses.get(sessionId), shared, sessionId)
+  const state = sessionState(
+    effective,
+    effective?.running ?? row.running,
+    shared === undefined ? (readAt.get(sessionId) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt : !shared.unread,
+    locallyCompleted.has(sessionId) && (shared === undefined || shared.unread),
+  )
+  const node = sessionNodeOf(list, sessionId)
+  return {
+    id: sessionId,
+    title: sessionDisplayTitle(row.displayTitle, node),
+    cwd: row.cwd,
+    updatedAt: row.updatedAt,
+    waitingKind: effective?.pendingInteraction?.kind,
+    node,
+    state,
+  }
+}
+
 export function deriveBoard(
   list: SessionListState,
   statuses: SessionStatusSnapshot,
@@ -208,28 +278,10 @@ export function deriveBoard(
   const recent: SessionCard[] = []
 
   for (const id of list.ids) {
-    const row = list.byId[id]
-    if (row === undefined || row.blank || row.origin === 'subagent' || archived.has(id)) continue
-
-    const shared = sharedStatuses.get(id)
-    const effective = effectiveStatus(statuses.get(id), shared, id)
-    const state = sessionState(
-      effective,
-      effective?.running ?? row.running,
-      shared === undefined ? (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt : !shared.unread,
-      locallyCompleted.has(id) && (shared === undefined || shared.unread),
-    )
-
-    const card: SessionCard = {
-      id,
-      title: row.displayTitle,
-      cwd: row.cwd,
-      updatedAt: row.updatedAt,
-      waitingKind: effective?.pendingInteraction?.kind,
-    }
-
-    if (state === 'waiting' || state === 'completed') unread.push(card)
-    else if (state === 'running') running.push(card)
+    const card = classify(list, statuses, archived, locallyCompleted, readAt, sharedStatuses, id)
+    if (card === undefined) continue
+    if (card.state === 'waiting' || card.state === 'completed') unread.push(card)
+    else if (card.state === 'running') running.push(card)
     else recent.push(card)
   }
 
@@ -271,28 +323,73 @@ export function derivePinned(
   for (const id of pinnedSessionIds) {
     if (seen.has(id)) continue
     seen.add(id)
-    const row = list.byId[id]
-    if (row === undefined || row.blank || row.origin === 'subagent' || archived.has(id)) continue
-
-    const shared = sharedStatuses.get(id)
-    const effective = effectiveStatus(statuses.get(id), shared, id)
-    const state = sessionState(
-      effective,
-      effective?.running ?? row.running,
-      shared === undefined ? (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt : !shared.unread,
-      locallyCompleted.has(id) && (shared === undefined || shared.unread),
-    )
-
-    const card: PinnedCard = {
-      id,
-      title: row.displayTitle,
-      cwd: row.cwd,
-      updatedAt: row.updatedAt,
-      waitingKind: effective?.pendingInteraction?.kind,
-      state,
-    }
-    cards.push(card)
+    const card = classify(list, statuses, archived, locallyCompleted, readAt, sharedStatuses, id)
+    if (card !== undefined) cards.push(card)
   }
 
   return cards
+}
+
+/** One node's column on the Nodes tab. */
+export interface NodeColumn {
+  readonly node: SessionNode
+  /** Pinned Sessions, in Host pin order. */
+  readonly pinned: readonly PinnedCard[]
+  /** Every other Session, newest first. */
+  readonly rest: readonly PinnedCard[]
+}
+
+/**
+ * Group every eligible Session under its owning node for the Nodes tab.
+ *
+ * Pinned Sessions stay at the top of their own node column; the rest are newest first. Nodes are
+ * ordered with this host first, then by their newest Session.
+ * @param list - Session Controller list snapshot.
+ * @param statuses - unified UI status by Session.
+ * @param archivedSessionIds - registry-global archive set.
+ * @param pinnedSessionIds - Host pin set, most recently pinned first.
+ * @param readAt - completion read marks.
+ * @param locallyCompleted - stops the board observed and has not acknowledged.
+ * @param sharedStatuses - shared Host status by Session.
+ * @returns one column per node that has at least one eligible Session.
+ */
+export function deriveNodeColumns(
+  list: SessionListState,
+  statuses: SessionStatusSnapshot,
+  archivedSessionIds: readonly SessionId[],
+  pinnedSessionIds: readonly SessionId[],
+  readAt: ReadonlyMap<SessionId, number> = new Map(),
+  locallyCompleted: ReadonlySet<SessionId> = new Set(),
+  sharedStatuses: ReadonlyMap<string, SharedStatus> = new Map(),
+): NodeColumn[] {
+  const archived = new Set(archivedSessionIds)
+  const pinned = new Map<SessionId, number>()
+  pinnedSessionIds.forEach((id, index) => {
+    if (!pinned.has(id)) pinned.set(id, index)
+  })
+  const buckets = new Map<string, { node: SessionNode; pinned: PinnedCard[]; rest: PinnedCard[]; activity: number }>()
+
+  for (const id of list.ids) {
+    const card = classify(list, statuses, archived, locallyCompleted, readAt, sharedStatuses, id)
+    if (card === undefined) continue
+    const key = card.node.self ? 'self' : card.node.id ?? 'name:' + card.node.name
+    const bucket = buckets.get(key) ?? { node: card.node, pinned: [], rest: [], activity: 0 }
+    bucket.activity = Math.max(bucket.activity, card.updatedAt)
+    if (pinned.has(id)) bucket.pinned.push(card)
+    else bucket.rest.push(card)
+    buckets.set(key, bucket)
+  }
+
+  const columns = [...buckets.values()].map((bucket) => ({
+    node: bucket.node,
+    pinned: bucket.pinned.sort((left, right) => (pinned.get(left.id) ?? 0) - (pinned.get(right.id) ?? 0)),
+    rest: newestFirst(bucket.rest),
+    activity: bucket.activity,
+  }))
+  columns.sort((left, right) => {
+    if (left.node.self !== right.node.self) return left.node.self ? -1 : 1
+    if (left.activity !== right.activity) return right.activity - left.activity
+    return left.node.name.localeCompare(right.node.name)
+  })
+  return columns.map(({ node, pinned: pinnedCards, rest }) => ({ node, pinned: pinnedCards, rest }))
 }

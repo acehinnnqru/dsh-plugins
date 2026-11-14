@@ -133,15 +133,18 @@ export function installFederation(controller: object, pool: PeerPool): () => voi
   }
 
   const titled = (summary: SessionSummary, peer: PeerInfo): SessionSummary => {
-    const values = summary.projections?.values as Readonly<Record<string, unknown>> | undefined
-    const current = typeof values?.['title'] === 'string' ? values['title'] : 'session'
-    const projections = summary.projections === undefined
-      ? undefined
-      : {
-          ...summary.projections,
-          values: { ...values, title: '[' + peer.name + '] ' + current },
-        } as SessionSummary['projections']
-    return { ...summary, ...(projections === undefined ? {} : { projections }) }
+    const base = summary.projections ?? { kind: 'cached' as const, asOfSeq: 0, values: {} }
+    const values = base.values as Readonly<Record<string, unknown>>
+    const current = typeof values['title'] === 'string' ? values['title'] : 'session'
+    const projections = {
+      ...base,
+      values: {
+        ...values,
+        title: '[' + peer.name + '] ' + current,
+        sessionManagerNode: { nodeId: peer.nodeId, name: peer.name },
+      },
+    } as NonNullable<SessionSummary['projections']>
+    return { ...summary, projections }
   }
 
   const refresh = async (self: SessionListValue): Promise<SessionListValue> => {

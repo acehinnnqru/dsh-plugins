@@ -4,6 +4,7 @@ import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-clie
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   deriveBoard,
+  deriveNodeColumns,
   derivePinned,
   previewReadMark,
   waitingCopyKey,
@@ -67,6 +68,26 @@ function pending(kind: string, sessionId: SessionId): NonNullable<SessionStatus[
 }
 
 describe('deriveBoard', () => {
+  it('groups cards by owning node and keeps pins at the top of each column', () => {
+    const local = id('local-node')
+    const remote = id('remote-node')
+    const list = listOf([
+      summary('local-node', { updatedAt: 10 }),
+      summary('remote-node', { displayTitle: '[node-b] remote-node', updatedAt: 20 }),
+    ])
+    list.projectionsBySession[remote] = {
+      values: { sessionManagerNode: { nodeId: 'nd_b', name: 'node-b' } },
+      state: 'ready',
+      error: null,
+    } as never
+
+    const columns = deriveNodeColumns(list, new Map(), [], [remote])
+    expect(columns.map((column) => column.node.name)).toEqual(['self', 'node-b'])
+    expect(columns[0]?.rest.map((card) => card.id)).toEqual([local])
+    expect(columns[1]?.pinned.map((card) => card.id)).toEqual([remote])
+    expect(columns[1]?.pinned[0]?.title).toBe('remote-node')
+  })
+
   it('lets the shared status override a local unread completion in both directions', () => {
     const session = id('shared')
     const list = listOf([summary('shared')])
@@ -386,6 +407,7 @@ describe('withinRecent', () => {
       cwd: undefined,
       updatedAt,
       waitingKind: undefined,
+      node: { id: undefined, name: 'self', self: true },
     }
   }
 

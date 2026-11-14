@@ -94,6 +94,7 @@ describe('host session federation', () => {
     const remote = listed.items.find((item) => item.sessionId === remoteId)
     const remoteValues = remote?.projections?.values as Record<string, unknown> | undefined
     expect(remoteValues?.['title']).toBe('[node-b] remote')
+    expect(remoteValues?.['sessionManagerNode']).toEqual({ nodeId: 'nd_b', name: 'node-b' })
 
     const frames: SessionFollowFrame[] = []
     for await (const frame of controller.follow({ address: { kind: 'session', sessionId: remoteId } })) {
