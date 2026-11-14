@@ -35,6 +35,7 @@ import {
   IconCloseOutlineRegular,
   IconNewChatOutlineRegular,
   IconPinFillRegular,
+  IconPlusOutlineRegular,
   IconPinOutlineRegular,
   IconRightUpOutlineRegular,
   IconSearchOutlineRegular,
@@ -69,6 +70,7 @@ import {
   type PinnedCard,
   type PinnedState,
   type SessionCard,
+  type SessionNode,
 } from './board.ts'
 import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
@@ -87,6 +89,7 @@ import { NS, type SessionManagerKey } from './locales.ts'
 import { currentWorkspaceId, recentWorkspaceId } from './new-conversation-target.ts'
 import { recentWindowDays, setRecentWindowDays, subscribeRecentWindow } from './recent-window.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
+import { setChooseNode } from './node-choice.ts'
 import { setChooseWorkspace } from './workspace-choice.ts'
 import css from './SessionBoard.module.css'
 
@@ -121,6 +124,13 @@ export interface SessionManagerInjected {
    * @returns the catalogued Session the Host created or reused.
    */
   readonly connectWorkspace: (workspaceId: WorkspaceId, agentPreset?: string) => Promise<SessionId>
+  /** Refresh the Host list immediately, for a Session a peer just created. */
+  readonly refreshSessions: () => Promise<void>
+  /** Create a blank Session on one peer at a directory path. */
+  readonly createRemoteSession: (
+    nodeId: string,
+    request: { readonly cwd: string; readonly agentPreset?: string },
+  ) => Promise<SessionId>
   /**
    * Move the unsent draft text from one Session to another. Attachments cannot travel, so the page
    * checks {@link SessionManagerInjected.draftAttachmentCount} first.
@@ -196,9 +206,11 @@ interface Composer {
   readonly mainView: SessionReference
 }
 
-/** Optional Workspace and Agent preset for the next new-conversation overlay. */
+/** Optional node, Workspace, directory, and Agent preset for the next new-conversation overlay. */
 interface ConversationTarget {
+  readonly node?: SessionNode
   readonly workspaceId?: WorkspaceId
+  readonly cwd?: string
   readonly agentPreset?: string
 }
 
@@ -545,6 +557,7 @@ interface NodesBoardProps {
   readonly useSessionAccess: PageProps['useSessionAccess']
   readonly onOpen: (card: PinnedCard) => void
   readonly onOpenSession: (card: PinnedCard) => void
+  readonly onNew: (node: SessionNode) => void
   readonly onTogglePin: (card: PinnedCard, pinned: boolean) => void
 }
 
@@ -565,6 +578,7 @@ function NodesBoard({
   useSessionAccess,
   onOpen,
   onOpenSession,
+  onNew,
   onTogglePin,
 }: NodesBoardProps): ReactNode {
   if (columns.length === 0) return <p className={css.columnEmpty}>{t('nodes.empty')}</p>
@@ -618,6 +632,17 @@ function NodesBoard({
                     {column.node.instanceId.slice(4, 12)}
                   </span>
                 )}
+                <button
+                  type="button"
+                  className={css.nodeNew}
+                  title={t('nodes.new')}
+                  aria-label={t('nodes.new')}
+                  onClick={() => {
+                    onNew(column.node)
+                  }}
+                >
+                  <IconPlusOutlineRegular size={14} />
+                </button>
                 <span className={css.columnCount}>{count}</span>
               </header>
               <div className={css.nodeBody}>
@@ -793,6 +818,8 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     retainMainView,
     openSession,
     connectWorkspace,
+    refreshSessions,
+    createRemoteSession,
     moveDraft,
     draftAttachmentCount,
     setPinned,
@@ -832,6 +859,8 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   // registry through a ref rather than keeping a stale snapshot.
   const workspacesRef = useRef(workspaces)
   workspacesRef.current = workspaces
+  const listRef = useRef(list)
+  listRef.current = list
   const composerRef = useRef<Composer | undefined>(undefined)
   composerRef.current = composer
 
@@ -857,6 +886,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     return () => {
       mounted.current = false
       setChooseWorkspace(undefined)
+      setChooseNode(undefined)
     }
   }, [])
 
@@ -1058,9 +1088,73 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     const agentPreset = sessionPreset(list, card.id)
     closePreview()
     void startConversation({
-      ...(workspace === undefined ? {} : { workspaceId: workspace.workspaceId }),
+      node: card.node,
+      ...(workspace === undefined
+        ? card.cwd === undefined ? {} : { cwd: card.cwd }
+        : { workspaceId: workspace.workspaceId }),
       ...(agentPreset === undefined ? {} : { agentPreset }),
     })
+  }
+
+  /** Find one Workspace by its path. */
+  function workspaceAt(path: string | undefined): WorkspaceView | undefined {
+    return path === undefined ? undefined : workspacesRef.current.items.find((workspace) => workspace.path === path)
+  }
+
+  /** The newest directory a node already uses, for a column's new-session button. */
+  function nodeDirectory(node: SessionNode): string | undefined {
+    let latest: { readonly updatedAt: number; readonly cwd: string | undefined } | undefined
+    const current = listRef.current
+    for (const id of current.ids) {
+      const row = current.byId[id]
+      if (row === undefined) continue
+      const owner = sessionNodeOf(current, id)
+      if (node.self ? !owner.self : owner.id !== node.id) continue
+      if (row.cwd === undefined) continue
+      if (latest === undefined || row.updatedAt > latest.updatedAt) latest = { updatedAt: row.updatedAt, cwd: row.cwd }
+    }
+    return latest?.cwd
+  }
+
+  /** Wait until a peer-created blank reaches the federated list. */
+  async function waitForSession(sessionId: SessionId): Promise<void> {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (listRef.current.byId[sessionId] !== undefined) return
+      try {
+        await refreshSessions()
+      } catch {
+        // The next attempt retries the same list pull.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    throw new Error(t('new.failed'))
+  }
+
+  /**
+   * Create one blank on a node, at a Workspace path when it has one.
+   *
+   * A local node reuses the Workspace controller's blank resolution. A remote node has no local
+   * Workspace id here, so the peer creates a blank at the chosen directory and the federated list
+   * supplies the row before the overlay retains it.
+   */
+  async function createBlank(
+    node: SessionNode,
+    workspace: WorkspaceView | undefined,
+    agentPreset?: string,
+    fallbackCwd?: string,
+  ): Promise<SessionId> {
+    if (node.self) {
+      if (workspace === undefined) throw new Error(t('new.failed'))
+      return await connectWorkspace(workspace.workspaceId, agentPreset)
+    }
+    const cwd = workspace?.path ?? fallbackCwd ?? nodeDirectory(node)
+    if (node.id === undefined || cwd === undefined) throw new Error(t('new.failed'))
+    const sessionId = await createRemoteSession(node.id, {
+      cwd,
+      ...(agentPreset === undefined ? {} : { agentPreset }),
+    })
+    await waitForSession(sessionId)
+    return sessionId
   }
 
   /**
@@ -1069,18 +1163,22 @@ export function SessionBoardPage(props: PageProps): ReactNode {
    * The target follows the native New Session order: the Workspace of the Session the app currently
    * shows, then the Workspace with the most recent activity. The Workspace controller resolves the
    * blank itself, so the overlay gets the same reused Session and Agent preset the main New Session
-   * would.
+   * would. A remote target creates its blank through the bridge instead.
    */
   async function startConversation(target?: ConversationTarget): Promise<void> {
     if (opening.current) return
     opening.current = true
     setStartError(undefined)
     try {
-      const workspaceId = target?.workspaceId
-        ?? currentWorkspaceId(workspaces, list)
-        ?? recentWorkspaceId(workspaces, list)
-      if (workspaceId === undefined) throw new Error(t('new.failed'))
-      const sessionId = await connectWorkspace(workspaceId, target?.agentPreset)
+      const node = target?.node ?? { id: undefined, name: 'self', self: true }
+      const workspace = target?.workspaceId !== undefined
+        ? workspaces.items.find((item) => item.workspaceId === target.workspaceId)
+        : target?.cwd !== undefined
+          ? workspaceAt(target.cwd)
+          : workspaces.items.find((item) => item.workspaceId === currentWorkspaceId(workspaces, list))
+            ?? workspaces.items.find((item) => item.workspaceId === recentWorkspaceId(workspaces, list))
+      if (node.self && workspace === undefined) throw new Error(t('new.failed'))
+      const sessionId = await createBlank(node, workspace, target?.agentPreset, target?.cwd)
       const reference = retainSession(sessionId)
       let mainView: SessionReference
       try {
@@ -1095,6 +1193,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
         return
       }
       setChooseWorkspace(switchWorkspace)
+      setChooseNode(switchNode)
       setComposer({ reference, mainView })
     } catch (cause) {
       setStartError(cause instanceof Error ? cause.message : String(cause))
@@ -1106,6 +1205,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   /** Hand the screen back to the board; the release effect drops the retained references. */
   function closeConversation(): void {
     setChooseWorkspace(undefined)
+    setChooseNode(undefined)
     setComposer(undefined)
   }
 
@@ -1161,13 +1261,70 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     if (current === undefined || current.reference.sessionId !== fromId) return undefined
     const owner = workspacesRef.current.items.find((workspace) => workspace.sessionIds.includes(fromId))
     if (owner?.workspaceId === workspaceId) return undefined
+    if (workspacesRef.current.items.find((workspace) => workspace.workspaceId === workspaceId)?.path === listRef.current.byId[fromId]?.cwd) return undefined
     if (switching.current) return undefined
     switching.current = true
     try {
       if (draftAttachmentCount(fromId) > 0) return t('workspace.attachments')
-      const sessionId = await connectWorkspace(workspaceId)
+      const node = sessionNodeOf(listRef.current, fromId)
+      const workspace = workspacesRef.current.items.find((item) => item.workspaceId === workspaceId)
+      if (workspace === undefined) return t('new.failed')
+      const sessionId = await createBlank(node, workspace)
       // A lagging client snapshot can make the Host reuse the very Session being shown; there is
       // nothing to move in that case.
+      if (sessionId === fromId) return undefined
+      const reference = retainSession(sessionId)
+      let mainView: SessionReference
+      try {
+        mainView = retainMainView(sessionId)
+      } catch (cause) {
+        reference.release()
+        throw cause
+      }
+      try {
+        moveDraft(fromId, sessionId)
+      } catch (cause) {
+        reference.release()
+        mainView.release()
+        throw cause
+      }
+      setComposer({ reference, mainView })
+      return undefined
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : String(cause)
+    } finally {
+      switching.current = false
+    }
+  }
+
+  /**
+   * Move the open new conversation to another node.
+   *
+   * The source blank supplies its directory; a remote target reuses that path, or the newest
+   * directory already known on that node. The draft follows the same way a Workspace switch moves
+   * it, and attachments refuse the move rather than being dropped.
+   * @param fromId - the blank Session the overlay is showing.
+   * @param node - the node the user picked.
+   * @returns a localized failure, or undefined after the overlay moved.
+   */
+  async function switchNode(fromId: SessionId, node: SessionNode): Promise<string | undefined> {
+    const current = composerRef.current
+    if (current === undefined || current.reference.sessionId !== fromId) return undefined
+    const currentList = listRef.current
+    const source = currentList.byId[fromId]
+    if (source === undefined) return undefined
+    const owner = sessionNodeOf(currentList, fromId)
+    if (node.self ? owner.self : owner.id === node.id) return undefined
+    if (switching.current) return undefined
+    switching.current = true
+    try {
+      if (draftAttachmentCount(fromId) > 0) return t('node.attachments')
+      const currentWorkspaces = workspacesRef.current
+      const workspace = workspaceAt(source.cwd)
+        ?? currentWorkspaces.items.find((item) => item.workspaceId === currentWorkspaceId(currentWorkspaces, currentList))
+        ?? currentWorkspaces.items.find((item) => item.workspaceId === recentWorkspaceId(currentWorkspaces, currentList))
+      const targetCwd = nodeDirectory(node) ?? source.cwd
+      const sessionId = await createBlank(node, workspace, undefined, targetCwd)
       if (sessionId === fromId) return undefined
       const reference = retainSession(sessionId)
       let mainView: SessionReference
@@ -1475,6 +1632,10 @@ export function SessionBoardPage(props: PageProps): ReactNode {
               }}
               onOpenSession={(card) => {
                 openSessionPage(card, card.state)
+              }}
+              onNew={(node) => {
+                const cwd = node.self ? undefined : nodeDirectory(node)
+                void startConversation({ node, ...(cwd === undefined ? {} : { cwd }) })
               }}
               onTogglePin={(card, pinned) => {
                 void togglePin(card.id, pinned)

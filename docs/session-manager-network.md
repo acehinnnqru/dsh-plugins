@@ -52,6 +52,20 @@ The native Conversation works because the remote rows are ordinary
 `SessionSummary` values and `session.follow` returns the owner's native frames.
 No fake client binding is involved.
 
+A new-session request carries the selected node id and a directory. The local
+host posts it to `/api/session-manager/new`; the node runtime sends
+`session.create` to that peer, and the peer creates a blank through its own
+Session Controller at that directory. The new id appears through the ordinary
+federated list on the next refresh. `/api/session-manager/nodes` returns the
+online directory for the picker.
+
+The native new-session shell only enables its composer for a Session that is a
+member of a Workspace in the local Client projection. A remote row is therefore
+joined to the local Workspace with the same directory while it is retained, and
+removed again when it is no longer open or the peer row disappears. This is a
+Client-only projection; the Host Workspace registry still contains only local
+Session ids.
+
 ### Shared status and unread
 
 The owner publishes a status row for each local Session: `running`, `pending`

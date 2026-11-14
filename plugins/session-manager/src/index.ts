@@ -251,6 +251,26 @@ export function apply(ctx: Context, config?: Config): void {
         await coordinator.reportUnread(body.sessionId as SessionId, body.updatedAt)
         return new Response(null, { status: 204 })
       }), 'session-manager: report route')
+      web.effect(() => route('/api/session-manager/nodes', ['GET'], async () => json({
+        v: 1,
+        nodes: runtime?.nodes() ?? [],
+      })), 'session-manager: nodes route')
+      web.effect(() => route('/api/session-manager/new', ['POST'], async (request) => {
+        const body = await request.json() as { nodeId?: unknown; cwd?: unknown; agentPreset?: unknown }
+        if (typeof body.nodeId !== 'string' || body.nodeId.length === 0 || typeof body.cwd !== 'string' || body.cwd.length === 0) {
+          return json({ error: 'nodeId and cwd are required' }, 400)
+        }
+        if (runtime === undefined) return json({ error: 'network is offline' }, 503)
+        try {
+          const value = await runtime.createSession(body.nodeId, {
+            cwd: body.cwd,
+            ...(typeof body.agentPreset === 'string' && body.agentPreset.length > 0 ? { agentPreset: body.agentPreset } : {}),
+          })
+          return json({ sessionId: value.sessionId })
+        } catch (error) {
+          return json({ error: error instanceof Error ? error.message : 'session/create-failed' }, 502)
+        }
+      }), 'session-manager: new-session route')
     })
   })
 }

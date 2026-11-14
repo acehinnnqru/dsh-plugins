@@ -108,7 +108,9 @@ a new server's status snapshot is ignored by an old node.
 - Node A's board shows node B's Sessions with a `node-b` badge before the Workspace label;
   its own rows carry a `self` badge.
 - The **Nodes** tab shows one vertical column per node, pinned Sessions first, and scrolls
-  horizontally after three columns.
+  horizontally after three columns. Each column header has a new-session button for that node.
+- A new conversation's hero row has a node picker before the Workspace picker. Choosing node B
+  creates the blank on B and keeps the composer usable from A.
 - Opening one renders the native Conversation on A. The host serving that
   Session remains B; A's host only forwards calls through the server.
 - A prompt or cancel from A is forwarded to B. B's board shows the turn running.

@@ -167,7 +167,7 @@ describe('session-manager browser half', () => {
     expect(requested.sort()).toEqual([...BASELINE].sort())
     expect(plugin?.apply).toBeTypeOf('function')
     // The source's `inject` is the Cordis service list; `dsh.client.inject` in the manifest is not this.
-    expect(plugin?.inject).toEqual(['slots', 'locale', 'sessions', 'uiSession', 'uiWorkspace', 'layout', 'remote', 'remote.settings'])
+    expect(plugin?.inject).toEqual(['slots', 'locale', 'sessions', 'workspaces', 'uiSession', 'uiWorkspace', 'layout', 'remote', 'remote.settings'])
   })
 
   it('contributes a main page, its preview child, the workspace picker, a sidebar row, and the leading back control', async () => {

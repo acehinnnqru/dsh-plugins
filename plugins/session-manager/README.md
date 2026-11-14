@@ -55,8 +55,14 @@ full-screen new-conversation overlay that embeds the native composer.
   recent activity. The Workspace
   controller reuses the first parked blank there or creates one under the Host default, so the overlay
   opens with the same Session and Agent preset the main New Session would show. It retains that
-  Session and shows the native new-session controls — a searchable Workspace picker, the Agent preset
-  chip, and the composer — in a white rounded panel over a backdrop mask, without the hero headline.
+  Session and shows the native new-session controls — a node picker before a searchable Workspace
+  picker, the Agent preset chip, and the composer — in a white rounded panel over a backdrop mask,
+  without the hero headline. The node picker lists this host plus every online peer; choosing a peer
+  creates a blank on that peer at the chosen directory through the bridge and carries the draft
+  across. Each Nodes column also has a new-session button that opens the same overlay already on
+  that node. Because the native shell only enables its composer for a Session that belongs to a
+  Workspace in this browser's projection, a federated row is temporarily joined to the local
+  Workspace with the same directory while it is open; the Host Workspace registry is not written.
   Sending hands the board back and leaves the Session running in **Running**; closing without sending
   leaves the blank Session reusable. The Workspace picker opens as a menu under its chip and stays
   inside the overlay: choosing another Workspace connects a blank Session there through the same

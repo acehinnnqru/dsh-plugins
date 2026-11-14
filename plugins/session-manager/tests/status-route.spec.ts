@@ -123,6 +123,26 @@ describe('status route', () => {
     }
     expect(row).toMatchObject({ sessionId: '01ROUTE', running: false, unread: false })
 
+    const nodesRoute = await waitFor(() => routes.get('/api/session-manager/nodes'))
+    const nodesDeadline = Date.now() + 3000
+    let selfNode: { readonly self?: boolean; readonly name?: string } | undefined
+    while (selfNode === undefined && Date.now() < nodesDeadline) {
+      const body = await (await nodesRoute.fetch(new Request('http://127.0.0.1/api/session-manager/nodes'))).json() as {
+        readonly nodes?: readonly { readonly self?: boolean; readonly name?: string }[]
+      }
+      selfNode = body.nodes?.find((node) => node.self === true)
+      if (selfNode === undefined) await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    expect(selfNode?.name).toBe('status-route')
+
+    const newRoute = await waitFor(() => routes.get('/api/session-manager/new'))
+    const badNew = await newRoute.fetch(new Request('http://127.0.0.1/api/session-manager/new', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    }))
+    expect(badNew.status).toBe(400)
+
     const groupRoute = await waitFor(() => routes.get('/api/session-manager/group'))
     const groupResponse = await groupRoute.fetch(new Request('http://127.0.0.1/api/session-manager/group', {
       method: 'POST',

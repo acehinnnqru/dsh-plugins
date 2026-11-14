@@ -50,6 +50,9 @@ describe('bridged peer session RPC', () => {
         prompted.push(request.sessionId)
         return { accepted: true }
       },
+      async create(request: { cwd: string }): Promise<{ sessionId: SessionId }> {
+        return { sessionId: request.cwd as SessionId }
+      },
     }
 
     let poolA: PeerPool
@@ -102,6 +105,9 @@ describe('bridged peer session RPC', () => {
       content: [{ type: 'text', text: 'hello' }],
     })
     expect(prompted).toEqual(['01S'])
+
+    const created = await link?.request('session.create', { cwd: '/work/new' })
+    expect((created as { sessionId?: string } | undefined)?.sessionId).toBe('/work/new')
 
     responderA.close()
     responderB.close()

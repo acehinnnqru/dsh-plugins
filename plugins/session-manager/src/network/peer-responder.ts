@@ -47,9 +47,11 @@ export interface PeerResponder {
 /** Invoke one controller method, preferring the local pre-federation methods. */
 function invoke(controller: Controller, name: string, ...args: unknown[]): any {
   const locals = localMethods(controller)
-  const method = (locals ?? controller)[name]
+  const local = locals?.[name]
+  if (local !== undefined) return local(...args)
+  const method = controller[name]
   if (typeof method !== 'function') throw new Error('peer op unavailable: ' + name)
-  return locals === undefined ? method.apply(controller, args) : method(...args)
+  return method.apply(controller, args)
 }
 
 /** Create one responder over a Session Controller. */
@@ -83,6 +85,10 @@ export function createPeerResponder(options: PeerResponderOptions): PeerResponde
     switch (request.op) {
       case 'session.list': {
         respond(request, await invoke(controller, 'list', {}, new AbortController().signal))
+        return
+      }
+      case 'session.create': {
+        respond(request, await invoke(controller, 'create', { ...args }, new AbortController().signal))
         return
       }
       case 'session.follow': {

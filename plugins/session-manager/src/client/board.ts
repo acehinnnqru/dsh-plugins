@@ -213,7 +213,8 @@ function effectiveStatus(status: SessionStatus | undefined, shared: SharedStatus
 
 /** Read one row's owning node from the federation projection. */
 export function sessionNodeOf(list: SessionListState, sessionId: SessionId): SessionNode {
-  const values = list.projectionsBySession[sessionId]?.values as Readonly<Record<string, unknown>> | undefined
+  const values = (list.projectionsBySession[sessionId]?.values
+    ?? list.byId[sessionId]?.projectionValues) as Readonly<Record<string, unknown>> | undefined
   const value = values?.['sessionManagerNode']
   if (typeof value === 'object' && value !== null) {
     const node = value as { readonly nodeId?: unknown; readonly name?: unknown; readonly instanceId?: unknown }

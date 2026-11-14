@@ -795,6 +795,8 @@ body[data-session-manager-preview] [class*='_portal_'] > [class*='_card_'] {
 }
 
 .newDialog [class*='heroWorkspaceRow']:has([data-session-manager-workspace]) > [class*='heroOptions'] {
+  position: relative;
+  z-index: 1101;
   order: -1;
   margin-left: 0;
 }
@@ -820,6 +822,142 @@ body[data-session-manager-preview] [class*='_portal_'] > [class*='_card_'] {
 
 .newDialog.newDialog .newBody [class*='embeddedBody'] {
   overflow: visible;
+}
+
+.nodeNew {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.nodeNew:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.nodePicker {
+  position: relative;
+  z-index: 1101;
+  pointer-events: auto;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.nodeTrigger {
+  box-sizing: border-box;
+  display: inline-flex;
+  pointer-events: auto;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.nodeTrigger:hover,
+.nodeTrigger[aria-expanded='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.nodeTrigger:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+
+.nodeTriggerIcon,
+.nodeTriggerChevron {
+  flex: none;
+}
+
+.nodeTriggerLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nodeMenu {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  max-width: 260px;
+  padding: 6px;
+  z-index: 1100;
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+  box-shadow: var(--dsw-elevation-prominent);
+}
+
+.nodeMenuHead {
+  padding: 4px 8px 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.nodeList {
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nodeRow {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nodeRow:hover,
+.nodeRow[aria-selected='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.nodeRowName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nodeError {
+  margin: 4px 8px 2px;
+  color: var(--dsw-alias-state-danger-primary);
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .workspacePicker {

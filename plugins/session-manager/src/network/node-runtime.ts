@@ -22,9 +22,18 @@ export interface NetworkConfig {
   readonly group: string
 }
 
+/** One node the picker can start a Session on. */
+export interface RuntimeNode {
+  readonly nodeId: string | undefined
+  readonly name: string
+  readonly self: boolean
+  readonly instanceId?: string
+}
+
 /** One running node runtime. */
 export class NodeRuntime {
   private readonly logger: (message: string) => void
+  private readonly name: string
   private readonly link: NodeLink
   private readonly responder: PeerResponder
   private readonly pool: PeerPool
@@ -40,10 +49,11 @@ export class NodeRuntime {
     onStatus?: (status: SessionStatusRecord) => void,
   ) {
     this.logger = logger
+    this.name = config.name.length > 0 ? config.name : hostname()
     this.link = new NodeLink({
       server: config.server,
       token: config.token,
-      name: config.name.length > 0 ? config.name : hostname(),
+      name: this.name,
       group: config.group,
       logger,
       onDirectory: (directory, self) => this.onDirectory(directory, self),
@@ -62,6 +72,36 @@ export class NodeRuntime {
       logger,
       sender: (frame) => this.link.sendBridge(frame),
     })
+  }
+
+  /** The group directory with this node first, for the new-session picker. */
+  nodes(): readonly RuntimeNode[] {
+    const selfId = this.link.nodeId()
+    const peers = this.link.peers()
+    const self = peers.find((peer) => peer.nodeId === selfId)
+    return [
+      {
+        nodeId: selfId,
+        name: this.name,
+        self: true,
+        ...(self?.instanceId === undefined ? {} : { instanceId: self.instanceId }),
+      },
+      ...peers
+        .filter((peer) => peer.online && peer.nodeId !== selfId)
+        .map((peer) => ({
+          nodeId: peer.nodeId,
+          name: peer.name,
+          self: false,
+          ...(peer.instanceId === undefined ? {} : { instanceId: peer.instanceId }),
+        })),
+    ]
+  }
+
+  /** Create one blank Session on one peer through the bridge. */
+  async createSession(peerNodeId: string, request: { readonly cwd: string; readonly agentPreset?: string }): Promise<{ readonly sessionId: string }> {
+    const link = this.pool.link(peerNodeId)
+    if (link === undefined) throw new Error('peer is offline')
+    return await link.request('session.create', request) as { readonly sessionId: string }
   }
 
   /** Publish one owned Session status row. */

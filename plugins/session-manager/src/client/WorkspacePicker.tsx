@@ -36,6 +36,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { NS } from './locales.ts'
+import { NodePicker } from './NodePicker.tsx'
+import { activeChooseNode, subscribeChooseNode, type ChooseNode } from './node-choice.ts'
+import { sessionNodeOf, type SessionNode } from './board.ts'
 import {
   activeChooseWorkspace,
   subscribeChooseWorkspace,
@@ -55,6 +58,7 @@ type WorkspacePickerProps = PropsRuntime<'conversation.hero.options'> & PropsLoc
 /** Props of the mounted picker, once the overlay published a chooser. */
 interface WorkspacePickerBodyProps extends WorkspacePickerProps {
   readonly choose: ChooseWorkspace
+  readonly chooseNode: ChooseNode
 }
 
 /**
@@ -67,7 +71,10 @@ interface WorkspacePickerBodyProps extends WorkspacePickerProps {
  */
 export function WorkspacePicker(props: WorkspacePickerProps): ReactNode {
   const choose = useSyncExternalStore(subscribeChooseWorkspace, activeChooseWorkspace)
-  return choose === undefined ? null : <WorkspacePickerBody {...props} choose={choose} />
+  const chooseNode = useSyncExternalStore(subscribeChooseNode, activeChooseNode)
+  return choose === undefined || chooseNode === undefined
+    ? null
+    : <WorkspacePickerBody {...props} choose={choose} chooseNode={chooseNode} />
 }
 
 /**
@@ -78,6 +85,7 @@ export function WorkspacePicker(props: WorkspacePickerProps): ReactNode {
 function WorkspacePickerBody({
   sessionId,
   choose,
+  chooseNode,
   useSessions,
   useWorkspaces,
   t,
@@ -87,6 +95,44 @@ function WorkspacePickerBody({
   const session = sessions.byId[sessionId]
   const current = workspaces.items.find((workspace) => workspace.sessionIds.includes(sessionId))
     ?? workspaces.items.find((workspace) => session !== undefined && workspace.path === session.cwd)
+  const currentOwner = sessionNodeOf(sessions, sessionId)
+  const [directory, setDirectory] = useState<readonly SessionNode[]>([])
+  useEffect(() => {
+    let live = true
+    void fetch('/api/session-manager/nodes', { credentials: 'same-origin', headers: { accept: 'application/json' } })
+      .then(async (response) => {
+        if (!response.ok) return
+        const value = await response.json() as { readonly nodes?: readonly unknown[] }
+        if (!Array.isArray(value.nodes)) return
+        const next: SessionNode[] = []
+        for (const item of value.nodes) {
+          if (typeof item !== 'object' || item === null) continue
+          const row = item as { readonly nodeId?: unknown; readonly name?: unknown; readonly self?: unknown; readonly instanceId?: unknown }
+          if (typeof row.name !== 'string' || row.name.length === 0) continue
+          const self = row.self === true
+          next.push({
+            id: typeof row.nodeId === 'string' && row.nodeId.length > 0 ? row.nodeId : undefined,
+            name: self ? 'self' : row.name,
+            self,
+            ...(typeof row.instanceId === 'string' && row.instanceId.length > 0 ? { instanceId: row.instanceId } : {}),
+          })
+        }
+        if (live) setDirectory(next)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+  const nodeMap = new Map<string, SessionNode>()
+  nodeMap.set('self', { id: undefined, name: 'self', self: true })
+  for (const node of directory) nodeMap.set(node.self ? 'self' : node.id ?? ('name:' + node.name), node)
+  for (const id of sessions.ids) {
+    const owner = sessionNodeOf(sessions, id)
+    nodeMap.set(owner.self ? 'self' : owner.id ?? ('name:' + owner.name), owner)
+  }
+  nodeMap.set(currentOwner.self ? 'self' : currentOwner.id ?? ('name:' + currentOwner.name), currentOwner)
+  const nodes = [...nodeMap.values()]
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -203,7 +249,14 @@ function WorkspacePickerBody({
     : { position: 'fixed', left: placement.left, top: placement.top }
 
   return (
-    <span ref={root} className={css.workspacePicker}>
+    <>
+      <NodePicker
+        nodes={nodes}
+        current={currentOwner}
+        t={t}
+        onPick={(node) => chooseNode(sessionId, node)}
+      />
+      <span ref={root} className={css.workspacePicker}>
       <button
         ref={trigger}
         type="button"
@@ -291,6 +344,7 @@ function WorkspacePickerBody({
           )}
         </MenuSurface>
       )}
-    </span>
+      </span>
+    </>
   )
 }
