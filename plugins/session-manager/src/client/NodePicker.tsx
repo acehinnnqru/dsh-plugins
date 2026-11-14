@@ -38,6 +38,8 @@ export interface NodePickerProps {
   readonly current: SessionNode
   readonly t: PropsLocale<typeof NS>['t']
   readonly onPick: (node: SessionNode) => Promise<string | undefined>
+  /** Warm the target node while the pointer or focus previews it. */
+  readonly onPrepare?: (node: SessionNode) => void
 }
 
 /**
@@ -45,7 +47,7 @@ export interface NodePickerProps {
  * @param props - available nodes, the current owner, copy, and the picker callback.
  * @returns the chip and, while open, the menu.
  */
-export function NodePicker({ nodes, current, t, onPick }: NodePickerProps): ReactNode {
+export function NodePicker({ nodes, current, t, onPick, onPrepare }: NodePickerProps): ReactNode {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -53,6 +55,8 @@ export function NodePicker({ nodes, current, t, onPick }: NodePickerProps): Reac
   const trigger = useRef<HTMLButtonElement>(null)
   const panel = useRef<HTMLDivElement>(null)
   const picking = useRef(false)
+  const warm = useRef({ nodes, onPrepare })
+  warm.current = { nodes, onPrepare }
   const placement = useAnchoredPosition({
     open,
     anchorRef: trigger,
@@ -69,6 +73,12 @@ export function NodePicker({ nodes, current, t, onPick }: NodePickerProps): Reac
     if (!open || !positioned) return
     panel.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus()
   }, [open, positioned])
+
+  useEffect(() => {
+    if (!open) return
+    const firstRemote = warm.current.nodes.find((node) => !node.self)
+    if (firstRemote !== undefined) warm.current.onPrepare?.(firstRemote)
+  }, [open])
 
   /**
    * Ask the page to move the blank, keeping the menu open on failure.
@@ -154,6 +164,12 @@ export function NodePicker({ nodes, current, t, onPick }: NodePickerProps): Reac
                     aria-selected={selected}
                     className={css.nodeRow}
                     disabled={busy}
+                    onPointerEnter={() => {
+                      onPrepare?.(node)
+                    }}
+                    onFocus={() => {
+                      onPrepare?.(node)
+                    }}
                     onClick={() => {
                       void pick(node)
                     }}

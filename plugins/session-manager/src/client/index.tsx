@@ -263,8 +263,32 @@ export function apply(ctx: ClientContext): void {
   const openSession = (sessionId: SessionId): void => {
     ctx.uiWorkspace.openSession(sessionId)
   }
-  const connectWorkspace = (workspaceId: WorkspaceId, agentPreset?: string): Promise<SessionId> =>
-    ctx.uiWorkspace.connectWorkspace(workspaceId, agentPreset === undefined ? undefined : { agentPreset })
+  const adoptLocalMember = (workspaceId: WorkspaceId, sessionId: SessionId): void => {
+    try {
+      const workspaces = typeof ctx.get === 'function'
+        ? ctx.get('workspaces') as WorkspaceStoreFace | undefined
+        : undefined
+      const view = workspaces?.list.getSnapshot().items.find((item) => item.workspaceId === workspaceId)
+      if (workspaces?.model !== undefined && view !== undefined && !view.sessionIds.includes(sessionId)) {
+        workspaces.model.upsertView({ ...view, sessionIds: [...view.sessionIds, sessionId] })
+      }
+    } catch {
+      // The Host feed reconciles a failed local merge.
+    }
+  }
+  const connectWorkspace = async (workspaceId: WorkspaceId, agentPreset?: string): Promise<SessionId> => {
+    const sessionId = await ctx.uiWorkspace.connectWorkspace(workspaceId, agentPreset === undefined ? undefined : { agentPreset })
+    adoptLocalMember(workspaceId, sessionId)
+    return sessionId
+  }
+  const createLocalSession = async (workspaceId: WorkspaceId, agentPreset?: string): Promise<SessionId> => {
+    const sessionId = await ctx.sessions.create({
+      workspaceId,
+      ...(agentPreset === undefined ? {} : { agentPreset }),
+    })
+    adoptLocalMember(workspaceId, sessionId)
+    return sessionId
+  }
   const waitForSession = (sessionId: SessionId): Promise<void> => new Promise((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | undefined
     let poll: ReturnType<typeof setInterval> | undefined
@@ -385,6 +409,8 @@ export function apply(ctx: ClientContext): void {
       retainMainView,
       openSession,
       connectWorkspace,
+      createLocalSession,
+      adoptLocalSession: adoptLocalMember,
       waitForSession,
       createRemoteSession,
       moveDraft,

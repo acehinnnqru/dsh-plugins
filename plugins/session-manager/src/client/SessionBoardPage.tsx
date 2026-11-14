@@ -89,7 +89,7 @@ import { NS, type SessionManagerKey } from './locales.ts'
 import { currentWorkspaceId, recentWorkspaceId } from './new-conversation-target.ts'
 import { recentWindowDays, setRecentWindowDays, subscribeRecentWindow } from './recent-window.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
-import { setChooseNode } from './node-choice.ts'
+import { setChooseNode, setPrepareNode } from './node-choice.ts'
 import { setChooseWorkspace } from './workspace-choice.ts'
 import css from './SessionBoard.module.css'
 
@@ -124,6 +124,10 @@ export interface SessionManagerInjected {
    * @returns the catalogued Session the Host created or reused.
    */
   readonly connectWorkspace: (workspaceId: WorkspaceId, agentPreset?: string) => Promise<SessionId>
+  /** Create a fresh local blank without the native blank-reuse scan. */
+  readonly createLocalSession: (workspaceId: WorkspaceId, agentPreset?: string) => Promise<SessionId>
+  /** Install an existing local Session into the Workspace projection immediately. */
+  readonly adoptLocalSession: (workspaceId: WorkspaceId, sessionId: SessionId) => void
   /** Resolve once a peer-created Session reaches the federated list. */
   readonly waitForSession: (sessionId: SessionId) => Promise<void>
   /** Create a blank Session on one peer at a directory path. */
@@ -833,6 +837,8 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     retainMainView,
     openSession,
     connectWorkspace,
+    createLocalSession,
+    adoptLocalSession,
     waitForSession,
     createRemoteSession,
     moveDraft,
@@ -876,6 +882,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   workspacesRef.current = workspaces
   const listRef = useRef(list)
   listRef.current = list
+  const preparedRemote = useRef(new Map<string, Promise<SessionId>>())
   const composerRef = useRef<Composer | undefined>(undefined)
   composerRef.current = composer
 
@@ -902,6 +909,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       mounted.current = false
       setChooseWorkspace(undefined)
       setChooseNode(undefined)
+      setPrepareNode(undefined)
     }
   }, [])
 
@@ -1131,6 +1139,40 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     return latest?.cwd
   }
 
+  /** Warm one peer's blank while the node menu previews it. */
+  function prepareNode(node: SessionNode): void {
+    const fromId = composerRef.current?.reference.sessionId
+    if (node.self || node.id === undefined || fromId === undefined) return
+    const source = listRef.current.byId[fromId]
+    if (source === undefined) return
+    const owner = sessionNodeOf(listRef.current, fromId)
+    if (!owner.self && owner.id === node.id) return
+    const workspacesNow = workspacesRef.current
+    const workspace = workspaceAt(source.cwd)
+      ?? workspacesNow.items.find((item) => item.workspaceId === currentWorkspaceId(workspacesNow, listRef.current))
+      ?? workspacesNow.items.find((item) => item.workspaceId === recentWorkspaceId(workspacesNow, listRef.current))
+    const cwd = workspace?.path ?? nodeDirectory(node)
+    if (cwd === undefined) return
+    const key = node.id + '\n' + cwd
+    if (preparedRemote.current.has(key)) return
+    const parked = listRef.current.ids.some((id) => {
+      const row = listRef.current.byId[id]
+      if (row === undefined || row.blank !== true || row.cwd !== cwd || archived.includes(id)) return false
+      const owner = sessionNodeOf(listRef.current, id)
+      return !owner.self && owner.id === node.id
+    })
+    if (parked) return
+    const prepared = createRemoteSession(node.id, { cwd })
+      .then(async (sessionId) => {
+        await waitForSession(sessionId)
+        return sessionId
+      })
+    preparedRemote.current.set(key, prepared)
+    void prepared.catch(() => {
+      preparedRemote.current.delete(key)
+    })
+  }
+
   /**
    * Create one blank on a node, at a Workspace path when it has one.
    *
@@ -1143,10 +1185,24 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     workspace: WorkspaceView | undefined,
     agentPreset?: string,
     fallbackCwd?: string,
+    fresh = false,
   ): Promise<SessionId> {
     if (node.self) {
       if (workspace === undefined) throw new Error(t('new.failed'))
-      return await connectWorkspace(workspace.workspaceId, agentPreset)
+      if (!fresh) return await connectWorkspace(workspace.workspaceId, agentPreset)
+      const parked = listRef.current.ids.find((id) => {
+        const row = listRef.current.byId[id]
+        if (row === undefined || row.blank !== true || row.cwd !== workspace.path || archived.includes(id)) return false
+        if (Object.values(row.retainedBy).some((count) => typeof count === 'number' && count > 0)) return false
+        if (!sessionNodeOf(listRef.current, id).self) return false
+        const preset = (row.projectionValues as Readonly<Record<string, unknown>> | undefined)?.['agentPreset']
+        return agentPreset === undefined || typeof preset !== 'string' || preset === agentPreset
+      })
+      if (parked !== undefined) {
+        adoptLocalSession(workspace.workspaceId, parked)
+        return parked
+      }
+      return await createLocalSession(workspace.workspaceId, agentPreset)
     }
     const cwd = workspace?.path ?? fallbackCwd ?? nodeDirectory(node)
     if (node.id === undefined || cwd === undefined) throw new Error(t('new.failed'))
@@ -1159,6 +1215,17 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       return agentPreset === undefined || typeof preset !== 'string' || preset === agentPreset
     })
     if (existing !== undefined) return existing
+    const key = node.id + '\n' + cwd
+    const prepared = preparedRemote.current.get(key)
+    if (prepared !== undefined) {
+      try {
+        const sessionId = await prepared
+        preparedRemote.current.delete(key)
+        return sessionId
+      } catch {
+        preparedRemote.current.delete(key)
+      }
+    }
     const sessionId = await createRemoteSession(node.id, {
       cwd,
       ...(agentPreset === undefined ? {} : { agentPreset }),
@@ -1204,6 +1271,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       }
       setChooseWorkspace(switchWorkspace)
       setChooseNode(switchNode)
+      setPrepareNode(prepareNode)
       setComposer({ reference, mainView })
     } catch (cause) {
       setStartError(cause instanceof Error ? cause.message : String(cause))
@@ -1216,6 +1284,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   function closeConversation(): void {
     setChooseWorkspace(undefined)
     setChooseNode(undefined)
+    setPrepareNode(undefined)
     setComposer(undefined)
   }
 
@@ -1334,7 +1403,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
         ?? currentWorkspaces.items.find((item) => item.workspaceId === currentWorkspaceId(currentWorkspaces, currentList))
         ?? currentWorkspaces.items.find((item) => item.workspaceId === recentWorkspaceId(currentWorkspaces, currentList))
       const targetCwd = nodeDirectory(node) ?? source.cwd
-      const sessionId = await createBlank(node, workspace, undefined, targetCwd)
+      const sessionId = await createBlank(node, workspace, undefined, targetCwd, true)
       if (sessionId === fromId) return undefined
       const reference = retainSession(sessionId)
       let mainView: SessionReference

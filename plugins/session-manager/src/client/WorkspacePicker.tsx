@@ -37,7 +37,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { NS } from './locales.ts'
 import { NodePicker } from './NodePicker.tsx'
-import { activeChooseNode, subscribeChooseNode, type ChooseNode } from './node-choice.ts'
+import { activeChooseNode, activePrepareNode, subscribeChooseNode, subscribePrepareNode, type ChooseNode, type PrepareNode } from './node-choice.ts'
 import { sessionNodeOf, type SessionNode } from './board.ts'
 import {
   activeChooseWorkspace,
@@ -59,6 +59,7 @@ type WorkspacePickerProps = PropsRuntime<'conversation.hero.options'> & PropsLoc
 interface WorkspacePickerBodyProps extends WorkspacePickerProps {
   readonly choose: ChooseWorkspace
   readonly chooseNode: ChooseNode
+  readonly prepareNode: PrepareNode | undefined
 }
 
 /**
@@ -72,9 +73,10 @@ interface WorkspacePickerBodyProps extends WorkspacePickerProps {
 export function WorkspacePicker(props: WorkspacePickerProps): ReactNode {
   const choose = useSyncExternalStore(subscribeChooseWorkspace, activeChooseWorkspace)
   const chooseNode = useSyncExternalStore(subscribeChooseNode, activeChooseNode)
+  const prepareNode = useSyncExternalStore(subscribePrepareNode, activePrepareNode)
   return choose === undefined || chooseNode === undefined
     ? null
-    : <WorkspacePickerBody {...props} choose={choose} chooseNode={chooseNode} />
+    : <WorkspacePickerBody {...props} choose={choose} chooseNode={chooseNode} prepareNode={prepareNode} />
 }
 
 /**
@@ -86,6 +88,7 @@ function WorkspacePickerBody({
   sessionId,
   choose,
   chooseNode,
+  prepareNode,
   useSessions,
   useWorkspaces,
   t,
@@ -255,6 +258,7 @@ function WorkspacePickerBody({
         current={currentOwner}
         t={t}
         onPick={(node) => chooseNode(sessionId, node)}
+        {...(prepareNode === undefined ? {} : { onPrepare: prepareNode })}
       />
       <span ref={root} className={css.workspacePicker}>
       <button
