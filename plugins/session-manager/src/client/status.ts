@@ -24,6 +24,7 @@ export class SharedStatusStore {
   private current: SharedStatusSnapshot = new Map()
   private readonly listeners = new Set<() => void>()
   private readonly reported = new Map<string, number>()
+  private readonly optimisticRunning = new Map<string, number>()
   private timer: NodeJS.Timeout | undefined
   private stopped = true
   private inFlight = false
@@ -47,7 +48,7 @@ export class SharedStatusStore {
     if (typeof setInterval !== 'function') return
     this.timer = setInterval(() => {
       void this.refresh()
-    }, 3000)
+    }, 1000)
   }
 
   /** Stop polling; the page can restart it on the next mount. */
@@ -55,6 +56,35 @@ export class SharedStatusStore {
     this.stopped = true
     if (this.timer !== undefined) clearInterval(this.timer)
     this.timer = undefined
+  }
+
+  /**
+   * Reflect a locally observed running edge before the next shared poll.
+   *
+   * The native Session stream knows a submitted prompt started the turn before
+   * the three-second status poll returns, so the board would otherwise classify
+   * a fresh remote turn as Recent.
+   * @param sessionId - Session whose turn started.
+   */
+  noteRunning(sessionId: string): void {
+    if (!this.optimisticRunning.has(sessionId)) this.optimisticRunning.set(sessionId, Date.now())
+    const current = this.current.get(sessionId)
+    const nextRow: SharedStatus = current === undefined
+      ? {
+          sessionId,
+          running: true,
+          pending: null,
+          unread: false,
+          updatedAt: Date.now(),
+          readAt: 0,
+        }
+      : current.running
+        ? current
+        : { ...current, running: true, unread: false }
+    if (nextRow === current) return
+    const next = new Map(this.current)
+    next.set(sessionId, nextRow)
+    this.publish(next)
   }
 
   /** Mark one Session read on the Host and clear the local row immediately. */
@@ -118,6 +148,20 @@ export class SharedStatusStore {
           updatedAt: typeof status.updatedAt === 'number' ? status.updatedAt : 0,
           readAt: typeof status.readAt === 'number' ? status.readAt : 0,
         })
+      }
+      const now = Date.now()
+      for (const [sessionId, notedAt] of this.optimisticRunning) {
+        const row = next.get(sessionId)
+        if (row?.running === true || (row !== undefined && row.updatedAt > notedAt)) {
+          this.optimisticRunning.delete(sessionId)
+          continue
+        }
+        if (now - notedAt > 5000) {
+          this.optimisticRunning.delete(sessionId)
+          continue
+        }
+        const base = row ?? this.current.get(sessionId)
+        if (base !== undefined) next.set(sessionId, { ...base, running: true, unread: false })
       }
       if (sameStatuses(this.current, next)) return
       this.publish(next)

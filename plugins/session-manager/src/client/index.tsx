@@ -210,6 +210,7 @@ export function apply(ctx: ClientContext): void {
       const list = ctx.sessions.list.getSnapshot()
       const current = new Set<string>()
       for (const [id, status] of statuses) {
+        if (status.running === true) sharedStatus.noteRunning(id)
         if (!status.completionUnread) continue
         current.add(id)
         const row = list.byId[id]

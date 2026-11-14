@@ -234,6 +234,8 @@ interface PreviewDialogProps {
   readonly onOpenSession: () => void
   /** Open a destination the embedded Conversation cannot serve, through the real Session page. */
   readonly onOpenDestination: (destination: PreviewDestination | undefined) => void
+  /** A prompt in the preview was accepted; mark the Session running immediately. */
+  readonly onSubmitted: () => void
   /** Start the board's new-conversation overlay in the previewed Session's context. */
   readonly onNewSession: () => void
 }
@@ -271,12 +273,25 @@ function PreviewDialog({
   onOpenPage,
   onOpenSession,
   onOpenDestination,
+  onSubmitted,
   onNewSession,
 }: PreviewDialogProps): ReactNode {
   const canArchive = useSessionAccess(preview.card.id, 'workspace/archiveSession')
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [archiveError, setArchiveError] = useState<string | undefined>(undefined)
   const archiving = useRef(false)
+  const submitted = useRef(onSubmitted)
+  submitted.current = onSubmitted
+
+  // A prompt accepted in the embedded Conversation should reach Running before the shared poll.
+  useEffect(() => {
+    const session = preview.reference.binding.session
+    const shown = (): void => {
+      if (session.getSnapshot().pendingSubmissions.length > 0) submitted.current()
+    }
+    shown()
+    return session.subscribe(shown)
+  }, [preview.reference])
 
   // The conversation's hover previews are portaled to the body below this dialog's mask; the body
   // marker lifts them for as long as the dialog is up, so a file row still previews its diff here.
@@ -1669,6 +1684,9 @@ export function SessionBoardPage(props: PageProps): ReactNode {
             openRealPage(preview)
           }}
           onOpenDestination={openDestination}
+          onSubmitted={() => {
+            sharedStatus.noteRunning(preview.card.id)
+          }}
           onNewSession={newSessionFromPreview}
         />
       )}
@@ -1690,7 +1708,10 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           t={t}
           renderSlot={renderSlot}
           SessionProvider={SessionProvider}
-          onSent={closeConversation}
+          onSent={(sessionId) => {
+            sharedStatus.noteRunning(sessionId)
+            closeConversation()
+          }}
           onClose={closeConversation}
         />
       )}

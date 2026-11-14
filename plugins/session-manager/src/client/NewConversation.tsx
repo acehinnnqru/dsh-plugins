@@ -18,6 +18,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { PropsLocale, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
@@ -36,7 +37,7 @@ interface NewConversationProps extends ConversationSeat {
   /** This namespace's translate function. */
   readonly t: PropsLocale<typeof NS>['t']
   /** The prompt was accepted; the board takes the screen back. */
-  readonly onSent: () => void
+  readonly onSent: (sessionId: SessionId) => void
   /** The user dismissed the overlay without sending. */
   readonly onClose: () => void
 }
@@ -67,7 +68,7 @@ export function NewConversation({
   useEffect(() => {
     const session = reference.binding.session
     const shown = (): void => {
-      if (session.getSnapshot().pendingSubmissions.length > 0) sent.current()
+      if (session.getSnapshot().pendingSubmissions.length > 0) sent.current(reference.sessionId)
     }
     shown()
     return session.subscribe(shown)
