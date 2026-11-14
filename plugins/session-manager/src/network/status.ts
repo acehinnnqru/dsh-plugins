@@ -61,6 +61,11 @@ export class StatusCoordinator {
     this.nodeId = nodeId
   }
 
+  /** Drop cached peer status rows, for example when the runtime switches groups. */
+  clearRemote(): void {
+    this.remote.clear()
+  }
+
   /** Replace or extend the cached server view after a welcome or push. */
   applyServer(records: readonly SessionStatusRecord[]): void {
     for (const record of records) this.applyOne(record)

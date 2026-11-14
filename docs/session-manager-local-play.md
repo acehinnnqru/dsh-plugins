@@ -45,8 +45,8 @@ curl -s -X POST http://127.0.0.1:8788/admin/tokens \
 ## 3. Configure each node
 
 Open the session-manager board and click its gear button. The settings dialog
-edits the plugin's profile config directly; a registration change takes effect
-after restarting DSH.
+edits the plugin's profile config directly; saving restarts the network runtime
+and registers with the new values.
 
 | Field | Meaning |
 |---|---|
@@ -86,9 +86,9 @@ settings while switching groups.
 
 Start both DSH homes with the network fields empty. In node-a, fill the settings
 dialog with the server URL, join token, and name, then press **New group**. The
-server assigns a `grp_...` id; save it and restart node-a. In node-b, enter the
-same server/token, paste node-a's group id into its group field, and save;
-restart node-b.
+server assigns a `grp_...` id; save it and node-a reconnects into that group. In
+node-b, enter the same server/token, paste node-a's group id into its group
+field, and save; node-b joins without a restart.
 
 Both nodes use different `DSH_HOME` values but need no listening ports. The
 group id is the only value node-b has to copy from node-a. A node name left empty

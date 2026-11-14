@@ -278,6 +278,14 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     if (cache.has(frame.nonce)) throw new Error('auth/unauthorized')
     cache.set(frame.nonce, now)
     nonces.set(frame.nodeId, cache)
+    if (frame.name !== undefined && frame.name !== node.name) {
+      if (!validName(frame.name)) throw new Error('group/name-invalid')
+      for (const peer of Object.values(target.nodes)) {
+        if (peer.id !== node.id && peer.revokedAt === null && peer.name === frame.name) throw new Error('group/name-taken')
+      }
+      target.nodes[node.id] = { ...node, name: frame.name }
+      void persist().catch(() => {})
+    }
     return {
       type: 'welcome',
       v: 1,

@@ -101,12 +101,12 @@ function json(value: unknown, status = 200): Response {
  */
 export function apply(ctx: Context, config?: Config): void {
   const env = process.env
-  const resolved: NetworkConfig = {
+  const current = (): NetworkConfig => ({
     server: readString(config?.server, '') || env['SM_SERVER'] || '',
     token: readString(config?.token, '') || env['SM_TOKEN'] || '',
     name: readString(config?.name, '') || env['SM_NAME'] || '',
     group: readString(config?.group, '') || env['SM_GROUP'] || '',
-  }
+  })
   // Group creation must work before the network runtime exists: save server/token, then
   // create the group from the same settings dialog without restarting first.
   ctx.inject(['connection'], (web) => {
@@ -127,8 +127,9 @@ export function apply(ctx: Context, config?: Config): void {
       requestBody: 'buffered',
       fetch: async (request) => {
         const body = await request.json() as { server?: unknown; token?: unknown }
-        const server = typeof body.server === 'string' && body.server.length > 0 ? body.server : resolved.server
-        const token = typeof body.token === 'string' && body.token.length > 0 ? body.token : resolved.token
+        const live = current()
+        const server = typeof body.server === 'string' && body.server.length > 0 ? body.server : live.server
+        const token = typeof body.token === 'string' && body.token.length > 0 ? body.token : live.token
         const base = serverHttpBase(server)
         if (base === undefined || token.length === 0) return json({ error: 'server and token are required' }, 400)
         try {
@@ -149,7 +150,6 @@ export function apply(ctx: Context, config?: Config): void {
     }), 'session-manager: group route')
   })
 
-  if (resolved.server.length === 0) return
   ctx.inject(['sessionController'], (scope) => {
     const controller = scope.get('sessionController') as {
       list?: (request: unknown, signal: AbortSignal) => Promise<SessionListValue>
@@ -166,18 +166,22 @@ export function apply(ctx: Context, config?: Config): void {
     }, (message) => ctx.logger.info(message))
 
     let runtime: NodeRuntime | undefined
-    const disposeRuntime = (): void => {
+    let appliedKey: string | undefined
+    const closeRuntime = (): void => {
       runtime?.close()
       runtime = undefined
+      coordinator.setPublisher(undefined)
+      coordinator.clearRemote()
     }
-    scope.effect(() => () => {
-      coordinator.stop()
-      disposeRuntime()
-    }, 'session-manager: status runtime')
-
-    if (resolved.server.length > 0) {
-      runtime = new NodeRuntime(
-        resolved,
+    const startRuntime = (): void => {
+      const next = current()
+      const key = JSON.stringify(next)
+      if (key === appliedKey && (runtime !== undefined || next.server.length === 0)) return
+      closeRuntime()
+      appliedKey = key
+      if (next.server.length === 0) return
+      const created = new NodeRuntime(
+        next,
         controller,
         (message) => ctx.logger.info(message),
         (statuses) => {
@@ -185,21 +189,36 @@ export function apply(ctx: Context, config?: Config): void {
           // clear an unread mark that another reader already acknowledged.
           coordinator.applyServer(statuses)
           coordinator.setPublisher({
-            publish: (status) => runtime?.publishStatus(status),
-            read: (sessionId, readAt) => runtime?.publishRead(sessionId, readAt),
+            publish: (status) => created.publishStatus(status),
+            read: (sessionId, readAt) => created.publishRead(sessionId, readAt),
           })
           coordinator.publishAll()
           coordinator.start()
         },
         (status) => coordinator.applyOne(status),
       )
-      void runtime.start().catch((error: unknown) => {
+      runtime = created
+      void created.start().catch((error: unknown) => {
         ctx.logger.warn('session-manager: network start failed: ' + (error instanceof Error ? error.message : String(error)))
       })
     }
+
+    scope.effect(() => () => {
+      coordinator.stop()
+      closeRuntime()
+    }, 'session-manager: status runtime')
     scope.effect(() => ctx.on('api-session/status', (sessionId, running) => {
       coordinator.onRunning(sessionId as string, running)
     }), 'session-manager: local running edges')
+    scope.effect(() => {
+      const timer = setInterval(startRuntime, 1000)
+      return () => {
+        clearInterval(timer)
+      }
+    }, 'session-manager: live network settings')
+
+    coordinator.start()
+    startRuntime()
 
     // Status routes ride the authenticated /api channel; only the owner browser reaches them.
     scope.inject(['connection'], (web) => {

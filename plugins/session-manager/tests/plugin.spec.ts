@@ -28,6 +28,6 @@ describe('session-manager host half', () => {
       logger: { info: () => {}, warn: () => {} },
     }
     expect(apply(ctx as never, off)).toBeUndefined()
-    expect(requested).toEqual([['connection']])
+    expect(requested).toEqual([['connection'], ['sessionController']])
   })
 })

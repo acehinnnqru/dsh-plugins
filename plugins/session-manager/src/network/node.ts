@@ -219,6 +219,7 @@ export class NodeLink {
       ts,
       nonce: value,
       signature: signIdentity(identity, canonicalHello(identity.nodeId ?? '', identity.groupId ?? '', ts, value)),
+      name: this.options.name,
     }
     this.send(socket, frame)
   }

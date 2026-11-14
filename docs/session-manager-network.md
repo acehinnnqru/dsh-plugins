@@ -109,7 +109,8 @@ The group name is its id, so there is one value to copy. **New group** posts
 `server` and `token` to the host's `/api/session-manager/group` route, which
 calls `POST /v1/groups` on the server and fills the assigned id. A second node
 pastes that id into the same field. Group creation works before the runtime is
-configured; the registration itself starts after saving and restarting DSH.
+configured; saving restarts the network runtime and registers with the new
+values without restarting DSH.
 
 The same fields are available through the profile config and `SM_SERVER`,
 `SM_TOKEN`, `SM_NAME`, and `SM_GROUP` environment fallbacks.

@@ -44,6 +44,8 @@ export interface HelloFrame {
   readonly ts: number
   readonly nonce: string
   readonly signature: string
+  /** Updated display name; omitted keeps the stored name. */
+  readonly name?: string
 }
 
 /** Heartbeat answer. */

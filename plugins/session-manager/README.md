@@ -62,8 +62,9 @@ overlay that embeds the native composer.
   The default is three days; the choice is browser-local and only filters Recent. Running and Unread
   never age out. The same dialog carries the network fields — server URL, join token, node name,
   and group id — and saves them through the Host settings form. The group name is its id;
-  **New group** asks the server for one, and joining is pasting that id into the same field. The
-  node name is empty by default and the Host uses the machine host name.
+  **New group** asks the server for one, and joining is pasting that id into the same field.
+  Saving restarts the network runtime with the new values. The node name is empty by default and
+  the Host uses the machine host name.
 - Switches the page between **Board** (the three columns) and **Management** with the header's
   segmented control. Management lists every eligible Session, newest first, with a title-or-Workspace
   filter; a row opens the same preview dialog a card does. A checkbox selects a row, the toolbar
