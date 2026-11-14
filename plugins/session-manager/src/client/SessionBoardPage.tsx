@@ -124,8 +124,8 @@ export interface SessionManagerInjected {
    * @returns the catalogued Session the Host created or reused.
    */
   readonly connectWorkspace: (workspaceId: WorkspaceId, agentPreset?: string) => Promise<SessionId>
-  /** Refresh the Host list immediately, for a Session a peer just created. */
-  readonly refreshSessions: () => Promise<void>
+  /** Resolve once a peer-created Session reaches the federated list. */
+  readonly waitForSession: (sessionId: SessionId) => Promise<void>
   /** Create a blank Session on one peer at a directory path. */
   readonly createRemoteSession: (
     nodeId: string,
@@ -818,7 +818,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     retainMainView,
     openSession,
     connectWorkspace,
-    refreshSessions,
+    waitForSession,
     createRemoteSession,
     moveDraft,
     draftAttachmentCount,
@@ -1116,20 +1116,6 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     return latest?.cwd
   }
 
-  /** Wait until a peer-created blank reaches the federated list. */
-  async function waitForSession(sessionId: SessionId): Promise<void> {
-    for (let attempt = 0; attempt < 100; attempt++) {
-      if (listRef.current.byId[sessionId] !== undefined) return
-      try {
-        await refreshSessions()
-      } catch {
-        // The next attempt retries the same list pull.
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100))
-    }
-    throw new Error(t('new.failed'))
-  }
-
   /**
    * Create one blank on a node, at a Workspace path when it has one.
    *
@@ -1149,6 +1135,15 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     }
     const cwd = workspace?.path ?? fallbackCwd ?? nodeDirectory(node)
     if (node.id === undefined || cwd === undefined) throw new Error(t('new.failed'))
+    const existing = listRef.current.ids.find((id) => {
+      const row = listRef.current.byId[id]
+      if (row === undefined || row.blank !== true || row.cwd !== cwd || archived.includes(id)) return false
+      const owner = sessionNodeOf(listRef.current, id)
+      if (owner.self || owner.id !== node.id) return false
+      const preset = (row.projectionValues as Readonly<Record<string, unknown>> | undefined)?.['agentPreset']
+      return agentPreset === undefined || typeof preset !== 'string' || preset === agentPreset
+    })
+    if (existing !== undefined) return existing
     const sessionId = await createRemoteSession(node.id, {
       cwd,
       ...(agentPreset === undefined ? {} : { agentPreset }),

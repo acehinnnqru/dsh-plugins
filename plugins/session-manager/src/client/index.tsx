@@ -264,9 +264,31 @@ export function apply(ctx: ClientContext): void {
   }
   const connectWorkspace = (workspaceId: WorkspaceId, agentPreset?: string): Promise<SessionId> =>
     ctx.uiWorkspace.connectWorkspace(workspaceId, agentPreset === undefined ? undefined : { agentPreset })
-  const refreshSessions = async (): Promise<void> => {
-    await ctx.sessions.refresh()
-  }
+  const waitForSession = (sessionId: SessionId): Promise<void> => new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let poll: ReturnType<typeof setInterval> | undefined
+    let unsubscribe = (): void => {}
+    const stop = (): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      if (poll !== undefined) clearInterval(poll)
+      unsubscribe()
+    }
+    const check = (): void => {
+      if (ctx.sessions.list.getSnapshot().byId[sessionId] === undefined) return
+      stop()
+      resolve()
+    }
+    unsubscribe = ctx.sessions.list.subscribe(check)
+    timer = setTimeout(() => {
+      stop()
+      reject(new Error('Session did not reach the federated list.'))
+    }, 10_000)
+    poll = setInterval(() => {
+      void ctx.sessions.refresh().catch(() => {})
+    }, 100)
+    check()
+    void ctx.sessions.refresh().catch(() => {})
+  })
   const createRemoteSession = async (
     nodeId: string,
     request: { readonly cwd: string; readonly agentPreset?: string },
@@ -362,7 +384,7 @@ export function apply(ctx: ClientContext): void {
       retainMainView,
       openSession,
       connectWorkspace,
-      refreshSessions,
+      waitForSession,
       createRemoteSession,
       moveDraft,
       draftAttachmentCount,
