@@ -14,6 +14,7 @@
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { ConfigForm, ConfigForms } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -26,11 +27,13 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { BackToBoard } from './BackToBoard.tsx'
 import { disarmBackToBoard } from './back-to-board.ts'
-import { startCompletionTracker } from './completion-tracker.ts'
+import { localCompletionIds, startCompletionTracker, subscribeLocalCompletions } from './completion-tracker.ts'
+import { SharedStatusStore } from './status.ts'
 import { SessionConversationHost } from './ConversationHost.tsx'
 import { SessionBoardPage, type SessionManagerInjected } from './SessionBoardPage.tsx'
 import { SessionManagerIcon } from './SessionManagerIcon.tsx'
@@ -44,6 +47,7 @@ import {
   type RightColumn,
 } from './right-column.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
+import { SETTINGS_ENTRY, type SessionManagerSettings } from './settings.ts'
 
 /** The panel's id: the main column's key and the sidebar row's list id have to be the same value. */
 const PANEL_ID = 'session-manager' as MainPanelId
@@ -52,7 +56,7 @@ const PANEL_ID = 'session-manager' as MainPanelId
 const PANEL_ORDER = 30
 
 /** Cordis service names this half waits for: slots, locale, Session retention, Session status, and navigation. */
-export const inject = ['slots', 'locale', 'sessions', 'uiSession', 'uiWorkspace', 'layout']
+export const inject = ['slots', 'locale', 'sessions', 'uiSession', 'uiWorkspace', 'layout', 'remote', 'remote.settings']
 
 /** The Chat view's settings form, read for the one value that decides where a web link opens. */
 interface ChatSettingsForm {
@@ -90,8 +94,88 @@ function linksOpenInColumn(ctx: ClientContext): boolean {
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'session-manager: dictionaries')
   const t = ctx.locale.bind(NS)
+  const settings = (): ConfigForm<SessionManagerSettings> | undefined => {
+    if (typeof ctx.get !== 'function') return undefined
+    try {
+      return (ctx.get('configForms') as ConfigForms | undefined)?.get<SessionManagerSettings>(SETTINGS_ENTRY)
+    } catch {
+      return undefined
+    }
+  }
+  const saveSettings = async (
+    section: SessionManagerSettings,
+    revision: number | undefined,
+  ): Promise<{ readonly ok: boolean; readonly message?: string }> => {
+    if (typeof ctx.get !== 'function') return { ok: false, message: 'Settings service is unavailable.' }
+    const remote = ctx.get('remote') as {
+      readonly settings?: {
+        replace: (ns: string, value: Record<string, unknown>, expectedRevision: number | undefined) => Promise<{
+          readonly ok: boolean
+          readonly error?: { readonly message?: string }
+        }>
+      }
+    } | undefined
+    if (remote?.settings === undefined) return { ok: false, message: 'Settings service is unavailable.' }
+    try {
+      const result = await remote.settings.replace(SETTINGS_ENTRY, { ...section }, revision)
+      return result.ok ? { ok: true } : { ok: false, message: result.error?.message ?? 'Host refused the settings write.' }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+  }
 
   startCompletionTracker(ctx)
+  const sharedStatus = new SharedStatusStore()
+  ctx.effect(() => {
+    if (typeof window === 'undefined') return () => {}
+    sharedStatus.start()
+    return () => sharedStatus.stop()
+  }, 'session-manager: shared status polling')
+
+  // Import an unread completion the native UI already holds, even when the board panel is not open.
+  ctx.effect(() => {
+    let unread = new Set<string>()
+    const report = (): void => {
+      const statuses = ctx.uiSession.sessionStatus.getSnapshot()
+      const list = ctx.sessions.list.getSnapshot()
+      const current = new Set<string>()
+      for (const [id, status] of statuses) {
+        if (!status.completionUnread) continue
+        current.add(id)
+        const row = list.byId[id]
+        if (row !== undefined) void sharedStatus.report(id, row.updatedAt)
+      }
+      for (const id of localCompletionIds(list)) {
+        current.add(id)
+        const row = list.byId[id]
+        if (row !== undefined) void sharedStatus.report(id, row.updatedAt)
+      }
+      // Opening the native page or clearing a local stop is a read; publish it too.
+      for (const id of unread) if (!current.has(id)) void sharedStatus.read(id)
+      unread = current
+    }
+    report()
+    const disposeStatus = ctx.uiSession.sessionStatus.subscribe(report)
+    const disposeList = ctx.sessions.list.subscribe(report)
+    const disposeLocal = subscribeLocalCompletions(report)
+    return () => {
+      disposeStatus()
+      disposeList()
+      disposeLocal()
+    }
+  }, 'session-manager: unread import')
+
+  // Keep the Host list current while the client is open; remote rows and their state arrive through
+  // the federated list, not through a Host push.
+  ctx.effect(() => {
+    if (typeof ctx.sessions.refresh !== 'function') return () => {}
+    const timer = setInterval(() => {
+      void ctx.sessions.refresh().catch(() => {})
+    }, 5000)
+    return () => {
+      clearInterval(timer)
+    }
+  }, 'session-manager: remote list refresh')
 
   // A global panel is not the Session page; a marker left by an earlier board visit is stale.
   ctx.effect(() => ctx.layout.panelInfo.subscribe(() => {
@@ -194,6 +278,9 @@ export function apply(ctx: ClientContext): void {
       setPinned,
       archiveSession,
       openPreviewDestination,
+      settings,
+      saveSettings,
+      sharedStatus,
     }),
   }, SessionBoardPage))
 

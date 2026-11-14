@@ -1,5 +1,6 @@
 packages:
   - 'plugins/*'
+  - 'plugins/*/server'
   - 'packages/*'
   - 'tooling/*'
   # The client preset's fixture packages. They are real workspace members on purpose: a fixture has to

@@ -24,6 +24,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent,
   type ReactNode,
 } from 'react'
@@ -39,12 +40,10 @@ import {
   IconSearchOutlineRegular,
   IconSettingsOutlineRegular,
   Input,
-  Menu,
   Modal,
   SegmentedControl,
   StateDot,
   TextShimmer,
-  type MenuEntry,
   type SegmentedControlOption,
   type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -57,7 +56,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import {
   BOARD_COLUMNS,
-  RECENT_WINDOW_DAYS,
   deriveBoard,
   derivePinned,
   previewReadMark,
@@ -75,6 +73,10 @@ import { fullDate, stateText, timeText, workspaceName, type Translate } from './
 import { Management } from './Management.tsx'
 import { NewConversation } from './NewConversation.tsx'
 import { handsOffToSessionPage, previewDestination, type PreviewDestination } from './preview-links.ts'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { SettingsDialog } from './SettingsDialog.tsx'
+import type { SessionManagerSettings } from './settings.ts'
+import type { SharedStatusStore } from './status.ts'
 import { NS, type SessionManagerKey } from './locales.ts'
 import { currentWorkspaceId, recentWorkspaceId } from './new-conversation-target.ts'
 import { recentWindowDays, setRecentWindowDays, subscribeRecentWindow } from './recent-window.ts'
@@ -147,6 +149,15 @@ export interface SessionManagerInjected {
    * @param destination - the file, web address, or change review the click named.
    */
   readonly openPreviewDestination: (sessionId: SessionId, destination: PreviewDestination) => void
+  /** Resolve the live Host configuration form; the settings service may load after this page. */
+  readonly settings: () => ConfigForm<SessionManagerSettings> | undefined
+  /** Replace the plugin's live config section and return a Host failure message when refused. */
+  readonly saveSettings: (
+    section: SessionManagerSettings,
+    revision: number | undefined,
+  ) => Promise<{ readonly ok: boolean; readonly message?: string }>
+  /** Shared read/unread and running status mirrored from the Host. */
+  readonly sharedStatus: SharedStatusStore
 }
 
 /** The main slot's props, the preview child slot, the translate seat, and Session retention. */
@@ -660,6 +671,9 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     setPinned,
     archiveSession,
     openPreviewDestination,
+    settings,
+    saveSettings,
+    sharedStatus,
     useSessionAccess,
     SessionProvider,
     renderSlot,
@@ -667,6 +681,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   } = props
   const list = useSessions((state) => state)
   const statuses = useSessionStatus((state) => state)
+  const sharedStatuses = useSyncExternalStore(sharedStatus.subscribe, sharedStatus.getSnapshot)
   const workspaces = useWorkspaces((state) => state)
   const archived = workspaces.archivedSessionIds
   const [now, setNow] = useState(() => Date.now())
@@ -747,12 +762,14 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const presentedId = preview?.card.id
   useLayoutEffect(() => {
     if (presentedId === undefined) return
+    const shared = sharedStatuses.get(presentedId)
+    if (shared?.unread === true) void sharedStatus.read(presentedId)
     const mark = previewReadMark(list, statuses, presentedId, completionReadAt)
     if (mark === undefined) return
     completionReadAt.set(presentedId, mark)
     clearLocalCompletion(presentedId)
     bumpBoardRevision((value) => value + 1)
-  }, [presentedId, list, statuses, bumpBoardRevision])
+  }, [presentedId, list, statuses, sharedStatuses, sharedStatus, bumpBoardRevision])
 
   // The overlay owns both handles; the cleanup runs after the Conversation unmounts.
   const composerReference = composer?.reference
@@ -766,9 +783,9 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   }, [composerReference, composerMainView])
 
   const locallyCompleted = localCompletionIds(list)
-  const pinned = derivePinned(list, statuses, archived, workspaces.pinnedSessionIds, completionReadAt, locallyCompleted)
+  const pinned = derivePinned(list, statuses, archived, workspaces.pinnedSessionIds, completionReadAt, locallyCompleted, sharedStatuses)
   const pinnedIds = new Set(pinned.map((card) => card.id))
-  const board = deriveBoard(list, statuses, archived, locallyCompleted, completionReadAt)
+  const board = deriveBoard(list, statuses, archived, locallyCompleted, completionReadAt, sharedStatuses)
   const windowDays = recentWindowDays()
   const recent = withinRecent(board.recent, now, windowDays)
   const columns: Record<BoardColumn, readonly SessionCard[]> = {
@@ -777,13 +794,6 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     recent: recent.filter((card) => !pinnedIds.has(card.id)),
   }
   const total = columns.running.length + columns.unread.length + columns.recent.length + pinned.length
-  const windowItems: MenuEntry[] = [
-    { type: 'label', id: 'recent-window', text: t('settings.recent') },
-    ...RECENT_WINDOW_DAYS.map((days) => ({
-      id: String(days),
-      label: t(days === 1 ? 'settings.day' : 'settings.days', { n: days }),
-    })),
-  ]
   const tabOptions: readonly SegmentedControlOption<PageTab>[] = [
     { value: 'board', label: t('tab.board') },
     { value: 'management', label: t('tab.management') },
@@ -799,6 +809,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
    */
   function openPreview(card: SessionCard, state: PinnedState): void {
     setPreviewError(undefined)
+    void sharedStatus.read(card.id)
     try {
       const reference = retainSession(card.id)
       if (state === 'completed') {
@@ -826,6 +837,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
    */
   function openSessionPage(card: SessionCard, state: PinnedState): boolean {
     setPreviewError(undefined)
+    void sharedStatus.read(card.id)
     armBackToBoard()
     try {
       openSession(card.id)
@@ -863,7 +875,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   }
 
   /**
-   * Select one page tab, closing the board's settings menu with it.
+   * Select one page tab, closing the board's settings dialog with it.
    * @param next - the tab to show.
    */
   function selectTab(next: PageTab): void {
@@ -1137,38 +1149,19 @@ export function SessionBoardPage(props: PageProps): ReactNode {
               <IconNewChatOutlineRegular size={16} />
             </button>
             {tab === 'board' && (
-              <Menu
-                open={settingsOpen}
-                anchor={(
-                  <button
-                    type="button"
-                    className={css.settings}
-                    aria-label={t('settings.open')}
-                    aria-haspopup="menu"
-                    aria-expanded={settingsOpen}
-                    title={t('settings.open')}
-                    onClick={() => {
-                      setSettingsOpen((open) => !open)
-                    }}
-                  >
-                    <IconSettingsOutlineRegular size={16} />
-                  </button>
-                )}
-                items={windowItems}
-                selectedId={String(windowDays)}
-                onSelect={(id) => {
-                  setRecentWindowDays(Number(id))
-                  setSettingsOpen(false)
+              <button
+                type="button"
+                className={css.settings}
+                aria-label={t('settings.open')}
+                aria-haspopup="dialog"
+                aria-expanded={settingsOpen}
+                title={t('settings.open')}
+                onClick={() => {
+                  setSettingsOpen((open) => !open)
                 }}
-                onClose={() => {
-                  setSettingsOpen(false)
-                }}
-                align="end"
-                side="bottom"
-                autoFocus
-                portal
-                className={css.settingsAnchor}
-              />
+              >
+                <IconSettingsOutlineRegular size={16} />
+              </button>
             )}
           </div>
         </header>
@@ -1296,7 +1289,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
         ) : (
           <div className={css.tabPanel} role="tabpanel" id="session-manager-management-panel" aria-labelledby="session-manager-management">
             <Management
-              sessions={searchableSessions(list, statuses, archived, completionReadAt, locallyCompleted)}
+              sessions={searchableSessions(list, statuses, archived, completionReadAt, locallyCompleted, sharedStatuses)}
               workspaces={workspaces.items}
               now={now}
               t={t}
@@ -1330,7 +1323,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       )}
       {searchOpen && (
         <SessionSearchDialog
-          hits={searchableSessions(list, statuses, archived, completionReadAt, locallyCompleted)}
+          hits={searchableSessions(list, statuses, archived, completionReadAt, locallyCompleted, sharedStatuses)}
           workspaces={workspaces.items}
           now={now}
           t={t}
@@ -1350,6 +1343,17 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           onClose={closeConversation}
         />
       )}
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => {
+          setSettingsOpen(false)
+        }}
+        form={settings()}
+        saveSettings={saveSettings}
+        windowDays={windowDays}
+        onWindowDays={setRecentWindowDays}
+        t={t}
+      />
     </>
   )
 }

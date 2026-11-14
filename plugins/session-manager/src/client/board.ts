@@ -14,6 +14,7 @@
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SharedStatus } from './status.ts'
 
 /** The three board columns, in order. */
 export const BOARD_COLUMNS = ['running', 'unread', 'recent'] as const
@@ -180,12 +181,26 @@ export function newestFirst<T extends SessionCard>(cards: T[]): T[] {
  *   A mark at least as new as the row moves an unread completion to Recent.
  * @returns the board, one newest-first list per column.
  */
+/** Fold the shared Host status over the browser's own status snapshot. */
+function effectiveStatus(status: SessionStatus | undefined, shared: SharedStatus | undefined, sessionId: SessionId): SessionStatus | undefined {
+  if (shared === undefined) return status
+  const pendingInteraction = status?.pendingInteraction ?? (shared.pending !== null && shared.pending.length > 0
+    ? { key: 'shared:' + sessionId, kind: shared.pending, sessionId }
+    : undefined)
+  return {
+    running: status?.running ?? shared.running,
+    pendingInteraction,
+    completionUnread: shared.unread,
+  }
+}
+
 export function deriveBoard(
   list: SessionListState,
   statuses: SessionStatusSnapshot,
   archivedSessionIds: readonly SessionId[],
   locallyCompleted: ReadonlySet<SessionId> = new Set(),
   readAt: ReadonlyMap<SessionId, number> = new Map(),
+  sharedStatuses: ReadonlyMap<string, SharedStatus> = new Map(),
 ): SessionBoard {
   const archived = new Set(archivedSessionIds)
   const running: SessionCard[] = []
@@ -196,12 +211,13 @@ export function deriveBoard(
     const row = list.byId[id]
     if (row === undefined || row.blank || row.origin === 'subagent' || archived.has(id)) continue
 
-    const status = statuses.get(id)
+    const shared = sharedStatuses.get(id)
+    const effective = effectiveStatus(statuses.get(id), shared, id)
     const state = sessionState(
-      status,
-      status?.running ?? row.running,
-      (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt,
-      locallyCompleted.has(id),
+      effective,
+      effective?.running ?? row.running,
+      shared === undefined ? (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt : !shared.unread,
+      locallyCompleted.has(id) && (shared === undefined || shared.unread),
     )
 
     const card: SessionCard = {
@@ -209,7 +225,7 @@ export function deriveBoard(
       title: row.displayTitle,
       cwd: row.cwd,
       updatedAt: row.updatedAt,
-      waitingKind: status?.pendingInteraction?.kind,
+      waitingKind: effective?.pendingInteraction?.kind,
     }
 
     if (state === 'waiting' || state === 'completed') unread.push(card)
@@ -246,6 +262,7 @@ export function derivePinned(
   pinnedSessionIds: readonly SessionId[],
   readAt: ReadonlyMap<SessionId, number> = new Map(),
   locallyCompleted: ReadonlySet<SessionId> = new Set(),
+  sharedStatuses: ReadonlyMap<string, SharedStatus> = new Map(),
 ): PinnedCard[] {
   const archived = new Set(archivedSessionIds)
   const seen = new Set<SessionId>()
@@ -257,12 +274,13 @@ export function derivePinned(
     const row = list.byId[id]
     if (row === undefined || row.blank || row.origin === 'subagent' || archived.has(id)) continue
 
-    const status = statuses.get(id)
+    const shared = sharedStatuses.get(id)
+    const effective = effectiveStatus(statuses.get(id), shared, id)
     const state = sessionState(
-      status,
-      status?.running ?? row.running,
-      (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt,
-      locallyCompleted.has(id),
+      effective,
+      effective?.running ?? row.running,
+      shared === undefined ? (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt : !shared.unread,
+      locallyCompleted.has(id) && (shared === undefined || shared.unread),
     )
 
     const card: PinnedCard = {
@@ -270,7 +288,7 @@ export function derivePinned(
       title: row.displayTitle,
       cwd: row.cwd,
       updatedAt: row.updatedAt,
-      waitingKind: status?.pendingInteraction?.kind,
+      waitingKind: effective?.pendingInteraction?.kind,
       state,
     }
     cards.push(card)

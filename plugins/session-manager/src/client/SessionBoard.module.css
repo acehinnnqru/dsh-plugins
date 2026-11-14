@@ -59,10 +59,6 @@
   white-space: nowrap;
 }
 
-.settingsAnchor {
-  display: inline-flex;
-}
-
 .settings,
 .newChat,
 .searchTrigger {
@@ -1272,4 +1268,94 @@ body[data-session-manager-preview] [class*='_portal_'] > [class*='_card_'] {
   .headerTools {
     align-self: flex-end;
   }
+}
+
+
+.settingsDialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.settingsForm {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.settingsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settingsHeading {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.settingsField {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settingsLabel {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.settingsWindow {
+  align-self: flex-start;
+}
+
+.settingsHint {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.settingsActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.settingsStatus {
+  flex: 1;
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.settingsSave {
+  flex: none;
+  min-height: 28px;
+  padding: 4px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.settingsSave:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.settingsSave:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
 }

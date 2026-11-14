@@ -40,6 +40,10 @@
     "watch": "tsc -b tsconfig.json --watch --preserveWatchOutput & tsdown --watch",
     "prepare": "tsc -b tsconfig.json && tsdown"
   },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.19.0",
+    "ws": "8.22.2"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.1.0"
   },
@@ -54,12 +58,14 @@
     "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-renderer": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-session": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-settings": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-sidebar": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-slots": "0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-workspace": "0.2.2-rc.1",
     "@deepseek-ai/dsh-session": "0.2.2-rc.1",
     "@types/node": "22.20.4",
     "@types/react": "18.3.31",
+    "@types/ws": "8.18.2",
     "dsh-client-preset": "file:../../tooling/dsh-client-preset",
     "tsdown": "0.22.14",
     "typescript": "6.0.3"
