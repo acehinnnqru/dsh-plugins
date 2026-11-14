@@ -109,7 +109,7 @@ describe('host session federation', () => {
     if (frames[0]?.type === 'snapshot') expect(frames[0].header.id).toBe(remoteId)
 
     await controller.prompt({ requestId: 'r' as SessionPromptRequest['requestId'], sessionId: remoteId, mode: 'queue', content: [{ type: 'text', text: 'hi' }] })
-    expect(requests).toContain('prompt')
+    expect(requests).toContain('session.prompt')
 
     dispose()
     const restored = await controller.list({})

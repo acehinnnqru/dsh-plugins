@@ -211,7 +211,7 @@ export function installFederation(controller: object, pool: PeerPool): () => voi
         const row = remoteRow(request.sessionId)
         const link = row === undefined ? undefined : pool.link(row.peer.nodeId)
         if (row === undefined || link === undefined) return original.call(this, request, signal)
-        return link.request(name, { ...request })
+        return link.request('session.' + name, { ...request })
       })
       return
     }
@@ -219,7 +219,7 @@ export function installFederation(controller: object, pool: PeerPool): () => voi
       const row = remoteRow(request.sessionId)
       const link = row === undefined ? undefined : pool.link(row.peer.nodeId)
       if (row === undefined || link === undefined) return original.call(this, request)
-      return link.request(name, { ...request })
+      return link.request('session.' + name, { ...request })
     })
   }
 
@@ -233,7 +233,7 @@ export function installFederation(controller: object, pool: PeerPool): () => voi
         yield* original.call(this, request, signal) as AsyncIterable<unknown>
         return
       }
-      yield* link.stream(name, { ...request })
+      yield* link.stream('session.' + name, { ...request })
     })
   }
 
@@ -245,7 +245,7 @@ export function installFederation(controller: object, pool: PeerPool): () => voi
       const row = remoteRow(request.address.sessionId)
       const link = row === undefined ? undefined : pool.link(row.peer.nodeId)
       if (row === undefined || link === undefined) return original.call(this, request, signal)
-      return link.request(name, { sessionId: request.address.sessionId, ...request })
+      return link.request('session.' + name, { sessionId: request.address.sessionId, ...request })
     })
   }
 
@@ -263,7 +263,7 @@ export function installFederation(controller: object, pool: PeerPool): () => voi
         yield* original.call(this, request, signal) as AsyncIterable<unknown>
         return
       }
-      yield* link.stream(name, { sessionId: request.address.sessionId, ...request })
+      yield* link.stream('session.' + name, { sessionId: request.address.sessionId, ...request })
     })
   }
 
