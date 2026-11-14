@@ -32,6 +32,7 @@ async function register(
   url: string,
   token: string,
   name: string,
+  groupId?: string,
 ): Promise<{ welcome: WelcomeFrame; socket: WebSocket }> {
   const signing = generateKeyPairSync('ed25519')
   const encryption = generateKeyPairSync('x25519')
@@ -42,7 +43,7 @@ async function register(
     socket.on('open', () => {
       const ts = Date.now()
       const proof = sign(null, Buffer.from(canonicalRegister(name, encKey, signKey, ts)), signing.privateKey).toString('base64url')
-      socket.send(JSON.stringify({ type: 'register', v: 1, token, name, encKey, signKey, ts, proof }))
+      socket.send(JSON.stringify({ type: 'register', v: 1, token, name, encKey, signKey, ts, proof, ...(groupId === undefined ? {} : { groupId }) }))
     })
     socket.on('message', (data) => {
       const frame = JSON.parse((data as Buffer).toString('utf8')) as ServerFrame
@@ -217,5 +218,31 @@ describe('session-manager server', () => {
     a.socket.close()
     b.socket.close()
     c.socket.close()
+  })
+
+  it('creates a group from a server token and joins it by id', async () => {
+    const host = 'http://127.0.0.1:' + String(new URL(url).port)
+    const createdResponse = await fetch(host + '/v1/groups', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: server.token ?? '' }),
+    })
+    expect(createdResponse.status).toBe(201)
+    const created = await createdResponse.json() as { groupId: string }
+    expect(created.groupId).toMatch(/^grp_/)
+
+    const a = await register(url, server.token ?? '', 'team-a', created.groupId)
+    const b = await register(url, server.token ?? '', 'team-b', created.groupId)
+    expect(a.welcome.groupId).toBe(created.groupId)
+    expect(b.welcome.groupId).toBe(created.groupId)
+    expect(b.welcome.directory.map((peer) => peer.name).sort()).toEqual(['team-a', 'team-b'])
+
+    const other = await register(url, server.token ?? '', 'team-other')
+    expect(other.welcome.groupId).toBe(server.groupId)
+    expect(other.welcome.directory.some((peer) => peer.name === 'team-a')).toBe(false)
+
+    a.socket.close()
+    b.socket.close()
+    other.socket.close()
   })
 })

@@ -18,6 +18,8 @@ export interface NetworkConfig {
   readonly server: string
   readonly token: string
   readonly name: string
+  /** Group id to join; empty keeps the single-group compatibility path. */
+  readonly group: string
 }
 
 /** One running node runtime. */
@@ -42,6 +44,7 @@ export class NodeRuntime {
       server: config.server,
       token: config.token,
       name: config.name.length > 0 ? config.name : hostname(),
+      group: config.group,
       logger,
       onDirectory: (directory, self) => this.onDirectory(directory, self),
       onBridgeRequest: (frame) => this.responder.handle(frame),

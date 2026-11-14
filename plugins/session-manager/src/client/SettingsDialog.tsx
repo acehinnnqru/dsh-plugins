@@ -31,6 +31,7 @@ interface Draft {
   server: string
   token: string
   name: string
+  group: string
 }
 
 /** Build the draft from one Host section. */
@@ -39,6 +40,7 @@ function draftOf(value: SessionManagerSettings): Draft {
     server: value.server ?? '',
     token: value.token ?? '',
     name: value.name ?? '',
+    group: value.group ?? '',
   }
 }
 
@@ -57,6 +59,9 @@ export function SettingsDialog(props: SettingsDialogProps): ReactNode {
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'failed'>('idle')
   const [saveError, setSaveError] = useState<string | undefined>(undefined)
+  const [groupBusy, setGroupBusy] = useState(false)
+  const [groupNotice, setGroupNotice] = useState<string | undefined>(undefined)
+  const [groupError, setGroupError] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     if (form === undefined) {
@@ -72,6 +77,8 @@ export function SettingsDialog(props: SettingsDialogProps): ReactNode {
   useEffect(() => {
     setSaveStatus('idle')
     setSaveError(undefined)
+    setGroupNotice(undefined)
+    setGroupError(undefined)
     if (!open) setDirty(false)
   }, [open])
 
@@ -98,6 +105,36 @@ export function SettingsDialog(props: SettingsDialogProps): ReactNode {
     label: t(days === 1 ? 'settings.day' : 'settings.days', { n: days }),
   }))
 
+  async function createGroup(): Promise<void> {
+    const server = draft.server.trim()
+    const token = draft.token.trim()
+    if (server.length === 0 || token.length === 0) {
+      setGroupError(t('settings.groupNeedsConnection'))
+      return
+    }
+    setGroupBusy(true)
+    setGroupNotice(undefined)
+    setGroupError(undefined)
+    try {
+      const response = await fetch('/api/session-manager/group', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ server, token }),
+      })
+      const body = await response.json() as { readonly groupId?: unknown; readonly error?: unknown }
+      if (!response.ok || typeof body.groupId !== 'string') {
+        throw new Error(typeof body.error === 'string' ? body.error : 'group/create-failed')
+      }
+      update('group', body.groupId)
+      setGroupNotice(t('settings.groupCreated', { group: body.groupId }))
+    } catch (error) {
+      setGroupError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setGroupBusy(false)
+    }
+  }
+
   async function save(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
     if (form === undefined || !writable) return
@@ -109,6 +146,7 @@ export function SettingsDialog(props: SettingsDialogProps): ReactNode {
         server: draft.server.trim(),
         token: draft.token.trim(),
         name: draft.name.trim(),
+        group: draft.group.trim(),
       }, snapshot?.revision)
       setSaveStatus(result.ok ? 'saved' : 'failed')
       if (result.ok) setDirty(false)
@@ -166,10 +204,34 @@ export function SettingsDialog(props: SettingsDialogProps): ReactNode {
             <Input
               value={draft.name}
               onChange={(event) => { update('name', event.currentTarget.value) }}
+              placeholder={t('settings.namePlaceholder')}
               spellCheck={false}
               autoComplete="off"
             />
           </label>
+          <div className={css.settingsGroupRow}>
+            <label className={css.settingsField}>
+              <span className={css.settingsLabel}>{t('settings.group')}</span>
+              <Input
+                value={draft.group}
+                onChange={(event) => { update('group', event.currentTarget.value) }}
+                placeholder={t('settings.groupPlaceholder')}
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </label>
+            <button
+              type="button"
+              className={css.settingsSecondary}
+              disabled={groupBusy || !writable}
+              onClick={() => { void createGroup() }}
+            >
+              {groupBusy ? t('settings.groupCreating') : t('settings.groupCreate')}
+            </button>
+          </div>
+          {groupNotice === undefined ? null : <p className={css.settingsHint}>{groupNotice}</p>}
+          {groupError === undefined ? null : <p className={css.settingsGroupError}>{t('settings.groupFailed', { message: groupError })}</p>}
+          <p className={css.settingsHint}>{t('settings.groupHint')}</p>
         </section>
 
         <p className={css.settingsHint}>{t('settings.live')}</p>

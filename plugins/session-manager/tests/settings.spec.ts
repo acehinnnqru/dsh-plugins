@@ -8,7 +8,7 @@ import { Config } from '../src/index.ts'
 describe('network settings schema', () => {
   it('marks every editable network field volatile', () => {
     const dict = Config.dict as Record<string, { meta?: { volatile?: boolean } }>
-    for (const field of ['server', 'token', 'name']) {
+    for (const field of ['server', 'token', 'name', 'group']) {
       expect(dict[field]?.meta?.volatile, field).toBe(true)
     }
   })
@@ -18,5 +18,6 @@ describe('network settings schema', () => {
     expect(value['server']?.get()).toBe('')
     expect(value['token']?.get()).toBe('')
     expect(value['name']?.get()).toBe('')
+    expect(value['group']?.get()).toBe('')
   })
 })

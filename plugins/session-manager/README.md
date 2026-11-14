@@ -60,8 +60,10 @@ overlay that embeds the native composer.
   dropping them.
 - Configures the **Recent** window from the gear in the Board tab's top-right: 1, 3, 7, or 30 days.
   The default is three days; the choice is browser-local and only filters Recent. Running and Unread
-  never age out. The same dialog carries the network fields — server URL, join token, and node
-  name — and saves them through the Host settings form.
+  never age out. The same dialog carries the network fields — server URL, join token, node name,
+  and group id — and saves them through the Host settings form. The group name is its id;
+  **New group** asks the server for one, and joining is pasting that id into the same field. The
+  node name is empty by default and the Host uses the machine host name.
 - Switches the page between **Board** (the three columns) and **Management** with the header's
   segmented control. Management lists every eligible Session, newest first, with a title-or-Workspace
   filter; a row opens the same preview dialog a card does. A checkbox selects a row, the toolbar
@@ -99,7 +101,8 @@ overlay that embeds the native composer.
 - Carries an optional host runtime. With a server URL configured, the host half registers with the
   directory server, bridges peer Session RPC over that single WebSocket, federates peer Sessions
   into the ordinary Session Controller surface, and keeps the shared status/unread registry. No
-  node opens an inbound listener. With no server URL, it adds no host behavior. See
+  node opens an inbound listener. With no server URL it starts no network runtime; it still
+  serves the authenticated group-create route so the settings dialog can bootstrap a group. See
   [`docs/session-manager-local-play.md`](../../docs/session-manager-local-play.md).
 
 ## Install into a profile
@@ -136,8 +139,9 @@ The plugin has no profile options and no `Config` schema; `cordis.patch.yml` ins
 nothing else. A later profile layer can still override that row by `id: session-manager`. The Recent
 window is a browser-local board setting, not a profile option.
 
-Safety: without a server URL the host half registers nothing, reads nothing, writes nothing, and
-makes no network requests. With one, it owns the status route and the outbound node socket. The
+Safety: without a server URL the host half starts no network runtime and makes no network
+requests until the settings dialog asks it to create a group. With one, it owns the group/status
+routes and the outbound node socket. The
 browser half reads the Session list and unified UI status from the Web client, the shared status
 route when the runtime is configured, and the archive and pin sets from the Workspace Controller. Opening a card retains one Session reference and renders
 the native Conversation through the `conversation.content` Factory in the preview dialog; closing

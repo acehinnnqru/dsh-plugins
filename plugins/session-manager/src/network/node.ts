@@ -51,6 +51,8 @@ export interface NodeLinkOptions {
   readonly server: string
   readonly token: string
   readonly name: string
+  /** Group id to join; empty keeps the single-group compatibility path. */
+  readonly group: string
   readonly logger: (message: string) => void
   readonly onDirectory: (directory: readonly PeerInfo[], self: SessionId | undefined) => void
   readonly onBridgeRequest: (frame: IncomingBridgeRequest) => void
@@ -122,6 +124,12 @@ export class NodeLink {
   /** Open the link and keep it alive until close(). */
   async start(): Promise<void> {
     this.identity = await loadIdentity(this.options.server)
+    const desiredGroup = this.options.group
+    if (this.identity !== undefined && desiredGroup.length > 0 &&
+      this.identity.groupId !== undefined && this.identity.groupId !== desiredGroup) {
+      // The configuration selects another group; register again instead of helloing the old one.
+      this.identity = { ...this.identity, nodeId: undefined, groupId: undefined }
+    }
     if (this.identity === undefined) {
       if (this.options.token.length === 0) {
         this.options.logger('session-manager: no identity and no join token; network disabled')
@@ -194,6 +202,7 @@ export class NodeLink {
       signKey: identity.signKey,
       ts,
       proof: signIdentity(identity, canonicalRegister(this.options.name, identity.encKey, identity.signKey, ts)),
+      ...(this.options.group.length === 0 ? {} : { groupId: this.options.group }),
       meta: { hostname: this.options.name, pluginVersion: '0.0.0' },
     }
     this.send(socket, frame)

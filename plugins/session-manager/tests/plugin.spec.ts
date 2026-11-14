@@ -17,7 +17,17 @@ describe('session-manager host half', () => {
     expect(inject).toEqual(expect.arrayContaining(['sessionController', 'remoteAccess', 'sessions']))
   })
 
-  it('adds nothing to the host tree when networking is off', () => {
-    expect(apply({} as never, off)).toBeUndefined()
+  it('adds no network runtime when networking is off', () => {
+    const requested: string[][] = []
+    const ctx = {
+      inject: (deps: string[]) => {
+        requested.push(deps)
+        return () => {}
+      },
+      on: () => () => {},
+      logger: { info: () => {}, warn: () => {} },
+    }
+    expect(apply(ctx as never, off)).toBeUndefined()
+    expect(requested).toEqual([['connection']])
   })
 })

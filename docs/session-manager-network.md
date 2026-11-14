@@ -7,7 +7,7 @@ server, and the server bridges peer Session RPC between those connections.
 ## 1. Model
 
 - A **node** is one DSH home with this plugin installed.
-- A **group** is a join-token boundary created by the server.
+- A **group** is a directory and federation boundary; a server-scoped token may create a group or join an existing one.
 - A **Session owner** is the node whose host holds the Session write lock.
 - There is no master node. Each node manages and answers for its own Sessions;
   peers may view and drive them through the bridge.
@@ -19,7 +19,10 @@ outbound WebSocket to the server.
 
 The plugin stores a durable Ed25519/X25519 identity in
 `$DSH_HOME/session-manager/network.json`. The first connection registers with a
-join token; later connections prove the identity with a signed hello.
+server-scoped join token and the selected group id; later connections prove the
+identity with a signed hello. The server accepts many groups; each node belongs
+to exactly one, and the directory is computed per group. A registration without
+a group id keeps the old single-group behavior by joining the first group.
 
 The server publishes directory rows with node id, name, public keys, online
 state, and last-seen time. It never publishes a peer endpoint because there is
@@ -93,16 +96,23 @@ caller's pending request.
 
 ## 6. Configuration
 
-The board settings dialog edits three volatile fields:
+The board settings dialog edits four volatile fields:
 
 | Field | Meaning |
 |---|---|
 | `server` | Directory server URL; empty disables networking |
-| `token` | Join token, used only for first registration |
+| `token` | Server join token, used for first registration and group creation |
 | `name` | Node name; host name when empty |
+| `group` | Server-assigned group id to join; empty uses the single-group compatibility path |
+
+The group name is its id, so there is one value to copy. **New group** posts
+`server` and `token` to the host's `/api/session-manager/group` route, which
+calls `POST /v1/groups` on the server and fills the assigned id. A second node
+pastes that id into the same field. Group creation works before the runtime is
+configured; the registration itself starts after saving and restarting DSH.
 
 The same fields are available through the profile config and `SM_SERVER`,
-`SM_TOKEN`, and `SM_NAME` environment fallbacks.
+`SM_TOKEN`, `SM_NAME`, and `SM_GROUP` environment fallbacks.
 
 ## 7. Limits
 
@@ -115,7 +125,7 @@ The same fields are available through the profile config and `SM_SERVER`,
   mounts; a marker that vanished before the client ever loaded is not recoverable.
 - Full-list search is not merged.
 - Workspace rows and file destinations are not merged.
-- One group per server process.
+- Groups are created on demand; the first start also creates one default group.
 
 ## 8. Tests
 

@@ -39,7 +39,6 @@ export interface Group {
   readonly id: string
   readonly name: string
   readonly createdAt: number
-  readonly tokens: Record<string, TokenRecord>
   readonly nodes: Record<string, NodeRecord>
   /** Shared management status keyed by Session id. */
   readonly statuses: Record<string, SessionStatusRecord>
@@ -49,13 +48,9 @@ export interface Group {
 export interface ServerState {
   readonly v: 1
   readonly createdAt: number
+  /** Server-scoped join tokens: any valid token can create or join a group. */
+  readonly tokens: Record<string, TokenRecord>
   readonly groups: Record<string, Group>
-}
-
-/** Group plus the record a token resolved to. */
-export interface TokenResolution {
-  readonly group: Group
-  readonly token: TokenRecord
 }
 
 const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567'
@@ -97,20 +92,17 @@ export function hashSecret(secretHex: string): string {
 }
 
 /** Constant-time token lookup by id and secret. */
-export function resolveToken(state: ServerState, token: string): TokenResolution | undefined {
+export function resolveToken(state: ServerState, token: string): TokenRecord | undefined {
   const match = /^smj_([a-z2-7]{12})_([0-9a-f]{64})$/.exec(token)
   if (match === null) return undefined
   const id = match[1]
   const secret = match[2]
   if (id === undefined || secret === undefined) return undefined
+  const record = state.tokens[id]
+  if (record === undefined) return undefined
   const expected = Buffer.from(hashSecret(secret), 'hex')
-  for (const group of Object.values(state.groups)) {
-    const record = group.tokens[id]
-    if (record === undefined) continue
-    const actual = Buffer.from(record.hash, 'hex')
-    if (actual.length === expected.length && timingSafeEqual(actual, expected)) return { group, token: record }
-  }
-  return undefined
+  const actual = Buffer.from(record.hash, 'hex')
+  return actual.length === expected.length && timingSafeEqual(actual, expected) ? record : undefined
 }
 
 /** Create a fresh server state with one group and one join token. */
@@ -120,12 +112,16 @@ export function freshState(groupName: string): { state: ServerState; group: Grou
     id: 'grp_' + randomBase32(12),
     name: groupName,
     createdAt: Date.now(),
-    tokens: { [token.record.id]: token.record },
     nodes: {},
     statuses: {},
   }
   return {
-    state: { v: 1, createdAt: Date.now(), groups: { [group.id]: group } },
+    state: {
+      v: 1,
+      createdAt: Date.now(),
+      tokens: { [token.record.id]: token.record },
+      groups: { [group.id]: group },
+    },
     group,
     token: token.token,
   }
@@ -190,22 +186,33 @@ export async function loadState(stateDir: string): Promise<ServerState | undefin
   const path = statePath(stateDir)
   try {
     const raw = await readFile(path, 'utf8')
-    const parsed = JSON.parse(raw) as ServerState
+    const parsed = JSON.parse(raw) as ServerState & {
+      readonly groups: Record<string, Group & { readonly tokens?: Record<string, TokenRecord> }>
+    }
     if (parsed.v !== 1 || typeof parsed.groups !== 'object' || parsed.groups === null) {
       throw new Error('unsupported server state version')
     }
-    const groups = Object.fromEntries(Object.entries(parsed.groups).map(([id, group]) => [
-      id,
-      {
-        ...group,
-        nodes: Object.fromEntries(Object.entries(group.nodes).map(([nodeId, node]) => [nodeId, normalizeNode(node)])),
-        statuses: Object.fromEntries(Object.entries(group.statuses ?? {}).flatMap(([sessionId, status]) => {
-          const normalized = normalizeStatus(status)
-          return normalized === undefined ? [] : [[sessionId, normalized]]
-        })),
-      },
-    ]))
-    return { ...parsed, groups }
+    // Tokens were group-scoped in the first slice; lift them to server scope once.
+    const tokens: Record<string, TokenRecord> = { ...parsed.tokens }
+    for (const group of Object.values(parsed.groups)) {
+      for (const [id, record] of Object.entries(group.tokens ?? {})) tokens[id] ??= record
+    }
+    const groups = Object.fromEntries(Object.entries(parsed.groups).map(([id, source]) => {
+      const { tokens: legacy, ...group } = source
+      void legacy
+      return [
+        id,
+        {
+          ...group,
+          nodes: Object.fromEntries(Object.entries(group.nodes).map(([nodeId, node]) => [nodeId, normalizeNode(node)])),
+          statuses: Object.fromEntries(Object.entries(group.statuses ?? {}).flatMap(([sessionId, status]) => {
+            const normalized = normalizeStatus(status)
+            return normalized === undefined ? [] : [[sessionId, normalized]]
+          })),
+        },
+      ]
+    }))
+    return { v: 1, createdAt: parsed.createdAt, tokens, groups }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error

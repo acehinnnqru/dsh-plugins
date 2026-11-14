@@ -61,6 +61,7 @@ describe('network runtime registration', () => {
       server: 'ws://127.0.0.1:' + String(port),
       token: server.token ?? '',
       name: 'node-a',
+      group: '',
     }
     runtime = new NodeRuntime(config, controller, () => {})
     await runtime.start()

@@ -25,14 +25,15 @@ Defaults:
 | Node WebSocket | `ws://127.0.0.1:8787/v1/node` |
 | Admin HTTP | `http://127.0.0.1:8788` |
 | State | `~/.session-manager-server/server.json` |
-| Group | `local` |
+| Default group | `local` (more groups are created on demand) |
 
 Both nodes need a route to this server; `127.0.0.1` only works when the server
 and both DSH processes are on the same machine. For separate machines, bind a
 reachable listen address and use that URL in both settings dialogs.
 
-The first start prints one join token. Later starts keep the state and print no
-token. To mint another token:
+The first start prints one server-scoped join token. Later starts keep the state
+and print no token. The same token creates a new group or joins an existing one.
+To mint another token:
 
 ```sh
 curl -s -X POST http://127.0.0.1:8788/admin/tokens \
@@ -44,22 +45,26 @@ curl -s -X POST http://127.0.0.1:8788/admin/tokens \
 ## 3. Configure each node
 
 Open the session-manager board and click its gear button. The settings dialog
-edits the plugin's profile config directly; saving restarts only the network
-runtime.
+edits the plugin's profile config directly; a registration change takes effect
+after restarting DSH.
 
 | Field | Meaning |
 |---|---|
 | `server` | Directory server URL, for example `ws://127.0.0.1:8787` |
-| `token` | Join token, used on the first registration only |
+| `token` | Server-scoped join token, used on registration and group creation |
 | `name` | Node name; host name when empty |
+| `group` | Server-assigned group id, also the immutable group name |
+
+**New group** asks the server for an id and fills the field. Joining is just
+pasting the other node's id into the same field.
 
 There is no peer host or port. Each node opens one outbound WebSocket to the
 server; the server bridges Session RPC between the two connections. A node never
 needs to accept an inbound connection from another node.
 
 The same fields remain available as profile config and environment fallbacks
-(`SM_SERVER`, `SM_TOKEN`, `SM_NAME`) for headless starts. A profile patch row
-looks like:
+(`SM_SERVER`, `SM_TOKEN`, `SM_NAME`, `SM_GROUP`) for headless starts. A profile
+patch row looks like:
 
 ```yaml
 - insert:
@@ -69,26 +74,27 @@ looks like:
         server: ws://127.0.0.1:8787
         token: smj_replace_me
         name: node-a
+        group: grp_replace_me
 ```
 
 The first registration writes `$DSH_HOME/session-manager/network.json`; later
-starts prove that identity with a signed hello and do not need the token.
+starts in the same group prove that identity with a signed hello and do not need
+the token. Changing the group registers the node again, so keep the token in the
+settings while switching groups.
 
 ## 4. Start two DSH homes
 
-Start both DSH homes with the network fields empty. In node-b, open its
-board and fill the settings dialog with:
+Start both DSH homes with the network fields empty. In node-a, fill the settings
+dialog with the server URL, join token, and name, then press **New group**. The
+server assigns a `grp_...` id; save it and restart node-a. In node-b, enter the
+same server/token, paste node-a's group id into its group field, and save;
+restart node-b.
 
-```text
-server: ws://127.0.0.1:8787
-token:  <join token>
-name:   node-b
-```
-
-Save, then do the same on node-a with `name: node-a`. Both nodes use different
-`DSH_HOME` values but need no listening ports. Start node-b first and wait until
-it is online, then configure node-a: the first `session.list` merge is what
-discovers node-b's rows.
+Both nodes use different `DSH_HOME` values but need no listening ports. The
+group id is the only value node-b has to copy from node-a. A node name left empty
+uses the machine host name. Start node-a first and wait until it is online, then
+start node-b: the first `session.list` merge is what discovers the other node's
+rows.
 
 After upgrading this slice, restart the server before the nodes. The status
 frames are new: an old server closes a new node that sends `status.publish`, and

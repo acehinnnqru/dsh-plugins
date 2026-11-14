@@ -30,6 +30,8 @@ export interface RegisterFrame {
   readonly signKey: string
   readonly ts: number
   readonly proof: string
+  /** Group to join; omitted when the server has exactly one group. */
+  readonly groupId?: string
   readonly meta?: { readonly hostname?: string; readonly pluginVersion?: string }
 }
 

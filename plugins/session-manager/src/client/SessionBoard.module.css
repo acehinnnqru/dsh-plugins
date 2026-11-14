@@ -1313,6 +1313,44 @@ body[data-session-manager-preview] [class*='_portal_'] > [class*='_card_'] {
   align-self: flex-start;
 }
 
+.settingsGroupRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.settingsSecondary {
+  flex: none;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--dsw-alias-border-secondary);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.settingsSecondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.settingsSecondary:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+
+.settingsGroupError {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 11px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
 .settingsHint {
   margin: 0;
   color: var(--dsw-alias-label-tertiary);

@@ -50,6 +50,8 @@ export interface Config {
   token: Volatile<string>
   /** Node name shown to peers; the host name when empty. */
   name: Volatile<string>
+  /** Group id returned by the server; empty keeps the single-group compatibility path. */
+  group: Volatile<string>
 }
 
 /** Schemastery schema for {@link Config}. */
@@ -57,6 +59,7 @@ export const Config = z.object({
   server: z.string().default('').volatile(),
   token: z.string().default('').volatile(),
   name: z.string().default('').volatile(),
+  group: z.string().default('').volatile(),
 })
 
 /** Read one schema field, accepting both live refs and plain test fixtures. */
@@ -67,6 +70,20 @@ function readString(value: unknown, fallback: string): string {
     if (typeof result === 'string') return result
   }
   return fallback
+}
+
+/** Convert one configured WebSocket URL to the server's HTTP origin. */
+function serverHttpBase(value: string): string | undefined {
+  try {
+    const url = new URL(value)
+    url.protocol = url.protocol === 'https:' || url.protocol === 'wss:' ? 'https:' : 'http:'
+    url.pathname = ''
+    url.search = ''
+    url.hash = ''
+    return url.toString().replace(/\/$/, '')
+  } catch {
+    return undefined
+  }
 }
 
 /** One JSON response. */
@@ -88,7 +105,50 @@ export function apply(ctx: Context, config?: Config): void {
     server: readString(config?.server, '') || env['SM_SERVER'] || '',
     token: readString(config?.token, '') || env['SM_TOKEN'] || '',
     name: readString(config?.name, '') || env['SM_NAME'] || '',
+    group: readString(config?.group, '') || env['SM_GROUP'] || '',
   }
+  // Group creation must work before the network runtime exists: save server/token, then
+  // create the group from the same settings dialog without restarting first.
+  ctx.inject(['connection'], (web) => {
+    const connection = web.get('connection') as {
+      fetch: {
+        register(route: {
+          path: string
+          methods: readonly ('GET' | 'POST')[]
+          requestBody: 'buffered'
+          fetch(request: Request): Promise<Response>
+        }): () => Promise<void>
+      }
+    } | undefined
+    if (connection === undefined) return
+    web.effect(() => connection.fetch.register({
+      path: '/api/session-manager/group',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: async (request) => {
+        const body = await request.json() as { server?: unknown; token?: unknown }
+        const server = typeof body.server === 'string' && body.server.length > 0 ? body.server : resolved.server
+        const token = typeof body.token === 'string' && body.token.length > 0 ? body.token : resolved.token
+        const base = serverHttpBase(server)
+        if (base === undefined || token.length === 0) return json({ error: 'server and token are required' }, 400)
+        try {
+          const response = await fetch(base + '/v1/groups', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ token }),
+          })
+          const value = await response.json() as { groupId?: unknown; error?: unknown }
+          if (!response.ok || typeof value.groupId !== 'string') {
+            return json({ error: typeof value.error === 'string' ? value.error : 'group/create-failed' }, response.status)
+          }
+          return json({ groupId: value.groupId })
+        } catch (error) {
+          return json({ error: error instanceof Error ? error.message : 'group/create-failed' }, 502)
+        }
+      },
+    }), 'session-manager: group route')
+  })
+
   if (resolved.server.length === 0) return
   ctx.inject(['sessionController'], (scope) => {
     const controller = scope.get('sessionController') as {

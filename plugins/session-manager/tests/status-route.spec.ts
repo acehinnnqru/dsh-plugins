@@ -97,7 +97,8 @@ describe('status route', () => {
       on: () => () => {},
     }
     const ctx = {
-      inject: (deps: string[], callback: (value: typeof scope) => void) => {
+      inject: (deps: string[], callback: (value: unknown) => void) => {
+        if (deps[0] === 'connection') callback(webScope)
         if (deps[0] === 'sessionController') callback(scope)
         return () => {}
       },
@@ -121,6 +122,15 @@ describe('status route', () => {
       if (row === undefined) await new Promise((resolve) => setTimeout(resolve, 25))
     }
     expect(row).toMatchObject({ sessionId: '01ROUTE', running: false, unread: false })
+
+    const groupRoute = await waitFor(() => routes.get('/api/session-manager/group'))
+    const groupResponse = await groupRoute.fetch(new Request('http://127.0.0.1/api/session-manager/group', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ server: 'ws://127.0.0.1:' + String(port), token: server.token ?? '' }),
+    }))
+    const created = await groupResponse.json() as { groupId?: string }
+    expect(created.groupId).toMatch(/^grp_/)
 
     const readRoute = await waitFor(() => routes.get('/api/session-manager/read'))
     const read = await readRoute.fetch(new Request('http://127.0.0.1/api/session-manager/read', {

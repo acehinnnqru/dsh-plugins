@@ -36,6 +36,7 @@ import {
   removeStaleTemp,
   resolveToken,
   saveState,
+  type Group,
   type NodeRecord,
   type TokenRecord,
 } from './state.ts'
@@ -165,6 +166,21 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     return saveChain
   }
 
+  /** Create one empty group whose immutable name is its id. */
+  const createGroup = async (): Promise<Group> => {
+    const id = 'grp_' + randomBase32(12)
+    const group: Group = {
+      id,
+      name: id,
+      createdAt: Date.now(),
+      nodes: {},
+      statuses: {},
+    }
+    state.groups[group.id] = group
+    await persist()
+    return group
+  }
+
   const connections = new Map<string, Connection>()
   const nonces = new Map<string, Map<string, number>>()
   /** Active bridge operations, used to cancel or fail them when a node drops. */
@@ -204,15 +220,20 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     } catch {
       throw new Error('register/key-invalid')
     }
-    const resolved = resolveToken(state, frame.token)
-    if (resolved === undefined) throw new Error('token/invalid')
-    if (resolved.token.revokedAt !== null) throw new Error('token/invalid')
-    if (resolved.token.expiresAt !== 0 && resolved.token.expiresAt < Date.now()) throw new Error('token/invalid')
-    if (resolved.token.maxUses !== 0 && resolved.token.uses >= resolved.token.maxUses) throw new Error('token/exhausted')
+    const token = resolveToken(state, frame.token)
+    if (token === undefined) throw new Error('token/invalid')
+    if (token.revokedAt !== null) throw new Error('token/invalid')
+    if (token.expiresAt !== 0 && token.expiresAt < Date.now()) throw new Error('token/invalid')
+    if (token.maxUses !== 0 && token.uses >= token.maxUses) throw new Error('token/exhausted')
     if (!verifyProof(frame.signKey, canonicalRegister(frame.name, frame.encKey, frame.signKey, frame.ts), frame.proof)) {
       throw new Error('register/proof-invalid')
     }
-    const target = resolved.group
+    const target = frame.groupId === undefined
+      ? Object.values(state.groups)[0]
+      : state.groups[frame.groupId]
+    if (target === undefined) {
+      throw new Error(frame.groupId === undefined ? 'group/required' : 'group/not-found')
+    }
     for (const node of Object.values(target.nodes)) {
       if (node.revokedAt !== null) continue
       if (node.name === frame.name) throw new Error('group/name-taken')
@@ -228,7 +249,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       revokedAt: null,
     }
     target.nodes[node.id] = node
-    resolved.token.uses += 1
+    token.uses += 1
     await persist()
     return {
       type: 'welcome',
@@ -504,7 +525,8 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     send(target.ws, { ...frame, from: nodeId } as BridgeFrame)
   }
 
-  const httpServer: HttpServer = createServer((request, response) => {
+  /** Public group bootstrap: a server token may create a new empty group. */
+  const handlePublic = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     if (request.url === '/healthz') {
       json(response, 200, {
         ok: true,
@@ -515,8 +537,28 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       })
       return
     }
+    if (request.method === 'POST' && request.url === '/v1/groups') {
+      try {
+        const body = await readBody(request) as { token?: unknown }
+        const tokenRecord = typeof body.token === 'string' ? resolveToken(state, body.token) : undefined
+        if (tokenRecord === undefined || tokenRecord.revokedAt !== null ||
+          (tokenRecord.expiresAt !== 0 && tokenRecord.expiresAt < Date.now())) {
+          json(response, 401, { error: 'token/invalid' })
+          return
+        }
+        const group = await createGroup()
+        json(response, 201, { groupId: group.id })
+      } catch (error) {
+        json(response, 400, { error: 'group/create-failed', message: error instanceof Error ? error.message : 'invalid body' })
+      }
+      return
+    }
     response.writeHead(404, { 'content-type': 'text/plain' })
     response.end('not found')
+  }
+
+  const httpServer: HttpServer = createServer((request, response) => {
+    void handlePublic(request, response)
   })
 
   httpServer.on('upgrade', (request, socket, head) => {
@@ -561,21 +603,21 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
         return
       }
       if (request.method === 'POST' && url.pathname === '/admin/tokens') {
-        const body = await readBody(request) as { groupId?: string; ttlMs?: number; uses?: number }
-        const target = body.groupId === undefined ? group : state.groups[body.groupId]
-        if (target === undefined) {
-          json(response, 404, { error: 'group/not-found' })
-          return
-        }
+        const body = await readBody(request) as { ttlMs?: number; uses?: number }
         const minted = mintToken()
         const record: TokenRecord = {
           ...minted.record,
           expiresAt: typeof body.ttlMs === 'number' && body.ttlMs > 0 ? Date.now() + body.ttlMs : 0,
           maxUses: typeof body.uses === 'number' && body.uses > 0 ? body.uses : 0,
         }
-        target.tokens[record.id] = record
+        state.tokens[record.id] = record
         await persist()
-        json(response, 200, { token: minted.token, tokenId: record.id, groupId: target.id })
+        json(response, 200, { token: minted.token, tokenId: record.id })
+        return
+      }
+      if (request.method === 'POST' && url.pathname === '/admin/groups') {
+        const created = await createGroup()
+        json(response, 201, { groupId: created.id })
         return
       }
       const nodesMatch = /^\/admin\/groups\/([^/]+)\/nodes$/.exec(url.pathname)

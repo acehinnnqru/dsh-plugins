@@ -11,6 +11,8 @@ export interface SessionManagerSettings {
   readonly server: string
   readonly token: string
   readonly name: string
+  /** Server-assigned group id. */
+  readonly group: string
 }
 
 /** Values shown before the Host form arrives. */
@@ -18,4 +20,5 @@ export const EMPTY_SETTINGS: SessionManagerSettings = {
   server: '',
   token: '',
   name: '',
+  group: '',
 }
