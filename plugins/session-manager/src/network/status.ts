@@ -8,7 +8,7 @@
  * @module dsh-plugin-session-manager/network/status
  */
 
-import type { SessionListValue } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { SessionListValue, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionStatusRecord, StatusPublishFrame } from './protocol.ts'
 
@@ -31,6 +31,13 @@ export interface StatusSource {
 export interface StatusPublisher {
   publish(status: StatusPublishFrame): void
   read(sessionId: SessionId, readAt: number): void
+}
+
+/** Whether one list row is owned by another node through federation. */
+function remoteSummary(summary: SessionSummary): boolean {
+  const values = summary.projections?.values as Readonly<Record<string, unknown>> | undefined
+  const node = values?.['sessionManagerNode']
+  return typeof node === 'object' && node !== null && typeof (node as { readonly name?: unknown }).name === 'string'
 }
 
 /** One coordinator over all local and cached remote status rows. */
@@ -140,7 +147,8 @@ export class StatusCoordinator {
     if (!this.localIds.has(sessionId)) {
       try {
         const list = await this.source.list()
-        if (!list.items.some((item) => item.sessionId === sessionId)) return
+        const summary = list.items.find((item) => item.sessionId === sessionId)
+        if (summary === undefined || remoteSummary(summary)) return
         this.localIds.add(sessionId)
       } catch {
         return
@@ -184,6 +192,9 @@ export class StatusCoordinator {
       const list = await this.source.list()
       const ids = new Set<string>()
       for (const item of list.items) {
+        // A federated row belongs to another node; its shared status is already
+        // authoritative and must not be replaced by a local poll or read mark.
+        if (remoteSummary(item)) continue
         ids.add(item.sessionId)
         this.localIds.add(item.sessionId)
         let state: { readonly running: boolean; readonly pendingInput: readonly { readonly kind: string }[] }
