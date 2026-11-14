@@ -39,9 +39,8 @@ export interface ConversationPhaseFacts {
  *
  * The shell phase mirrors the main Conversation's own rule: any active target, an engaged Session,
  * or a running turn is active; a Session that has attempted a prompt but not started is engaging;
- * anything else is blank. Settling covers an opening blank Session and a continuable subagent whose
- * parent availability is still unresolved. Hero covers a blank Session that is already open or
- * known blank from the list.
+ * anything else is blank. Settling covers an opening blank Session. Hero covers a blank Session that
+ * is already open or known blank from the list.
  * @param facts - Session, Conversation, and list-row hints.
  * @returns the Factory input for the embedded occurrence.
  */
@@ -52,10 +51,7 @@ export function conversationContentInput(facts: ConversationPhaseFacts): Convers
     || session.running
     ? 'active'
     : session.promptAttempted ? 'engaging' : 'blank'
-  const parentAvailabilityPending = session.subagent?.address.mode === 'continuable'
-    && session.subagent.parentAvailable === undefined
-  const settling = (shellPhase === 'blank' && session.openState === 'loading' && summaryBlank !== true)
-    || parentAvailabilityPending
+  const settling = shellPhase === 'blank' && session.openState === 'loading' && summaryBlank !== true
   const hero = shellPhase === 'blank' && (session.openState === 'open' || summaryBlank === true)
 
   return {

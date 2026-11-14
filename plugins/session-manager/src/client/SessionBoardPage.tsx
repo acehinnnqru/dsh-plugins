@@ -467,6 +467,8 @@ interface SessionCardViewProps {
   readonly pinPending: boolean
   /** Workspace label shown after the node badge. */
   readonly workspace: string
+  /** Whether the board currently has a peer and should show node identity. */
+  readonly showNode: boolean
   readonly t: Translate
   readonly now: number
   readonly useSessionAccess: PageProps['useSessionAccess']
@@ -491,6 +493,7 @@ function SessionCardView({
   pinned,
   pinPending,
   workspace,
+  showNode,
   t,
   now,
   useSessionAccess,
@@ -526,13 +529,15 @@ function SessionCardView({
           </span>
         </span>
         <span className={css.cardMeta}>
-          <span
-            className={css.cardNode}
-            data-self={card.node.self ? 'true' : undefined}
-            title={nodeTitle}
-          >
-            {nodeLabel}
-          </span>
+          {showNode && (
+            <span
+              className={css.cardNode}
+              data-self={card.node.self ? 'true' : undefined}
+              title={nodeTitle}
+            >
+              {nodeLabel}
+            </span>
+          )}
           {workspace !== '' && (
             <span className={css.cwd} title={card.cwd ?? workspace}>{workspace}</span>
           )}
@@ -618,6 +623,7 @@ function NodesBoard({
                 pinned={pinned}
                 pinPending={pinBusy.has(card.id)}
                 workspace={workspaceName(card, workspaces, t)}
+                showNode
                 t={t}
                 now={now}
                 useSessionAccess={useSessionAccess}
@@ -688,6 +694,8 @@ function NodesBoard({
 interface SearchDialogProps {
   readonly hits: readonly SessionHit[]
   readonly workspaces: readonly WorkspaceView[]
+  /** Whether node identity is meaningful; hidden when no peer is online. */
+  readonly showNode: boolean
   readonly now: number
   readonly t: Translate
   readonly onPick: (hit: SessionHit) => void
@@ -707,6 +715,7 @@ interface SearchDialogProps {
 function SessionSearchDialog({
   hits,
   workspaces,
+  showNode,
   now,
   t,
   onPick,
@@ -788,7 +797,7 @@ function SessionSearchDialog({
               {results.map((hit, index) => {
                 const workspace = workspaceName(hit, workspaces, t)
                 const node = hit.node.self ? 'self' : hit.node.name
-                const scope = workspace === '' ? node : node + ' · ' + workspace
+                const scope = !showNode ? workspace : workspace === '' ? node : node + ' · ' + workspace
                 return (
                   <li key={hit.id} role="none">
                     <button
@@ -865,6 +874,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const [composer, setComposer] = useState<Composer | undefined>(undefined)
   const [startError, setStartError] = useState<string | undefined>(undefined)
   const [tab, setTab] = useState<PageTab>('board')
+  const [hasPeerNodes, setHasPeerNodes] = useState(false)
   const [remotePins, setRemotePins] = useState<readonly SessionId[]>(() => readRemotePins())
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -885,6 +895,41 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const preparedRemote = useRef(new Map<string, { promise: Promise<SessionId>; sessionId?: SessionId }>())
   const composerRef = useRef<Composer | undefined>(undefined)
   composerRef.current = composer
+
+  // The node UI is only meaningful with an online peer. Poll the directory the picker already uses;
+  // when the network is off it returns no rows and every node affordance disappears.
+  useEffect(() => {
+    let live = true
+    const load = async (): Promise<void> => {
+      if (typeof fetch !== 'function') return
+      try {
+        const response = await fetch('/api/session-manager/nodes')
+        if (!response.ok) {
+          if (live) setHasPeerNodes(false)
+          return
+        }
+        const body = await response.json() as { nodes?: readonly { self?: unknown }[] }
+        const peers = (body.nodes ?? []).some((node) => node.self !== true)
+        if (live) setHasPeerNodes(peers)
+      } catch {
+        if (live) setHasPeerNodes(false)
+      }
+    }
+    void load()
+    const timer = setInterval(() => {
+      void load()
+    }, 5000)
+    return () => {
+      live = false
+      clearInterval(timer)
+    }
+  }, [])
+
+  // A remote row is itself proof of a peer, even if the directory poll has not landed yet.
+  const showNodes = hasPeerNodes || list.ids.some((id) => !sessionNodeOf(list, id).self)
+  useEffect(() => {
+    if (!showNodes && tab === 'nodes') setTab('board')
+  }, [showNodes, tab])
 
   // The tracker is global; this board only needs to re-render when its local completion map moves.
   useEffect(() => subscribeLocalCompletions(() => {
@@ -1004,9 +1049,10 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const total = columns.running.length + columns.unread.length + columns.recent.length + pinned.length
   const tabOptions: readonly SegmentedControlOption<PageTab>[] = [
     { value: 'board', label: t('tab.board') },
-    { value: 'nodes', label: t('tab.nodes') },
+    ...(showNodes ? [{ value: 'nodes' as const, label: t('tab.nodes') }] : []),
     { value: 'management', label: t('tab.management') },
   ]
+  const visibleTab: PageTab = showNodes ? tab : tab === 'nodes' ? 'board' : tab
 
   /**
    * Open the card's preview dialog.
@@ -1511,7 +1557,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const previewSubtitle = preview === undefined
     ? ''
     : [
-        preview.card.node.self ? 'self' : preview.card.node.name,
+        ...(showNodes ? [preview.card.node.self ? 'self' : preview.card.node.name] : []),
         workspaceName(preview.card, workspaces.items, t),
         timeText(preview.card.updatedAt, now, t),
       ]
@@ -1560,16 +1606,16 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           <SegmentedControl
             id="session-manager"
             className={css.viewSwitch ?? ''}
-            value={tab}
+            value={visibleTab}
             options={tabOptions}
             onChange={selectTab}
             label={t('tab.label')}
           />
           <div className={css.headerTools}>
-            {tab === 'board' && total > 0 && (
+            {visibleTab === 'board' && total > 0 && (
               <span className={css.total}>{t('page.count', { count: total })}</span>
             )}
-            {tab === 'board' && (
+            {visibleTab === 'board' && (
               <button
                 type="button"
                 className={css.searchTrigger}
@@ -1594,7 +1640,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
             >
               <IconNewChatOutlineRegular size={16} />
             </button>
-            {(tab === 'board' || tab === 'nodes') && (
+            {(visibleTab === 'board' || visibleTab === 'nodes') && (
               <button
                 type="button"
                 className={css.settings}
@@ -1624,13 +1670,13 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           </p>
         )}
 
-        {(tab === 'board' || tab === 'nodes') && pinError !== undefined && (
+        {(visibleTab === 'board' || visibleTab === 'nodes') && pinError !== undefined && (
           <p className={css.previewError} role="alert">
             {t('pin.failed')}: {pinError}
           </p>
         )}
 
-        {tab === 'board' ? (
+        {visibleTab === 'board' ? (
           <div className={css.tabPanel} role="tabpanel" id="session-manager-board-panel" aria-labelledby="session-manager-board">
             {total === 0 && list.phase === 'pending' && (
               <p className={css.loading} role="status">{t('state.loading')}</p>
@@ -1652,6 +1698,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                         pinned
                         pinPending={pinBusy.has(card.id)}
                         workspace={workspaceName(card, workspaces.items, t)}
+                        showNode={showNodes}
                         t={t}
                         now={now}
                         useSessionAccess={useSessionAccess}
@@ -1710,6 +1757,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                                     pinned={false}
                                     pinPending={pinBusy.has(card.id)}
                                     workspace={workspaceName(card, workspaces.items, t)}
+                                    showNode={showNodes}
                                     t={t}
                                     now={now}
                                     useSessionAccess={useSessionAccess}
@@ -1734,7 +1782,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
               </div>
             )}
           </div>
-        ) : tab === 'nodes' ? (
+        ) : visibleTab === 'nodes' ? (
           <div className={css.tabPanel} role="tabpanel" id="session-manager-nodes-panel" aria-labelledby="session-manager-nodes">
             {list.phase === 'pending' && nodeColumns.length === 0
               ? <p className={css.loading} role="status">{t('state.loading')}</p>
@@ -1765,6 +1813,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
             <Management
               sessions={searchableSessions(list, statuses, archived, completionReadAt, locallyCompleted, sharedStatuses)}
               workspaces={workspaces.items}
+              showNode={showNodes}
               now={now}
               t={t}
               archiveSession={archiveSession}
@@ -1802,6 +1851,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
         <SessionSearchDialog
           hits={searchableSessions(list, statuses, archived, completionReadAt, locallyCompleted, sharedStatuses)}
           workspaces={workspaces.items}
+          showNode={showNodes}
           now={now}
           t={t}
           onPick={openSearchHit}

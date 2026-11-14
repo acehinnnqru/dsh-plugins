@@ -61,19 +61,6 @@ describe('conversationContentInput', () => {
     })
   })
 
-  it('settles while a continuable subagent parent is unresolved', () => {
-    expect(conversationContentInput(facts({
-      session: {
-        subagent: { address: { mode: 'continuable' }, parentAvailable: undefined },
-      },
-      summaryBlank: false,
-    }))).toEqual({
-      variant: 'embedded',
-      phase: 'settling',
-      hero: false,
-    })
-  })
-
   it('treats active targets as active even for a blank Session', () => {
     expect(conversationContentInput(facts({
       session: { blank: true, openState: 'open' },

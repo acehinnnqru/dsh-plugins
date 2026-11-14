@@ -14,12 +14,12 @@ import {
   IconCheckOutlineRegular,
   IconChevronDownOutlineRegular,
   MenuSurface,
-  useAnchoredPosition,
   useDismissOnOutsidePointer,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionNode } from './board.ts'
 import { NS } from './locales.ts'
+import { useAnchoredPosition } from './use-anchored-position.ts'
 import css from './SessionBoard.module.css'
 
 /** One stable key for a node option. */

@@ -26,7 +26,6 @@ import {
   IconSearchOutlineRegular,
   Input,
   MenuSurface,
-  useAnchoredPosition,
   useDismissOnOutsidePointer,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -37,6 +36,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { NS } from './locales.ts'
 import { NodePicker } from './NodePicker.tsx'
+import { useAnchoredPosition } from './use-anchored-position.ts'
 import { activeChooseNode, activePrepareNode, subscribeChooseNode, subscribePrepareNode, type ChooseNode, type PrepareNode } from './node-choice.ts'
 import { sessionNodeOf, type SessionNode } from './board.ts'
 import {
@@ -253,13 +253,15 @@ function WorkspacePickerBody({
 
   return (
     <>
-      <NodePicker
-        nodes={nodes}
-        current={currentOwner}
-        t={t}
-        onPick={(node) => chooseNode(sessionId, node)}
-        {...(prepareNode === undefined ? {} : { onPrepare: prepareNode })}
-      />
+      {nodes.length > 1 && (
+        <NodePicker
+          nodes={nodes}
+          current={currentOwner}
+          t={t}
+          onPick={(node) => chooseNode(sessionId, node)}
+          {...(prepareNode === undefined ? {} : { onPrepare: prepareNode })}
+        />
+      )}
       <span ref={root} className={css.workspacePicker}>
       <button
         ref={trigger}
