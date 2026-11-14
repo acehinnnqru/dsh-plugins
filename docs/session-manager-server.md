@@ -49,10 +49,11 @@ curl -s -X POST http://127.0.0.1:8788/admin/tokens \
 2. First time: `register` with the join token, name, X25519 public key, Ed25519
    public key, timestamp, and a signature over
    `["smnet-register-v1", 1, name, encKey, signKey, ts]`.
-3. The registration may carry `groupId`; the server resolves the server-scoped
-   token, selects that group (or the only group when omitted), checks name and
-   key uniqueness inside it, stores the node, and returns `welcome` with the
-   group directory.
+3. The registration may carry `groupId` and `instanceId`; the server resolves
+   the server-scoped token, selects that group (or the only group when omitted),
+   checks name and key uniqueness inside it, and reuses one node id for one
+   installation hash. It stores the node and returns `welcome` with the group
+   directory.
 4. Later connections send `hello` with `nodeId`, `groupId`, timestamp, nonce,
    and a signature over
    `["smnet-hello-v1", 1, nodeId, groupId, ts, nonce]`.
@@ -133,7 +134,7 @@ State is JSON written atomically: temporary file, fsync, rename, directory
 fsync, and owner-only mode. Writes are serialized, so a status update and a
 control-plane write cannot race on the same temporary file. Tokens live at
 server scope and are stored as hashes; an old group-scoped token file is
-migrated on load. Node rows keep the public keys and metadata, not endpoints.
+migrated on load. Node rows keep the public keys, installation hash, and metadata, not endpoints.
 Status rows keep only management metadata, never messages or files.
 
 The process is authoritative while it runs. A restart reloads state; nodes

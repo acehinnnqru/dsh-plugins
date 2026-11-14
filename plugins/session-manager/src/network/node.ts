@@ -31,6 +31,7 @@ import {
   type StatusReadFrame,
   type WelcomeFrame,
 } from './protocol.ts'
+import { loadInstance } from './instance.ts'
 import {
   createIdentity,
   loadIdentity,
@@ -74,6 +75,7 @@ export function serverUrl(value: string): string {
 export class NodeLink {
   private readonly options: NodeLinkOptions
   private identity: Identity | undefined
+  private instanceId: string | undefined
   private socket: WebSocket | undefined
   private stopped = false
   private retryMs = 1000
@@ -123,6 +125,7 @@ export class NodeLink {
 
   /** Open the link and keep it alive until close(). */
   async start(): Promise<void> {
+    this.instanceId = (await loadInstance()).id
     this.identity = await loadIdentity(this.options.server)
     const desiredGroup = this.options.group
     if (this.identity !== undefined && desiredGroup.length > 0 &&
@@ -203,6 +206,7 @@ export class NodeLink {
       ts,
       proof: signIdentity(identity, canonicalRegister(this.options.name, identity.encKey, identity.signKey, ts)),
       ...(this.options.group.length === 0 ? {} : { groupId: this.options.group }),
+      ...(this.instanceId === undefined ? {} : { instanceId: this.instanceId }),
       meta: { hostname: this.options.name, pluginVersion: '0.0.0' },
     }
     this.send(socket, frame)
@@ -219,6 +223,7 @@ export class NodeLink {
       ts,
       nonce: value,
       signature: signIdentity(identity, canonicalHello(identity.nodeId ?? '', identity.groupId ?? '', ts, value)),
+      ...(this.instanceId === undefined ? {} : { instanceId: this.instanceId }),
       name: this.options.name,
     }
     this.send(socket, frame)

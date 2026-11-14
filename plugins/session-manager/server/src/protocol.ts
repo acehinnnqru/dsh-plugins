@@ -17,6 +17,8 @@ export interface PeerInfo {
   readonly lastSeen: number
   readonly hostname?: string
   readonly pluginVersion?: string
+  /** Stable installation hash reported by the node. */
+  readonly instanceId?: string
 }
 
 /** First connection: join token plus proof of possession of both node keys. */
@@ -31,6 +33,8 @@ export interface RegisterFrame {
   readonly proof: string
   /** Group to join; omitted when the server has exactly one group. */
   readonly groupId?: string
+  /** Stable installation hash generated in the DSH home. */
+  readonly instanceId?: string
   readonly meta?: { readonly hostname?: string; readonly pluginVersion?: string }
 }
 
@@ -43,6 +47,8 @@ export interface HelloFrame {
   readonly ts: number
   readonly nonce: string
   readonly signature: string
+  /** Stable installation hash; binds the reconnect to this installation. */
+  readonly instanceId?: string
   /** Updated display name; omitted keeps the stored name. */
   readonly name?: string
 }

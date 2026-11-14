@@ -17,12 +17,17 @@ outbound WebSocket to the server.
 
 ## 2. Registration and directory
 
-The plugin stores a durable Ed25519/X25519 identity in
+The plugin generates one installation hash, `nid_` plus 64 hex characters, on
+first use and stores it in `$DSH_HOME/session-manager/instance.json`. It also
+stores a durable Ed25519/X25519 identity in
 `$DSH_HOME/session-manager/network.json`. The first connection registers with a
-server-scoped join token and the selected group id; later connections prove the
-identity with a signed hello. The server accepts many groups; each node belongs
-to exactly one, and the directory is computed per group. A registration without
-a group id keeps the old single-group behavior by joining the first group.
+server-scoped join token, the installation hash, and the selected group id;
+later connections prove the node keys with a signed hello and include the same
+hash. The server reuses one node id for one installation hash, so deleting the
+network identity and registering again does not create a second node in the
+group. The server accepts many groups; each node belongs to exactly one, and the
+directory is computed per group. A registration without a group id keeps the
+old single-group behavior by joining the first group.
 
 The server publishes directory rows with node id, name, public keys, online
 state, and last-seen time. It never publishes a peer endpoint because there is

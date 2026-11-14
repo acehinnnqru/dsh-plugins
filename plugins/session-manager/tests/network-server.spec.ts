@@ -33,6 +33,7 @@ async function register(
   token: string,
   name: string,
   groupId?: string,
+  instanceId?: string,
 ): Promise<{ welcome: WelcomeFrame; socket: WebSocket }> {
   const signing = generateKeyPairSync('ed25519')
   const encryption = generateKeyPairSync('x25519')
@@ -43,7 +44,18 @@ async function register(
     socket.on('open', () => {
       const ts = Date.now()
       const proof = sign(null, Buffer.from(canonicalRegister(name, encKey, signKey, ts)), signing.privateKey).toString('base64url')
-      socket.send(JSON.stringify({ type: 'register', v: 1, token, name, encKey, signKey, ts, proof, ...(groupId === undefined ? {} : { groupId }) }))
+      socket.send(JSON.stringify({
+        type: 'register',
+        v: 1,
+        token,
+        name,
+        encKey,
+        signKey,
+        ts,
+        proof,
+        ...(groupId === undefined ? {} : { groupId }),
+        ...(instanceId === undefined ? {} : { instanceId }),
+      }))
     })
     socket.on('message', (data) => {
       const frame = JSON.parse((data as Buffer).toString('utf8')) as ServerFrame
@@ -244,5 +256,16 @@ describe('session-manager server', () => {
     a.socket.close()
     b.socket.close()
     other.socket.close()
+  })
+
+  it('keeps one node id for one installation hash', async () => {
+    const instanceId = 'nid_' + 'a'.repeat(64)
+    const first = await register(url, server.token ?? '', 'install-a', undefined, instanceId)
+    const second = await register(url, server.token ?? '', 'install-a', first.welcome.groupId, instanceId)
+    expect(second.welcome.nodeId).toBe(first.welcome.nodeId)
+    expect(second.welcome.directory.filter((peer) => peer.name === 'install-a')).toHaveLength(1)
+    expect(second.welcome.directory.find((peer) => peer.name === 'install-a')?.instanceId).toBe(instanceId)
+    first.socket.close()
+    second.socket.close()
   })
 })

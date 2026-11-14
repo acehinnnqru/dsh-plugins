@@ -170,6 +170,14 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
+.nodeHash {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--dsw-font-family-mono, monospace);
+  font-size: 10px;
+  line-height: 16px;
+}
+
 .nodeBody {
   flex: 1;
   min-height: 0;

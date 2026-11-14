@@ -141,7 +141,11 @@ export function installFederation(controller: object, pool: PeerPool): () => voi
       values: {
         ...values,
         title: '[' + peer.name + '] ' + current,
-        sessionManagerNode: { nodeId: peer.nodeId, name: peer.name },
+        sessionManagerNode: {
+          nodeId: peer.nodeId,
+          name: peer.name,
+          ...(peer.instanceId === undefined ? {} : { instanceId: peer.instanceId }),
+        },
       },
     } as NonNullable<SessionSummary['projections']>
     return { ...summary, projections }

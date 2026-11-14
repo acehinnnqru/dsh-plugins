@@ -103,6 +103,8 @@ full-screen new-conversation overlay that embeds the native composer.
   **Recent** and stays findable; it is not hidden. With the network runtime, the read is sent to the
   Host and broadcast to every node, so the same completion clears there too. Without a server, the
   read mark and stop note stay browser-local.
+- Each DSH home gets one persistent installation hash (`nid_...`) before its first registration.
+  The host sends it on register and hello, and the server reuses one node id for that installation.
 - Carries an optional host runtime. With a server URL configured, the host half registers with the
   directory server, bridges peer Session RPC over that single WebSocket, federates peer Sessions
   into the ordinary Session Controller surface, and keeps the shared status/unread registry. No

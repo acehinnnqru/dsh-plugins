@@ -469,6 +469,10 @@ function SessionCardView({
     card.id,
     pinned ? 'workspace/unpinSession' : 'workspace/pinSession',
   )
+  const nodeLabel = card.node.self ? 'self' : card.node.name
+  const nodeTitle = card.node.self || card.node.instanceId === undefined
+    ? nodeLabel
+    : nodeLabel + ' · ' + card.node.instanceId
   return (
     <article
       className={css.card}
@@ -492,9 +496,9 @@ function SessionCardView({
           <span
             className={css.cardNode}
             data-self={card.node.self ? 'true' : undefined}
-            title={card.node.self ? 'self' : card.node.name}
+            title={nodeTitle}
           >
-            {card.node.self ? 'self' : card.node.name}
+            {nodeLabel}
           </span>
           {workspace !== '' && (
             <span className={css.cwd} title={card.cwd ?? workspace}>{workspace}</span>
@@ -601,10 +605,17 @@ function NodesBoard({
                   className={css.nodeName}
                   id={'session-manager-node-' + String(index)}
                   data-self={column.node.self ? 'true' : undefined}
-                  title={column.node.name}
+                  title={column.node.instanceId === undefined
+                    ? column.node.name
+                    : column.node.name + ' · ' + column.node.instanceId}
                 >
                   {column.node.self ? 'self' : column.node.name}
                 </span>
+                {column.node.instanceId !== undefined && (
+                  <span className={css.nodeHash} title={column.node.instanceId}>
+                    {column.node.instanceId.slice(4, 12)}
+                  </span>
+                )}
                 <span className={css.columnCount}>{count}</span>
               </header>
               <div className={css.nodeBody}>

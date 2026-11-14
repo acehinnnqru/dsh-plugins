@@ -30,6 +30,8 @@ export interface SessionNode {
   readonly name: string
   /** Whether the Session belongs to this host. */
   readonly self: boolean
+  /** Stable installation hash of the owning node, when the Host reported one. */
+  readonly instanceId?: string
 }
 
 /** The local node label used on cards and the Nodes tab. */
@@ -214,12 +216,13 @@ export function sessionNodeOf(list: SessionListState, sessionId: SessionId): Ses
   const values = list.projectionsBySession[sessionId]?.values as Readonly<Record<string, unknown>> | undefined
   const value = values?.['sessionManagerNode']
   if (typeof value === 'object' && value !== null) {
-    const node = value as { readonly nodeId?: unknown; readonly name?: unknown }
+    const node = value as { readonly nodeId?: unknown; readonly name?: unknown; readonly instanceId?: unknown }
     if (typeof node.name === 'string' && node.name.length > 0) {
       return {
         id: typeof node.nodeId === 'string' && node.nodeId.length > 0 ? node.nodeId : undefined,
         name: node.name,
         self: false,
+        ...(typeof node.instanceId === 'string' && node.instanceId.length > 0 ? { instanceId: node.instanceId } : {}),
       }
     }
   }

@@ -77,9 +77,11 @@ patch row looks like:
         group: grp_replace_me
 ```
 
-The first registration writes `$DSH_HOME/session-manager/network.json`; later
-starts in the same group prove that identity with a signed hello and do not need
-the token. Changing the group registers the node again, so keep the token in the
+The first use writes `$DSH_HOME/session-manager/instance.json` with one stable
+`nid_...` installation hash, and the first registration writes
+`$DSH_HOME/session-manager/network.json`; later starts in the same group prove
+that identity with a signed hello and do not need the token. The server keeps
+one node id per installation hash. Changing the group registers the node again, so keep the token in the
 settings while switching groups.
 
 ## 4. Start two DSH homes
