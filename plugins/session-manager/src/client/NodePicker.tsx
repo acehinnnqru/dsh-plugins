@@ -92,15 +92,18 @@ export function NodePicker({ nodes, current, t, onPick, onPrepare }: NodePickerP
     picking.current = true
     setBusy(true)
     setError(undefined)
+    // Dismiss the menu before the bridge round-trip; the trigger keeps the busy state.
+    setOpen(false)
     try {
       const failure = await onPick(node)
       if (failure !== undefined) {
         setError(failure)
+        setOpen(true)
         return
       }
-      setOpen(false)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
+      setOpen(true)
     } finally {
       picking.current = false
       setBusy(false)

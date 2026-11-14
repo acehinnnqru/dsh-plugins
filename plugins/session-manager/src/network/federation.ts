@@ -153,9 +153,10 @@ export function installFederation(controller: object, pool: PeerPool): () => voi
 
   const refresh = async (self: SessionListValue): Promise<SessionListValue> => {
     await waitDirectory()
-    remote.clear()
     const items = [...self.items]
+    const seen = new Set(items.map((item) => item.sessionId))
     const peers = pool.directory().filter((peer) => peer.online)
+    const next = new Map<string, RemoteRow>()
     await Promise.all(peers.map(async (peer) => {
       try {
         const rows = await Promise.race([
@@ -164,14 +165,19 @@ export function installFederation(controller: object, pool: PeerPool): () => voi
         ])
         for (const value of rows) {
           const summary = value as SessionSummary
-          if (items.some((item) => item.sessionId === summary.sessionId)) continue
-          remote.set(summary.sessionId, { peer, summary })
+          if (seen.has(summary.sessionId)) continue
+          seen.add(summary.sessionId)
+          next.set(summary.sessionId, { peer, summary })
           items.push(titled(summary, peer))
         }
       } catch {
         // A peer that cannot answer simply contributes no rows.
       }
     }))
+    // Swap only after every peer answered. Clearing first made concurrent follow
+    // and prompt calls fall back to the local controller while the list refreshed.
+    remote.clear()
+    for (const [sessionId, row] of next) remote.set(sessionId, row)
     return { items }
   }
 

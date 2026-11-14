@@ -882,7 +882,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   workspacesRef.current = workspaces
   const listRef = useRef(list)
   listRef.current = list
-  const preparedRemote = useRef(new Map<string, Promise<SessionId>>())
+  const preparedRemote = useRef(new Map<string, { promise: Promise<SessionId>; sessionId?: SessionId }>())
   const composerRef = useRef<Composer | undefined>(undefined)
   composerRef.current = composer
 
@@ -1139,22 +1139,22 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     return latest?.cwd
   }
 
-  /** Warm one peer's blank while the node menu previews it. */
-  function prepareNode(node: SessionNode): void {
+  /** Warm one peer's blank at a known directory. */
+  function prepareRemote(node: SessionNode, cwd: string): void {
+    if (node.self || node.id === undefined) return
     const fromId = composerRef.current?.reference.sessionId
-    if (node.self || node.id === undefined || fromId === undefined) return
-    const source = listRef.current.byId[fromId]
-    if (source === undefined) return
-    const owner = sessionNodeOf(listRef.current, fromId)
-    if (!owner.self && owner.id === node.id) return
-    const workspacesNow = workspacesRef.current
-    const workspace = workspaceAt(source.cwd)
-      ?? workspacesNow.items.find((item) => item.workspaceId === currentWorkspaceId(workspacesNow, listRef.current))
-      ?? workspacesNow.items.find((item) => item.workspaceId === recentWorkspaceId(workspacesNow, listRef.current))
-    const cwd = workspace?.path ?? nodeDirectory(node)
-    if (cwd === undefined) return
+    if (fromId !== undefined) {
+      const owner = sessionNodeOf(listRef.current, fromId)
+      if (!owner.self && owner.id === node.id) return
+    }
     const key = node.id + '\n' + cwd
-    if (preparedRemote.current.has(key)) return
+    const prior = preparedRemote.current.get(key)
+    if (prior !== undefined) {
+      if (prior.sessionId === undefined) return
+      const row = listRef.current.byId[prior.sessionId]
+      if (row !== undefined && row.blank === true) return
+      preparedRemote.current.delete(key)
+    }
     const parked = listRef.current.ids.some((id) => {
       const row = listRef.current.byId[id]
       if (row === undefined || row.blank !== true || row.cwd !== cwd || archived.includes(id)) return false
@@ -1167,10 +1167,44 @@ export function SessionBoardPage(props: PageProps): ReactNode {
         await waitForSession(sessionId)
         return sessionId
       })
-    preparedRemote.current.set(key, prepared)
-    void prepared.catch(() => {
-      preparedRemote.current.delete(key)
+    const entry: { promise: Promise<SessionId>; sessionId?: SessionId } = { promise: prepared }
+    preparedRemote.current.set(key, entry)
+    void prepared.then((sessionId) => {
+      if (preparedRemote.current.get(key)?.promise === prepared) entry.sessionId = sessionId
+    }).catch(() => {
+      if (preparedRemote.current.get(key)?.promise === prepared) preparedRemote.current.delete(key)
     })
+  }
+
+  /** Warm the node menu target from the open conversation. */
+  function prepareNode(node: SessionNode): void {
+    const fromId = composerRef.current?.reference.sessionId
+    if (node.self || node.id === undefined || fromId === undefined) return
+    const source = listRef.current.byId[fromId]
+    if (source === undefined) return
+    const workspacesNow = workspacesRef.current
+    const workspace = workspaceAt(source.cwd)
+      ?? workspacesNow.items.find((item) => item.workspaceId === currentWorkspaceId(workspacesNow, listRef.current))
+      ?? workspacesNow.items.find((item) => item.workspaceId === recentWorkspaceId(workspacesNow, listRef.current))
+    const cwd = workspace?.path ?? nodeDirectory(node)
+    if (cwd === undefined) return
+    prepareRemote(node, cwd)
+  }
+
+  /** Warm every online peer as soon as the overlay opens. */
+  async function warmPeers(cwd: string | undefined): Promise<void> {
+    if (cwd === undefined) return
+    try {
+      const response = await fetch('/api/session-manager/nodes')
+      if (!response.ok || !mounted.current || composerRef.current === undefined) return
+      const body = await response.json() as { nodes?: readonly { nodeId?: unknown; name?: unknown; self?: unknown }[] }
+      for (const value of body.nodes ?? []) {
+        if (typeof value.nodeId !== 'string' || typeof value.name !== 'string' || value.self === true) continue
+        prepareRemote({ id: value.nodeId, name: value.name, self: false }, cwd)
+      }
+    } catch {
+      // A later menu preview retries the warm-up.
+    }
   }
 
   /**
@@ -1206,6 +1240,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     }
     const cwd = workspace?.path ?? fallbackCwd ?? nodeDirectory(node)
     if (node.id === undefined || cwd === undefined) throw new Error(t('new.failed'))
+    const key = node.id + '\n' + cwd
     const existing = listRef.current.ids.find((id) => {
       const row = listRef.current.byId[id]
       if (row === undefined || row.blank !== true || row.cwd !== cwd || archived.includes(id)) return false
@@ -1214,16 +1249,19 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       const preset = (row.projectionValues as Readonly<Record<string, unknown>> | undefined)?.['agentPreset']
       return agentPreset === undefined || typeof preset !== 'string' || preset === agentPreset
     })
-    if (existing !== undefined) return existing
-    const key = node.id + '\n' + cwd
+    if (existing !== undefined) {
+      preparedRemote.current.delete(key)
+      return existing
+    }
     const prepared = preparedRemote.current.get(key)
     if (prepared !== undefined) {
       try {
-        const sessionId = await prepared
-        preparedRemote.current.delete(key)
-        return sessionId
+        const sessionId = await prepared.promise
+        if (preparedRemote.current.get(key) === prepared) preparedRemote.current.delete(key)
+        const row = listRef.current.byId[sessionId]
+        if (row !== undefined && row.blank === true) return sessionId
       } catch {
-        preparedRemote.current.delete(key)
+        if (preparedRemote.current.get(key) === prepared) preparedRemote.current.delete(key)
       }
     }
     const sessionId = await createRemoteSession(node.id, {
@@ -1273,6 +1311,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       setChooseNode(switchNode)
       setPrepareNode(prepareNode)
       setComposer({ reference, mainView })
+      void warmPeers(workspace?.path ?? target?.cwd)
     } catch (cause) {
       setStartError(cause instanceof Error ? cause.message : String(cause))
     } finally {

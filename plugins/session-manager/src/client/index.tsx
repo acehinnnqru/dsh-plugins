@@ -310,7 +310,7 @@ export function apply(ctx: ClientContext): void {
     }, 10_000)
     poll = setInterval(() => {
       void ctx.sessions.refresh().catch(() => {})
-    }, 100)
+    }, 250)
     check()
     void ctx.sessions.refresh().catch(() => {})
   })
