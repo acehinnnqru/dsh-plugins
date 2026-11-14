@@ -17,17 +17,6 @@ import {
 const ROOT = process.cwd()
 const PLUGINS_DIR = join(ROOT, 'plugins')
 
-/**
- * `0.1.5-rc.1` → `0.1.5`.
- *
- * Only `major.minor.patch` is compared: every DSH release is a prerelease and `rc.N` is upstream's own
- * build number, so bumping it must not turn the whole repo red. A change of version line is the real
- * incompatibility.
- */
-function releaseLine(version: string): string {
-  return version.split('-')[0] ?? version
-}
-
 /** Every manifest section that can declare `@deepseek-ai/*`. */
 const SECTIONS = ['dependencies', 'peerDependencies', 'devDependencies'] as const
 
@@ -64,6 +53,11 @@ for (const dir of await pluginDirs()) {
   >
   const file = relative(ROOT, manifestPath)
 
+  const engine = manifest['engines']?.['dsh']
+  if (engine !== undefined && engine !== DSH_VERSION) {
+    mismatches.push({ file, section: 'engines', pkg: 'dsh', actual: engine })
+  }
+
   for (const section of SECTIONS) {
     for (const [pkg, actual] of Object.entries(manifest[section] ?? {})) {
       if (!pkg.startsWith('@deepseek-ai/')) continue
@@ -72,7 +66,9 @@ for (const dir of await pluginDirs()) {
       // are correct today and would still be correct the day DSH ships 0.1.6-rc.1. Comparing them
       // against the DSH line would demand a version that does not exist.
       if (OWN_VERSION_LINE.has(pkg)) continue
-      if (releaseLine(actual) === releaseLine(DSH_VERSION)) continue
+      // DSH rejects an exact-version mismatch, including the prerelease counter: an `rc.1`
+      // declaration does not run on `rc.3`. Compare the whole value, not just the release line.
+      if (actual === DSH_VERSION) continue
 
       mismatches.push({ file, section, pkg, actual })
     }

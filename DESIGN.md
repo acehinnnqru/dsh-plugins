@@ -70,13 +70,13 @@ Every item below has been verified. The design has to obey them; there is nothin
 
 | Fact |
 |---|
-| The maintainer's DSH installation runs the `rc` line, now `0.2.2-rc.1`, and this repo pins that exact release; `alpha` is `0.2.2-alpha.3`, and `next` also points at `0.2.2-rc.1`. **`latest` is not trustworthy**: on `@deepseek-ai/dsh-tools` and `@deepseek-ai/dsh-client-web` it still points at `0.0.1-rc.1` |
-| `@deepseek-ai/cordis` is pinned to `4.1.0` and `@deepseek-ai/schemastery` to `3.19.0` — the lines the `0.2.2-rc.1` DSH packages require (`~4.1.0`, `~3.19.0`). A DSH release bump moves them too |
+| The maintainer's DSH installation runs the `rc` line, now `0.2.2-rc.3`, and this repo pins that exact release; `alpha` is `0.2.2-alpha.3`, and `next` also points at `0.2.2-rc.3`. **`latest` is not trustworthy**: on `@deepseek-ai/dsh-tools` and `@deepseek-ai/dsh-client-web` it still points at `0.0.1-rc.1` |
+| `@deepseek-ai/cordis` is pinned to `4.1.0` and `@deepseek-ai/schemastery` to `3.19.0` — the lines the `0.2.2-rc.3` DSH packages require (`~4.1.0`, `~3.19.0`). A DSH release bump moves them too |
 | The test-support packages **are published**: `dsh-loader-smoke`, `dsh-client-test-runtime`, `dsh-agent-loop-testkit`, `dsh-llm-mock-server`, `dsh-llm-replay`, `dsh-session-snapshot` |
 | **The client build preset is not published.** There is not even a `package.json` under `packages/client/` |
 | **Upstream has no plugin scaffold at all.** There is no `create-dsh-plugin`; the CLI has only the `web` and `plugin` subcommands |
-| Upstream does not validate an out-of-tree plugin's manifest shape, but the `0.2.2-rc.1` runtime **does** compare the plugin's declared `@deepseek-ai/dsh-*` peer requirements with its own version and refuses a mismatch; `dsh plugin allow-version` is the explicit escape hatch |
-| `0.2.2-rc.1` ships the experimental plugin-market bundle and `@deepseek-ai/dsh-plugin-market-index`; the reference generator under `apps/plugin-market-generator` is not published. An index version installs from npm or a commit-pinned Git repository — never from a tarball URL |
+| Upstream does not validate an out-of-tree plugin's manifest shape, but the `0.2.2-rc.3` runtime **does** compare the plugin's declared `@deepseek-ai/dsh-*` peer requirements with its own version and refuses a mismatch; `dsh plugin allow-version` is the explicit escape hatch |
+| `0.2.2-rc.3` ships the experimental plugin-market bundle and `@deepseek-ai/dsh-plugin-market-index`; the reference generator under `apps/plugin-market-generator` is not published. An index version installs from npm or a commit-pinned Git repository — never from a tarball URL |
 
 ---
 
@@ -192,7 +192,7 @@ Not now; the path is recorded here so the research does not have to be redone:
 
 ## 7. Sources
 
-The facts come from the local DSH checkout (read-only) and from measurements against the npm registry. The market facts come from the installed `@deepseek-ai/dsh-plugin-market-index` 0.2.2-rc.1 validator and types, the `@deepseek-ai/dsh-plugin-market` README, and the upstream note `.agents/notes/implemented/feature/2026-10-02-plugin-market-index-format.md`.
+The facts come from the local DSH checkout (read-only) and from measurements against the npm registry. The market facts come from the installed `@deepseek-ai/dsh-plugin-market-index` 0.2.2-rc.3 validator and types, the `@deepseek-ai/dsh-plugin-market` README, and the upstream note `.agents/notes/implemented/feature/2026-10-02-plugin-market-index-format.md`.
 
 The three research notes, item by item with file paths and code snippets:
 

@@ -1,6 +1,6 @@
 # Using this repo as a plugin market index
 
-DSH 0.2.2-rc.1 ships the experimental `@deepseek-ai/dsh-experimental-plugin-market-bundle`: a
+DSH 0.2.2-rc.3 ships the experimental `@deepseek-ai/dsh-experimental-plugin-market-bundle`: a
 **Discover** tab on the Plugins page that reads static **plugin market indexes** and installs the
 bundles they list. This repo produces one index, `index.json` (generated; see below), so its
 plugins can be browsed and installed from that tab instead of by copying a path or a tarball.
@@ -17,7 +17,7 @@ its output with that package before writing anything.
 | The package declares `dsh.bundle.patch` | Every `plugins/<name>/package.json` already did |
 | The package is not `private: true` | Removed from every plugin manifest (the reference generator skips private packages) |
 | A Git install can produce `lib/` | Each plugin has `"prepare": "tsc -b tsconfig.json && tsdown"` and the build devDependencies (`typescript`, `tsdown`, `@types/node`). `lib/` stays gitignored |
-| `engines.dsh` is a valid range | Derived from the plugin's `@deepseek-ai/dsh*` peer ranges (all `0.2.2-rc.1`); an explicit `engines.dsh` in the manifest wins |
+| `engines.dsh` is a valid range | Derived from the plugin's `@deepseek-ai/dsh*` peer ranges (all `0.2.2-rc.3`); an explicit `engines.dsh` in the manifest wins |
 | One exact version, one pinned source | `index.json` lists `version` and a `source` of `git` + `commit` + `path` |
 
 The index makes the repo **installable over Git**, not published to a registry. `private` was only

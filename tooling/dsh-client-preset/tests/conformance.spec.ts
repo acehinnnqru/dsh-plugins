@@ -60,9 +60,9 @@ async function runIn(cwd: string, args: readonly string[]): Promise<{ code: numb
 /** Compile a fixture's types and bundle it, exactly as a plugin's own build script does. */
 async function build(name: string): Promise<{ code: number; output: string }> {
   const cwd = join(fixturesDir, name)
-  const compiled = await runIn(cwd, ['pnpm', 'exec', 'tsc', '-b', 'tsconfig.json'])
+  const compiled = await runIn(cwd, [join(cwd, 'node_modules', '.bin', 'tsc'), '-b', 'tsconfig.json'])
   if (compiled.code !== 0) return compiled
-  return await runIn(cwd, ['pnpm', 'exec', 'tsdown'])
+  return await runIn(cwd, [join(cwd, 'node_modules', '.bin', 'tsdown')])
 }
 
 /**
@@ -74,7 +74,8 @@ async function build(name: string): Promise<{ code: number; output: string }> {
  * the fixture's stale `tsc` build info, so a re-run cannot pass on a previous run's output.
  */
 async function buildForbidden(): Promise<{ code: number; output: string }> {
-  return await runIn(join(fixturesDir, FORBIDDEN), ['pnpm', 'run', 'build:forbidden'])
+  const cwd = join(fixturesDir, FORBIDDEN)
+  return await runIn(cwd, [join(cwd, 'node_modules', '.bin', 'tsx'), join('scripts', 'build.ts')])
 }
 
 /** Read one of a fixture's build outputs as text. */
@@ -128,7 +129,12 @@ async function expectWatchRebuild(name: string): Promise<void> {
   expect(seeded.code, seeded.output).toBe(0)
 
   const original = await readFile(source, 'utf8')
-  const watcher = spawn('sh', ['-c', script], { cwd, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+  const watcher = spawn('sh', ['-c', script], {
+    cwd,
+    env: { ...process.env, PATH: `${join(cwd, 'node_modules', '.bin')}:${process.env.PATH ?? ''}` },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
+  })
   let log = ''
   watcher.stdout?.on('data', (chunk: Buffer) => { log += chunk.toString() })
   watcher.stderr?.on('data', (chunk: Buffer) => { log += chunk.toString() })
@@ -320,7 +326,8 @@ describe('clientBundle failures', () => {
   }, 30_000)
 
   it('throws when a plugin declares a browser half but exports no ./client', async () => {
-    const built = await runIn(join(fixturesDir, NO_CLIENT_EXPORT), ['pnpm', 'exec', 'tsdown'])
+    const cwd = join(fixturesDir, NO_CLIENT_EXPORT)
+    const built = await runIn(cwd, [join(cwd, 'node_modules', '.bin', 'tsdown')])
     expect(built.code).not.toBe(0)
     expect(built.output).toContain('exports no "./client" bundle')
     // Same cold-build budget as the other spawned builds.
