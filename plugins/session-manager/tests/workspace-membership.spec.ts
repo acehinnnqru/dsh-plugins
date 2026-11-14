@@ -58,7 +58,7 @@ describe('workspace membership overlay', () => {
         error: null,
       } as never
     }
-    expect(remoteSessionsByPath(list)).toEqual(new Map([['/work', [id('remote'), id('open-blank')]]]))
+    expect(remoteSessionsByPath(list)).toEqual(new Map([['/work', [id('open-blank')]]]))
   })
 
   it('preserves local members and swaps the previous remote set', () => {

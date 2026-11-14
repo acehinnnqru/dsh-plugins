@@ -60,11 +60,12 @@ federated list on the next refresh. `/api/session-manager/nodes` returns the
 online directory for the picker.
 
 The native new-session shell only enables its composer for a Session that is a
-member of a Workspace in the local Client projection. A remote row is therefore
-joined to the local Workspace with the same directory while it is retained, and
-removed again when it is no longer open or the peer row disappears. This is a
-Client-only projection; the Host Workspace registry still contains only local
-Session ids.
+member of a Workspace in the local Client projection. A remote blank is therefore
+joined to the local Workspace with the same directory only while it is retained
+for the hero, and removed again when it is closed, started, or the peer row
+disappears. This is a Client-only projection; the Host Workspace registry still
+contains only local Session ids, and a started remote Session stays out of the
+local Workspace tree.
 
 ### Shared status and unread
 

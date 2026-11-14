@@ -23,9 +23,11 @@ export function remoteSessionsByPath(sessions: SessionListState): Map<string, Se
     const row = sessions.byId[id]
     if (row === undefined || row.cwd === undefined) continue
     if (sessionNodeOf(sessions, id).self) continue
-    // A parked remote blank must not become a native Workspace blank that the
-    // local New Session action can try to reuse. Adopt it only while it is open.
-    if (row.blank && !Object.values(row.retainedBy).some((count) => typeof count === 'number' && count > 0)) continue
+    // The native hero only needs this membership while a remote blank is open.
+    // A parked blank would become a local New Session candidate; a started
+    // Session no longer needs the hero and must stay out of the Workspace tree.
+    if (!row.blank) continue
+    if (!Object.values(row.retainedBy).some((count) => typeof count === 'number' && count > 0)) continue
     const ids = result.get(row.cwd) ?? []
     ids.push(id)
     result.set(row.cwd, ids)
