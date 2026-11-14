@@ -43,10 +43,11 @@ full-screen new-conversation overlay that embeds the native composer.
   the back bar.
 - Pins a Session from the icon that appears when its card is hovered or focused. Pinned Sessions move
   to a full-width **Pinned** rail above the columns and keep their runtime label there; the rail is
-  absent until at least one pin exists. Pins are Host state shared with the native sidebar: the rail
-  reads the registry-global pin set (newest pin first), and pinning or unpinning from either surface
-  updates the other. The button only renders when the Session's access snapshot allows the action.
-  The earlier browser-local pin list is no longer read.
+  absent until at least one pin exists. A local Session uses the registry-global Host pin set shared
+  with the native sidebar, so pinning or unpinning from either surface updates the other. A remote
+  Session cannot enter this Host's workspace registry; its pin is stored by the viewing browser and
+  merged after the Host pins. The button only renders when the Session's access snapshot allows the
+  action.
 - Starts a new conversation from the **New conversation** control in the page's top-right, or from
   the preview dialog's control beside **Open session**, which seeds the previewed Session's Workspace
   and Agent preset. The header control resolves the target the way the native New Session action does: the
@@ -175,13 +176,14 @@ turn's coordinates, so the page's copy of that card is clicked rather than the c
 The card sits in its turn's tail, which the page draws for the newest turns; a card the transcript
 has virtualized out is left unserved, and the click has still moved to the page.
 The search dialog only reads the same live list snapshot and
-retains a Session when its result is previewed. Pinning writes the Host pin set through
-`uiWorkspace`, and the management tab writes the registry-global archive set through the same
-service; the page never stops, renames, or pauses a Session, and a batch archive leaves a Session
-whose work is still running untouched and reports the refusal. The native composer is the Session's
-own input surface, used by the person in front of it. The only browser-local stored value is the
-Recent-window choice in `localStorage`; without a server, completion read marks and local stop
-notes live in memory and reset with the page. With a server, the host publishes them through the
+retains a Session when its result is previewed. Pinning a local Session writes the Host pin set
+through `uiWorkspace`; pinning a remote one writes the browser-local remote pin order, because the
+Host registry rejects ids it does not own. The management tab writes the registry-global archive set
+through the same service; the page never stops, renames, or pauses a Session, and a batch archive
+leaves a Session whose work is still running untouched and reports the refusal. The native composer
+is the Session's own input surface, used by the person in front of it. The browser-local stored
+values are the Recent-window choice and the remote pin order; without a server, completion read
+marks and local stop notes live in memory and reset with the page. With a server, the host publishes them through the
 shared status registry.
 
 ## How the columns are decided
@@ -202,7 +204,8 @@ shared status registry.
    row from the board.
 
 `tests/board.spec.ts` covers the precedence, the filters, the read mark, the Recent-window
-boundary, and the pinned states (whose ids now come from the Host pin set);
+boundary, and the pinned states (whose ids come from the Host pin set plus the browser-local remote
+pin order); `tests/remote-pins.spec.ts` covers that stored order;
 `tests/session-search.spec.ts` covers the full-list derivation and the title-or-Workspace filter;
 `tests/archive.spec.ts` covers the batch archive outcome;
 `tests/recent-window.spec.ts` covers the window preference; `tests/back-to-board.spec.ts` covers the

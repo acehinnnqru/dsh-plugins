@@ -60,6 +60,7 @@ import {
   deriveNodeColumns,
   derivePinned,
   previewReadMark,
+  sessionNodeOf,
   sessionDisplayTitle,
   waitingCopyKey,
   withinRecent,
@@ -71,6 +72,7 @@ import {
 } from './board.ts'
 import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
+import { REMOTE_PIN_KEY, readRemotePins, toggleRemotePin, writeRemotePins } from './remote-pins.ts'
 import { matchSessions, searchableSessions, type SessionHit } from './session-search.ts'
 import { workspaceOf } from './workspace-search.ts'
 import { fullDate, stateText, timeText, workspaceName, type Translate } from './session-view.ts'
@@ -815,6 +817,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const [composer, setComposer] = useState<Composer | undefined>(undefined)
   const [startError, setStartError] = useState<string | undefined>(undefined)
   const [tab, setTab] = useState<PageTab>('board')
+  const [remotePins, setRemotePins] = useState<readonly SessionId[]>(() => readRemotePins())
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [pinError, setPinError] = useState<string | undefined>(undefined)
@@ -870,6 +873,19 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     }
   }, [preview, composer])
 
+  // Remote pins live in the browser, so another tab's pin change arrives as a storage event.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const onStorage = (event: StorageEvent): void => {
+      if (event.key !== REMOTE_PIN_KEY) return
+      setRemotePins(readRemotePins())
+    }
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
+
   // The preview owns one retained Session reference. Releasing it in the effect cleanup runs after
   // the Conversation for the old reference has unmounted, including when the page itself unmounts.
   const previewReference = preview?.reference
@@ -908,14 +924,19 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   }, [composerReference, composerMainView])
 
   const locallyCompleted = localCompletionIds(list)
-  const pinned = derivePinned(list, statuses, archived, workspaces.pinnedSessionIds, completionReadAt, locallyCompleted, sharedStatuses)
+  const localPinnedIds = new Set(workspaces.pinnedSessionIds)
+  const pinnedSessionIds = [
+    ...workspaces.pinnedSessionIds,
+    ...remotePins.filter((id) => !localPinnedIds.has(id)),
+  ]
+  const pinned = derivePinned(list, statuses, archived, pinnedSessionIds, completionReadAt, locallyCompleted, sharedStatuses)
   const pinnedIds = new Set(pinned.map((card) => card.id))
   const board = deriveBoard(list, statuses, archived, locallyCompleted, completionReadAt, sharedStatuses)
   const nodeColumns = deriveNodeColumns(
     list,
     statuses,
     archived,
-    workspaces.pinnedSessionIds,
+    pinnedSessionIds,
     completionReadAt,
     locallyCompleted,
     sharedStatuses,
@@ -1089,15 +1110,24 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   }
 
   /**
-   * Pin or unpin one Session on the Host.
+   * Pin or unpin one Session.
    *
-   * The Host snapshot is the source of truth, so the rail and the columns move on their own. The ref
-   * only prevents a double click from sending pin and unpin together; a failed write is reported
-   * above the columns.
+   * A local Session uses the Host workspace pin, so the native rail and the columns stay in sync. A
+   * remote Session cannot enter this Host's workspace registry; its pin belongs to the viewing
+   * browser and is stored with the other remote pins. The ref only prevents a double click from
+   * sending a local pin and unpin together; a failed local write is reported above the columns.
    * @param sessionId - Session to change.
    * @param pinned - whether the Session is pinned now.
    */
   async function togglePin(sessionId: SessionId, pinned: boolean): Promise<void> {
+    setPinError(undefined)
+    const remote = list.byId[sessionId] !== undefined && !sessionNodeOf(list, sessionId).self
+    if (remote) {
+      const next = toggleRemotePin(remotePins, sessionId, pinned)
+      setRemotePins(next)
+      writeRemotePins(next)
+      return
+    }
     if (pinning.current.has(sessionId)) return
     pinning.current.add(sessionId)
     setPinBusy(new Set(pinning.current))
