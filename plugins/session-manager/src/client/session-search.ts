@@ -18,10 +18,13 @@ import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/c
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   newestFirst,
+  sessionDisplayTitle,
+  sessionNodeOf,
   sessionState,
   type PinnedState,
   type SessionCard,
 } from './board.ts'
+import type { SharedStatus } from './status.ts'
 import { baseName, workspaceLabel, workspaceOf } from './workspace-search.ts'
 
 /** One search result: a card plus the runtime state its preview opens with. */
@@ -48,6 +51,7 @@ export function searchableSessions(
   archivedSessionIds: readonly SessionId[],
   readAt: ReadonlyMap<SessionId, number> = new Map(),
   locallyCompleted: ReadonlySet<SessionId> = new Set(),
+  sharedStatuses: ReadonlyMap<string, SharedStatus> = new Map(),
 ): SessionHit[] {
   const archived = new Set(archivedSessionIds)
   const hits: SessionHit[] = []
@@ -57,17 +61,28 @@ export function searchableSessions(
     if (row === undefined || row.blank || row.origin === 'subagent' || archived.has(id)) continue
 
     const status = statuses.get(id)
+    const shared = sharedStatuses.get(id)
+    const pendingInteraction = status?.pendingInteraction ?? (shared !== undefined && shared.pending !== null && shared.pending.length > 0
+      ? { key: 'shared:' + id, kind: shared.pending, sessionId: id }
+      : undefined)
+    const effective = shared === undefined ? status : {
+      running: status?.running ?? shared.running,
+      pendingInteraction,
+      completionUnread: shared.unread,
+    }
+    const node = sessionNodeOf(list, id)
     hits.push({
       id,
-      title: row.displayTitle,
+      title: sessionDisplayTitle(row.displayTitle, node),
       cwd: row.cwd,
       updatedAt: row.updatedAt,
-      waitingKind: status?.pendingInteraction?.kind,
+      waitingKind: effective?.pendingInteraction?.kind,
+      node,
       state: sessionState(
-        status,
-        status?.running ?? row.running,
-        (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt,
-        locallyCompleted.has(id),
+        effective,
+        effective?.running ?? row.running,
+        shared === undefined ? (readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt : !shared.unread,
+        locallyCompleted.has(id) && (shared === undefined || shared.unread),
       ),
     })
   }

@@ -6,9 +6,9 @@
   "types": "lib/types/index.d.ts",
   "scripts": { "build": "tsc -b tsconfig.json && tsdown" },
   "peerDependencies": {
-    "@deepseek-ai/dsh-plugin-market-index": "0.2.2-rc.1"
+    "@deepseek-ai/dsh-plugin-market-index": "0.2.2-rc.3"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-plugin-market-index": "0.2.2-rc.1"
+    "@deepseek-ai/dsh-plugin-market-index": "0.2.2-rc.3"
   }
 }

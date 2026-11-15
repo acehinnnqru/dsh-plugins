@@ -14,8 +14,9 @@
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { ConfigForm, ConfigForms } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: they carry the declaration merges for ctx.locale, ctx.slots, ctx.sessions,
@@ -26,14 +27,17 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { BackToBoard } from './BackToBoard.tsx'
 import { disarmBackToBoard } from './back-to-board.ts'
-import { startCompletionTracker } from './completion-tracker.ts'
+import { localCompletionIds, startCompletionTracker, subscribeLocalCompletions } from './completion-tracker.ts'
+import { SharedStatusStore } from './status.ts'
 import { SessionConversationHost } from './ConversationHost.tsx'
 import { SessionBoardPage, type SessionManagerInjected } from './SessionBoardPage.tsx'
 import { SessionManagerIcon } from './SessionManagerIcon.tsx'
+import { mergeWorkspaceMembers, remoteSessionsByPath } from './workspace-membership.ts'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, NS, zh } from './locales.ts'
 import type { PreviewDestination } from './preview-links.ts'
@@ -44,6 +48,7 @@ import {
   type RightColumn,
 } from './right-column.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
+import { SETTINGS_ENTRY, type SessionManagerSettings } from './settings.ts'
 
 /** The panel's id: the main column's key and the sidebar row's list id have to be the same value. */
 const PANEL_ID = 'session-manager' as MainPanelId
@@ -52,7 +57,7 @@ const PANEL_ID = 'session-manager' as MainPanelId
 const PANEL_ORDER = 30
 
 /** Cordis service names this half waits for: slots, locale, Session retention, Session status, and navigation. */
-export const inject = ['slots', 'locale', 'sessions', 'uiSession', 'uiWorkspace', 'layout']
+export const inject = ['slots', 'locale', 'sessions', 'workspaces', 'uiSession', 'uiWorkspace', 'layout', 'remote', 'remote.settings']
 
 /** The Chat view's settings form, read for the one value that decides where a web link opens. */
 interface ChatSettingsForm {
@@ -62,6 +67,25 @@ interface ChatSettingsForm {
 /** The settings registry, reached through `ctx.get` because this plugin does not require it. */
 interface ConfigFormsFace {
   get(namespace: string): ChatSettingsForm | undefined
+}
+
+/** The Client Workspace projection this plugin augments with remote members. */
+interface WorkspaceStoreFace {
+  readonly list: {
+    getSnapshot(): {
+      readonly items: readonly WorkspaceView[]
+      readonly phase: 'pending' | 'ready'
+    }
+    subscribe(listener: () => void): () => void
+  }
+  readonly model?: {
+    upsertView(view: WorkspaceView): void
+  }
+}
+
+/** Whether two Session id lists are already identical. */
+function sameIds(left: readonly SessionId[], right: readonly SessionId[]): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index])
 }
 
 /**
@@ -90,8 +114,139 @@ function linksOpenInColumn(ctx: ClientContext): boolean {
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'session-manager: dictionaries')
   const t = ctx.locale.bind(NS)
+  const settings = (): ConfigForm<SessionManagerSettings> | undefined => {
+    if (typeof ctx.get !== 'function') return undefined
+    try {
+      return (ctx.get('configForms') as ConfigForms | undefined)?.get<SessionManagerSettings>(SETTINGS_ENTRY)
+    } catch {
+      return undefined
+    }
+  }
+  const saveSettings = async (
+    section: SessionManagerSettings,
+    revision: number | undefined,
+  ): Promise<{ readonly ok: boolean; readonly message?: string }> => {
+    if (typeof ctx.get !== 'function') return { ok: false, message: 'Settings service is unavailable.' }
+    const remote = ctx.get('remote') as {
+      readonly settings?: {
+        replace: (ns: string, value: Record<string, unknown>, expectedRevision: number | undefined) => Promise<{
+          readonly ok: boolean
+          readonly error?: { readonly message?: string }
+        }>
+      }
+    } | undefined
+    if (remote?.settings === undefined) return { ok: false, message: 'Settings service is unavailable.' }
+    try {
+      const result = await remote.settings.replace(SETTINGS_ENTRY, { ...section }, revision)
+      return result.ok ? { ok: true } : { ok: false, message: result.error?.message ?? 'Host refused the settings write.' }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+  }
 
   startCompletionTracker(ctx)
+  const sharedStatus = new SharedStatusStore()
+  ctx.effect(() => {
+    if (typeof window === 'undefined') return () => {}
+    sharedStatus.start()
+    return () => sharedStatus.stop()
+  }, 'session-manager: shared status polling')
+
+  // The native new-session shell only enables the composer when the Session belongs to a
+  // Workspace in this browser's projection. A peer's Session is not in the Host registry, so add
+  // it to the matching local Workspace view (and remove it when the peer row disappears).
+  ctx.effect(() => {
+    const workspaces = typeof ctx.get === 'function'
+      ? ctx.get('workspaces') as WorkspaceStoreFace | undefined
+      : undefined
+    const model = workspaces?.model
+    if (workspaces === undefined || model === undefined || typeof model.upsertView !== 'function') return () => {}
+    const patched = new Map<string, Set<SessionId>>()
+    let syncing = false
+
+    const sync = (): void => {
+      if (syncing) return
+      syncing = true
+      try {
+        const state = workspaces.list.getSnapshot()
+        if (state.phase !== 'ready') return
+      const remoteByPath = remoteSessionsByPath(ctx.sessions.list.getSnapshot())
+      const live = new Set<string>()
+      for (const view of state.items) {
+        live.add(view.workspaceId)
+        const desired = remoteByPath.get(view.path) ?? []
+        const previous = patched.get(view.workspaceId) ?? new Set<SessionId>()
+        const next = mergeWorkspaceMembers(view.sessionIds, previous, desired)
+        patched.set(view.workspaceId, new Set(desired))
+        if (!sameIds(view.sessionIds, next)) model.upsertView({ ...view, sessionIds: next })
+        }
+        for (const id of patched.keys()) if (!live.has(id)) patched.delete(id)
+      } finally {
+        syncing = false
+      }
+    }
+
+    sync()
+    const stopSessions = ctx.sessions.list.subscribe(sync)
+    const stopWorkspaces = workspaces.list.subscribe(sync)
+    return () => {
+      stopSessions()
+      stopWorkspaces()
+      const state = workspaces.list.getSnapshot()
+      for (const [workspaceId, ids] of patched) {
+        const view = state.items.find((item) => item.workspaceId === workspaceId)
+        if (view === undefined) continue
+        const next = view.sessionIds.filter((id) => !ids.has(id))
+        if (!sameIds(view.sessionIds, next)) model.upsertView({ ...view, sessionIds: next })
+      }
+    }
+  }, 'session-manager: remote workspace membership')
+
+  // Import an unread completion the native UI already holds, even when the board panel is not open.
+  ctx.effect(() => {
+    let unread = new Set<string>()
+    const report = (): void => {
+      const statuses = ctx.uiSession.sessionStatus.getSnapshot()
+      const list = ctx.sessions.list.getSnapshot()
+      const current = new Set<string>()
+      for (const [id, status] of statuses) {
+        if (status.running === true) sharedStatus.noteRunning(id)
+        if (!status.completionUnread) continue
+        current.add(id)
+        const row = list.byId[id]
+        if (row !== undefined) void sharedStatus.report(id, row.updatedAt)
+      }
+      for (const id of localCompletionIds(list)) {
+        current.add(id)
+        const row = list.byId[id]
+        if (row !== undefined) void sharedStatus.report(id, row.updatedAt)
+      }
+      // Opening the native page or clearing a local stop is a read; publish it too.
+      for (const id of unread) if (!current.has(id)) void sharedStatus.read(id)
+      unread = current
+    }
+    report()
+    const disposeStatus = ctx.uiSession.sessionStatus.subscribe(report)
+    const disposeList = ctx.sessions.list.subscribe(report)
+    const disposeLocal = subscribeLocalCompletions(report)
+    return () => {
+      disposeStatus()
+      disposeList()
+      disposeLocal()
+    }
+  }, 'session-manager: unread import')
+
+  // Keep the Host list current while the client is open; remote rows and their state arrive through
+  // the federated list, not through a Host push.
+  ctx.effect(() => {
+    if (typeof ctx.sessions.refresh !== 'function') return () => {}
+    const timer = setInterval(() => {
+      void ctx.sessions.refresh().catch(() => {})
+    }, 5000)
+    return () => {
+      clearInterval(timer)
+    }
+  }, 'session-manager: remote list refresh')
 
   // A global panel is not the Session page; a marker left by an earlier board visit is stale.
   ctx.effect(() => ctx.layout.panelInfo.subscribe(() => {
@@ -108,8 +263,73 @@ export function apply(ctx: ClientContext): void {
   const openSession = (sessionId: SessionId): void => {
     ctx.uiWorkspace.openSession(sessionId)
   }
-  const connectWorkspace = (workspaceId: WorkspaceId, agentPreset?: string): Promise<SessionId> =>
-    ctx.uiWorkspace.connectWorkspace(workspaceId, agentPreset === undefined ? undefined : { agentPreset })
+  const adoptLocalMember = (workspaceId: WorkspaceId, sessionId: SessionId): void => {
+    try {
+      const workspaces = typeof ctx.get === 'function'
+        ? ctx.get('workspaces') as WorkspaceStoreFace | undefined
+        : undefined
+      const view = workspaces?.list.getSnapshot().items.find((item) => item.workspaceId === workspaceId)
+      if (workspaces?.model !== undefined && view !== undefined && !view.sessionIds.includes(sessionId)) {
+        workspaces.model.upsertView({ ...view, sessionIds: [...view.sessionIds, sessionId] })
+      }
+    } catch {
+      // The Host feed reconciles a failed local merge.
+    }
+  }
+  const connectWorkspace = async (workspaceId: WorkspaceId, agentPreset?: string): Promise<SessionId> => {
+    const sessionId = await ctx.uiWorkspace.connectWorkspace(workspaceId, agentPreset === undefined ? undefined : { agentPreset })
+    adoptLocalMember(workspaceId, sessionId)
+    return sessionId
+  }
+  const createLocalSession = async (workspaceId: WorkspaceId, agentPreset?: string): Promise<SessionId> => {
+    const sessionId = await ctx.sessions.create({
+      workspaceId,
+      ...(agentPreset === undefined ? {} : { agentPreset }),
+    })
+    adoptLocalMember(workspaceId, sessionId)
+    return sessionId
+  }
+  const waitForSession = (sessionId: SessionId): Promise<void> => new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let poll: ReturnType<typeof setInterval> | undefined
+    let unsubscribe = (): void => {}
+    const stop = (): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      if (poll !== undefined) clearInterval(poll)
+      unsubscribe()
+    }
+    const check = (): void => {
+      if (ctx.sessions.list.getSnapshot().byId[sessionId] === undefined) return
+      stop()
+      resolve()
+    }
+    unsubscribe = ctx.sessions.list.subscribe(check)
+    timer = setTimeout(() => {
+      stop()
+      reject(new Error('Session did not reach the federated list.'))
+    }, 10_000)
+    poll = setInterval(() => {
+      void ctx.sessions.refresh().catch(() => {})
+    }, 250)
+    check()
+    void ctx.sessions.refresh().catch(() => {})
+  })
+  const createRemoteSession = async (
+    nodeId: string,
+    request: { readonly cwd: string; readonly agentPreset?: string },
+  ): Promise<SessionId> => {
+    const response = await fetch('/api/session-manager/new', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId, ...request }),
+    })
+    const value = await response.json() as { readonly sessionId?: unknown; readonly error?: unknown }
+    if (!response.ok || typeof value.sessionId !== 'string') {
+      throw new Error(typeof value.error === 'string' ? value.error : 'session/create-failed')
+    }
+    return value.sessionId as SessionId
+  }
   const inputFor = (sessionId: SessionId) => {
     try {
       const conversation = ctx.get('conversation')
@@ -189,11 +409,18 @@ export function apply(ctx: ClientContext): void {
       retainMainView,
       openSession,
       connectWorkspace,
+      createLocalSession,
+      adoptLocalSession: adoptLocalMember,
+      waitForSession,
+      createRemoteSession,
       moveDraft,
       draftAttachmentCount,
       setPinned,
       archiveSession,
       openPreviewDestination,
+      settings,
+      saveSettings,
+      sharedStatus,
     }),
   }, SessionBoardPage))
 

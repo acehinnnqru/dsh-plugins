@@ -1,15 +1,19 @@
 # dsh-plugin-session-manager
 
 A sidebar entry, a main-column board that keeps running, unread, and recent Sessions in view, a
-management tab for batch archiving, a full-list session search, and a full-screen new-conversation
-overlay that embeds the native composer.
+per-node Nodes board, a management tab for batch archiving, a full-list session search, and a
+full-screen new-conversation overlay that embeds the native composer.
 
 ## What it does
 
 - Adds one row to the sidebar's global panel list, after Plugins and Automation tasks. Selecting it
   opens the page in the main column on the Board tab. The product owns the row button, its label, and
   its selected state; this plugin contributes the icon and the page behind the row.
-- Draws three columns: **Running**, **Unread**, and **Recent**.
+- Draws three columns: **Running**, **Unread**, and **Recent**. Every card names its owning node
+  before the Workspace label: a remote node shows its node name and a local Session shows **self**.
+- Adds a **Nodes** tab with one vertical column per node. Pinned Sessions head their node column;
+  every other Session follows newest first. Up to three columns share the width, and more nodes
+  scroll horizontally.
   - **Running** — the Session's turn is executing and no domain is waiting for the user.
   - **Unread** — a pending interaction or a completion that has not been acknowledged. A pending
     interaction outranks a running turn; the card says whether it is an approval, a plan review, an
@@ -39,10 +43,11 @@ overlay that embeds the native composer.
   the back bar.
 - Pins a Session from the icon that appears when its card is hovered or focused. Pinned Sessions move
   to a full-width **Pinned** rail above the columns and keep their runtime label there; the rail is
-  absent until at least one pin exists. Pins are Host state shared with the native sidebar: the rail
-  reads the registry-global pin set (newest pin first), and pinning or unpinning from either surface
-  updates the other. The button only renders when the Session's access snapshot allows the action.
-  The earlier browser-local pin list is no longer read.
+  absent until at least one pin exists. A local Session uses the registry-global Host pin set shared
+  with the native sidebar, so pinning or unpinning from either surface updates the other. A remote
+  Session cannot enter this Host's workspace registry; its pin is stored by the viewing browser and
+  merged after the Host pins. The button only renders when the Session's access snapshot allows the
+  action.
 - Starts a new conversation from the **New conversation** control in the page's top-right, or from
   the preview dialog's control beside **Open session**, which seeds the previewed Session's Workspace
   and Agent preset. The header control resolves the target the way the native New Session action does: the
@@ -50,8 +55,14 @@ overlay that embeds the native composer.
   recent activity. The Workspace
   controller reuses the first parked blank there or creates one under the Host default, so the overlay
   opens with the same Session and Agent preset the main New Session would show. It retains that
-  Session and shows the native new-session controls — a searchable Workspace picker, the Agent preset
-  chip, and the composer — in a white rounded panel over a backdrop mask, without the hero headline.
+  Session and shows the native new-session controls — a node picker before a searchable Workspace
+  picker, the Agent preset chip, and the composer — in a white rounded panel over a backdrop mask,
+  without the hero headline. The node picker lists this host plus every online peer; choosing a peer
+  creates a blank on that peer at the chosen directory through the bridge and carries the draft
+  across. Each Nodes column also has a new-session button that opens the same overlay already on
+  that node. Because the native shell only enables its composer for a Session that belongs to a
+  Workspace in this browser's projection, a federated row is temporarily joined to the local
+  Workspace with the same directory while it is open; the Host Workspace registry is not written.
   Sending hands the board back and leaves the Session running in **Running**; closing without sending
   leaves the blank Session reusable. The Workspace picker opens as a menu under its chip and stays
   inside the overlay: choosing another Workspace connects a blank Session there through the same
@@ -60,7 +71,11 @@ overlay that embeds the native composer.
   dropping them.
 - Configures the **Recent** window from the gear in the Board tab's top-right: 1, 3, 7, or 30 days.
   The default is three days; the choice is browser-local and only filters Recent. Running and Unread
-  never age out.
+  never age out. The same dialog carries the network fields — server URL, join token, node name,
+  and group id — and saves them through the Host settings form. The group name is its id;
+  **New group** asks the server for one, and joining is pasting that id into the same field.
+  Saving restarts the network runtime with the new values. The node name is empty by default and
+  the Host uses the machine host name.
 - Switches the page between **Board** (the three columns) and **Management** with the header's
   segmented control. Management lists every eligible Session, newest first, with a title-or-Workspace
   filter; a row opens the same preview dialog a card does. A checkbox selects a row, the toolbar
@@ -84,22 +99,25 @@ overlay that embeds the native composer.
   retained Session reference. The embedded body itself does not navigate or replace the main
   Conversation panel; the card control or the session dialog's **Open session** action opens the real
   panel, and closing releases the reference.
-- Reads only the live client state DSH already publishes — the Session list, the unified Session
-  status, and the Workspace archive set — so the board follows running state, pending interactions,
-  and reads without polling or a host route. **Unread** combines pending interactions, DSH's own
-  unread-completion marker, and a running→stopped edge the plugin observes globally. A stop counts
-  unless that Session's conversation is on screen: the native page (conversation selected and
-  retained as `mainView`) or a board preview, which retains the Session as `sessionManager` for as
-  long as the embedded conversation is open. DSH leaves its own marker false when the Session stays
-  `mainView`-retained behind a global panel, which is exactly the board's situation.
+- Reads the live client state DSH already publishes — the Session list, the unified Session
+  status, and the Workspace archive set — and, when the network runtime is configured, the shared
+  status route. **Unread** combines pending interactions, DSH's unread-completion marker, and the
+  host's running→stopped observation. A stop counts unless that Session's conversation is on
+  screen: the native page (conversation selected and retained as `mainView`) or a board preview,
+  which retains the Session as `sessionManager` for as long as the embedded conversation is open.
 - Opening an unread completion marks it read: the preview dialog, the open-session control, and the
   conversation itself for as long as it stays open acknowledge it. The card moves from **Unread** to
-  **Recent** and stays findable; it is not hidden. A **Running** Session that finishes on its
-  visible real page or in an open preview is read and goes to **Recent**; one that finishes with no
-  conversation on screen — while the board is visible, or behind it — lands in **Unread**. Both the
-  read mark and the local stop note are browser-local and reset with the page.
-- Carries no host behavior. The host half is an empty `apply`; it exists because a browser half is
-  attached to a live Loader row.
+  **Recent** and stays findable; it is not hidden. With the network runtime, the read is sent to the
+  Host and broadcast to every node, so the same completion clears there too. Without a server, the
+  read mark and stop note stay browser-local.
+- Each DSH home gets one persistent installation hash (`nid_...`) before its first registration.
+  The host sends it on register and hello, and the server reuses one node id for that installation.
+- Carries an optional host runtime. With a server URL configured, the host half registers with the
+  directory server, bridges peer Session RPC over that single WebSocket, federates peer Sessions
+  into the ordinary Session Controller surface, and keeps the shared status/unread registry. No
+  node opens an inbound listener. With no server URL it starts no network runtime; it still
+  serves the authenticated group-create route so the settings dialog can bootstrap a group. See
+  [`docs/session-manager-local-play.md`](../../docs/session-manager-local-play.md).
 
 ## Install into a profile
 
@@ -135,9 +153,11 @@ The plugin has no profile options and no `Config` schema; `cordis.patch.yml` ins
 nothing else. A later profile layer can still override that row by `id: session-manager`. The Recent
 window is a browser-local board setting, not a profile option.
 
-Safety: the host half registers nothing, reads nothing, writes nothing, and makes no network
-requests. The browser half reads the Session list and unified UI status from the Web client, and the
-archive and pin sets from the Workspace Controller. Opening a card retains one Session reference and renders
+Safety: without a server URL the host half starts no network runtime and makes no network
+requests until the settings dialog asks it to create a group. With one, it owns the group/status
+routes and the outbound node socket. The
+browser half reads the Session list and unified UI status from the Web client, the shared status
+route when the runtime is configured, and the archive and pin sets from the Workspace Controller. Opening a card retains one Session reference and renders
 the native Conversation through the `conversation.content` Factory in the preview dialog; closing
 releases the reference. The **New conversation** control creates or reuses the target Workspace's
 blank Session through `uiWorkspace.connectWorkspace` and retains it for the overlay, together with a
@@ -162,12 +182,15 @@ turn's coordinates, so the page's copy of that card is clicked rather than the c
 The card sits in its turn's tail, which the page draws for the newest turns; a card the transcript
 has virtualized out is left unserved, and the click has still moved to the page.
 The search dialog only reads the same live list snapshot and
-retains a Session when its result is previewed. Pinning writes the Host pin set through
-`uiWorkspace`, and the management tab writes the registry-global archive set through the same
-service; the page never stops, renames, or pauses a Session, and a batch archive leaves a Session
-whose work is still running untouched and reports the refusal. The native composer is the Session's
-own input surface, used by the person in front of it. The only browser-local stored value is the Recent-window choice in `localStorage`; completion
-read marks and local stop notes live in memory and reset with the page.
+retains a Session when its result is previewed. Pinning a local Session writes the Host pin set
+through `uiWorkspace`; pinning a remote one writes the browser-local remote pin order, because the
+Host registry rejects ids it does not own. The management tab writes the registry-global archive set
+through the same service; the page never stops, renames, or pauses a Session, and a batch archive
+leaves a Session whose work is still running untouched and reports the refusal. The native composer
+is the Session's own input surface, used by the person in front of it. The browser-local stored
+values are the Recent-window choice and the remote pin order; without a server, completion read
+marks and local stop notes live in memory and reset with the page. With a server, the host publishes them through the
+shared status registry.
 
 ## How the columns are decided
 
@@ -177,16 +200,18 @@ read marks and local stop notes live in memory and reset with the page.
 2. A `pendingInteraction` puts the Session in **Unread**.
 3. Otherwise a running turn puts it in **Running**. Until the status snapshot knows the row, the
    list row's own running flag is the fallback, matching the Workspace row.
-4. Otherwise `completionUnread`, or a stop this plugin observed, puts it in **Unread**. A completion
-   whose read mark is at least as new as the row does not count; an open preview keeps that mark
-   current, so a turn that finishes there is read.
+4. Otherwise shared `unread`, `completionUnread`, or a stop this plugin observed puts it in
+   **Unread**. A shared read clears it on every node; without a shared row, a completion whose read
+   mark is at least as new as the row does not count. An open preview keeps that mark current, so a
+   turn that finishes there is read.
 5. Everything else inside the configured **Recent** window goes to **Recent**, newest first, so read
    and idle Sessions remain findable.
 6. Opening an unread completion only moves it from **Unread** to **Recent**; it never removes the
    row from the board.
 
 `tests/board.spec.ts` covers the precedence, the filters, the read mark, the Recent-window
-boundary, and the pinned states (whose ids now come from the Host pin set);
+boundary, and the pinned states (whose ids come from the Host pin set plus the browser-local remote
+pin order); `tests/remote-pins.spec.ts` covers that stored order;
 `tests/session-search.spec.ts` covers the full-list derivation and the title-or-Workspace filter;
 `tests/archive.spec.ts` covers the batch archive outcome;
 `tests/recent-window.spec.ts` covers the window preference; `tests/back-to-board.spec.ts` covers the

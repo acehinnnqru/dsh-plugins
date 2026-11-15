@@ -4,6 +4,7 @@ import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-clie
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   deriveBoard,
+  deriveNodeColumns,
   derivePinned,
   previewReadMark,
   waitingCopyKey,
@@ -67,6 +68,38 @@ function pending(kind: string, sessionId: SessionId): NonNullable<SessionStatus[
 }
 
 describe('deriveBoard', () => {
+  it('groups cards by owning node and keeps pins at the top of each column', () => {
+    const local = id('local-node')
+    const remote = id('remote-node')
+    const list = listOf([
+      summary('local-node', { updatedAt: 10 }),
+      summary('remote-node', { displayTitle: '[node-b] remote-node', updatedAt: 20 }),
+    ])
+    list.projectionsBySession[remote] = {
+      values: { sessionManagerNode: { nodeId: 'nd_b', name: 'node-b' } },
+      state: 'ready',
+      error: null,
+    } as never
+
+    const columns = deriveNodeColumns(list, new Map(), [], [remote])
+    expect(columns.map((column) => column.node.name)).toEqual(['self', 'node-b'])
+    expect(columns[0]?.rest.map((card) => card.id)).toEqual([local])
+    expect(columns[1]?.pinned.map((card) => card.id)).toEqual([remote])
+    expect(columns[1]?.pinned[0]?.title).toBe('remote-node')
+  })
+
+  it('lets the shared status override a local unread completion in both directions', () => {
+    const session = id('shared')
+    const list = listOf([summary('shared')])
+    const read = new Map([[session as string, { sessionId: session, running: false, pending: null, unread: false, updatedAt: 1, readAt: 2 }]])
+    const cleared = deriveBoard(list, statusesOf([[session, status({ completionUnread: true })]]), [], new Set(), new Map(), read)
+    expect(idsOf(cleared.recent)).toEqual([session])
+
+    const unread = new Map([[session as string, { sessionId: session, running: false, pending: null, unread: true, updatedAt: 1, readAt: 0 }]])
+    const shown = deriveBoard(list, statusesOf([[session, status()]]), [], new Set(), new Map(), unread)
+    expect(idsOf(shown.unread)).toEqual([session])
+  })
+
   it('places a running Session in the running column only', () => {
     const session = id('running')
     const board = deriveBoard(
@@ -85,6 +118,21 @@ describe('deriveBoard', () => {
     const board = deriveBoard(listOf([summary('early', { running: true })]), new Map(), [])
 
     expect(idsOf(board.running)).toEqual([session])
+  })
+
+  it('uses the shared status for running and waiting', () => {
+    const running = id('remote-running')
+    const waiting = id('remote-waiting')
+    const list = listOf([summary('remote-running'), summary('remote-waiting')])
+    const shared = new Map([
+      [running as string, { sessionId: running, running: true, pending: null, unread: false, updatedAt: 1, readAt: 0 }],
+      [waiting as string, { sessionId: waiting, running: false, pending: 'approval', unread: true, updatedAt: 1, readAt: 0 }],
+    ])
+
+    const board = deriveBoard(list, new Map(), [], new Set(), new Map(), shared)
+    expect(idsOf(board.running)).toEqual([running])
+    expect(idsOf(board.unread)).toEqual([waiting])
+    expect(board.unread[0]?.waitingKind).toBe('approval')
   })
 
   it('lets a pending interaction outrank a running turn', () => {
@@ -359,6 +407,7 @@ describe('withinRecent', () => {
       cwd: undefined,
       updatedAt,
       waitingKind: undefined,
+      node: { id: undefined, name: 'self', self: true },
     }
   }
 

@@ -28,6 +28,8 @@ export interface ManagementProps {
   readonly sessions: readonly SessionHit[]
   /** Workspace rows, used for the row hint. */
   readonly workspaces: readonly WorkspaceView[]
+  /** Whether node identity is meaningful; hidden when no peer is online. */
+  readonly showNode: boolean
   /** Current epoch ms, so relative labels stay honest without local clocks. */
   readonly now: number
   /** This namespace's translate function. */
@@ -46,6 +48,7 @@ export interface ManagementProps {
 export function Management({
   sessions,
   workspaces,
+  showNode,
   now,
   t,
   archiveSession,
@@ -192,6 +195,8 @@ export function Management({
           <ul className={css.manageList}>
             {results.map((hit) => {
               const workspace = workspaceName(hit, workspaces, t)
+              const node = hit.node.self ? 'self' : hit.node.name
+              const scope = !showNode ? workspace : workspace === '' ? node : node + ' · ' + workspace
               return (
                 <li
                   key={hit.id}
@@ -218,9 +223,7 @@ export function Management({
                   >
                     <span className={css.manageRowTitle}>{hit.title}</span>
                     <span className={css.manageRowMeta}>
-                      {workspace !== '' && (
-                        <span className={css.manageRowWorkspace}>{workspace}</span>
-                      )}
+                      <span className={css.manageRowWorkspace}>{scope}</span>
                       <span className={css.manageRowState}>{stateText(hit.state, hit, t)}</span>
                       <span className={css.manageRowTime} title={fullDate(hit.updatedAt)}>
                         {timeText(hit.updatedAt, now, t)}

@@ -24,6 +24,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent,
   type ReactNode,
 } from 'react'
@@ -34,17 +35,16 @@ import {
   IconCloseOutlineRegular,
   IconNewChatOutlineRegular,
   IconPinFillRegular,
+  IconPlusOutlineRegular,
   IconPinOutlineRegular,
   IconRightUpOutlineRegular,
   IconSearchOutlineRegular,
   IconSettingsOutlineRegular,
   Input,
-  Menu,
   Modal,
   SegmentedControl,
   StateDot,
   TextShimmer,
-  type MenuEntry,
   type SegmentedControlOption,
   type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -57,28 +57,39 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import {
   BOARD_COLUMNS,
-  RECENT_WINDOW_DAYS,
   deriveBoard,
+  deriveNodeColumns,
   derivePinned,
   previewReadMark,
+  sessionNodeOf,
+  sessionDisplayTitle,
   waitingCopyKey,
   withinRecent,
   type BoardColumn,
+  type NodeColumn,
+  type PinnedCard,
   type PinnedState,
   type SessionCard,
+  type SessionNode,
 } from './board.ts'
 import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
+import { REMOTE_PIN_KEY, readRemotePins, toggleRemotePin, writeRemotePins } from './remote-pins.ts'
 import { matchSessions, searchableSessions, type SessionHit } from './session-search.ts'
-import { baseName, workspaceOf } from './workspace-search.ts'
+import { workspaceOf } from './workspace-search.ts'
 import { fullDate, stateText, timeText, workspaceName, type Translate } from './session-view.ts'
 import { Management } from './Management.tsx'
 import { NewConversation } from './NewConversation.tsx'
 import { handsOffToSessionPage, previewDestination, type PreviewDestination } from './preview-links.ts'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { SettingsDialog } from './SettingsDialog.tsx'
+import type { SessionManagerSettings } from './settings.ts'
+import type { SharedStatusStore } from './status.ts'
 import { NS, type SessionManagerKey } from './locales.ts'
 import { currentWorkspaceId, recentWorkspaceId } from './new-conversation-target.ts'
 import { recentWindowDays, setRecentWindowDays, subscribeRecentWindow } from './recent-window.ts'
 import { CONVERSATION_SLOT } from './slots.ts'
+import { setChooseNode, setPrepareNode } from './node-choice.ts'
 import { setChooseWorkspace } from './workspace-choice.ts'
 import css from './SessionBoard.module.css'
 
@@ -113,6 +124,17 @@ export interface SessionManagerInjected {
    * @returns the catalogued Session the Host created or reused.
    */
   readonly connectWorkspace: (workspaceId: WorkspaceId, agentPreset?: string) => Promise<SessionId>
+  /** Create a fresh local blank without the native blank-reuse scan. */
+  readonly createLocalSession: (workspaceId: WorkspaceId, agentPreset?: string) => Promise<SessionId>
+  /** Install an existing local Session into the Workspace projection immediately. */
+  readonly adoptLocalSession: (workspaceId: WorkspaceId, sessionId: SessionId) => void
+  /** Resolve once a peer-created Session reaches the federated list. */
+  readonly waitForSession: (sessionId: SessionId) => Promise<void>
+  /** Create a blank Session on one peer at a directory path. */
+  readonly createRemoteSession: (
+    nodeId: string,
+    request: { readonly cwd: string; readonly agentPreset?: string },
+  ) => Promise<SessionId>
   /**
    * Move the unsent draft text from one Session to another. Attachments cannot travel, so the page
    * checks {@link SessionManagerInjected.draftAttachmentCount} first.
@@ -147,6 +169,15 @@ export interface SessionManagerInjected {
    * @param destination - the file, web address, or change review the click named.
    */
   readonly openPreviewDestination: (sessionId: SessionId, destination: PreviewDestination) => void
+  /** Resolve the live Host configuration form; the settings service may load after this page. */
+  readonly settings: () => ConfigForm<SessionManagerSettings> | undefined
+  /** Replace the plugin's live config section and return a Host failure message when refused. */
+  readonly saveSettings: (
+    section: SessionManagerSettings,
+    revision: number | undefined,
+  ) => Promise<{ readonly ok: boolean; readonly message?: string }>
+  /** Shared read/unread and running status mirrored from the Host. */
+  readonly sharedStatus: SharedStatusStore
 }
 
 /** The main slot's props, the preview child slot, the translate seat, and Session retention. */
@@ -156,8 +187,8 @@ type PageProps =
   & PropsLocale<typeof NS>
   & InjectFace<SessionManagerInjected>
 
-/** The page's two tabs: the board and the management list. */
-type PageTab = 'board' | 'management'
+/** The page's three tabs: the board, per-node columns, and the management list. */
+type PageTab = 'board' | 'nodes' | 'management'
 
 /** The Session currently shown in a preview surface. */
 interface Preview {
@@ -179,9 +210,11 @@ interface Composer {
   readonly mainView: SessionReference
 }
 
-/** Optional Workspace and Agent preset for the next new-conversation overlay. */
+/** Optional node, Workspace, directory, and Agent preset for the next new-conversation overlay. */
 interface ConversationTarget {
+  readonly node?: SessionNode
   readonly workspaceId?: WorkspaceId
+  readonly cwd?: string
   readonly agentPreset?: string
 }
 
@@ -205,6 +238,8 @@ interface PreviewDialogProps {
   readonly onOpenSession: () => void
   /** Open a destination the embedded Conversation cannot serve, through the real Session page. */
   readonly onOpenDestination: (destination: PreviewDestination | undefined) => void
+  /** A prompt in the preview was accepted; mark the Session running immediately. */
+  readonly onSubmitted: () => void
   /** Start the board's new-conversation overlay in the previewed Session's context. */
   readonly onNewSession: () => void
 }
@@ -242,12 +277,25 @@ function PreviewDialog({
   onOpenPage,
   onOpenSession,
   onOpenDestination,
+  onSubmitted,
   onNewSession,
 }: PreviewDialogProps): ReactNode {
   const canArchive = useSessionAccess(preview.card.id, 'workspace/archiveSession')
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [archiveError, setArchiveError] = useState<string | undefined>(undefined)
   const archiving = useRef(false)
+  const submitted = useRef(onSubmitted)
+  submitted.current = onSubmitted
+
+  // A prompt accepted in the embedded Conversation should reach Running before the shared poll.
+  useEffect(() => {
+    const session = preview.reference.binding.session
+    const shown = (): void => {
+      if (session.getSnapshot().pendingSubmissions.length > 0) submitted.current()
+    }
+    shown()
+    return session.subscribe(shown)
+  }, [preview.reference])
 
   // The conversation's hover previews are portaled to the body below this dialog's mask; the body
   // marker lifts them for as long as the dialog is up, so a file row still previews its diff here.
@@ -417,6 +465,10 @@ interface SessionCardViewProps {
   readonly state: PinnedState
   readonly pinned: boolean
   readonly pinPending: boolean
+  /** Workspace label shown after the node badge. */
+  readonly workspace: string
+  /** Whether the board currently has a peer and should show node identity. */
+  readonly showNode: boolean
   readonly t: Translate
   readonly now: number
   readonly useSessionAccess: PageProps['useSessionAccess']
@@ -440,6 +492,8 @@ function SessionCardView({
   state,
   pinned,
   pinPending,
+  workspace,
+  showNode,
   t,
   now,
   useSessionAccess,
@@ -451,6 +505,10 @@ function SessionCardView({
     card.id,
     pinned ? 'workspace/unpinSession' : 'workspace/pinSession',
   )
+  const nodeLabel = card.node.self ? 'self' : card.node.name
+  const nodeTitle = card.node.self || card.node.instanceId === undefined
+    ? nodeLabel
+    : nodeLabel + ' · ' + card.node.instanceId
   return (
     <article
       className={css.card}
@@ -470,9 +528,20 @@ function SessionCardView({
             {timeText(card.updatedAt, now, t)}
           </span>
         </span>
-        {card.cwd !== undefined && (
-          <span className={css.cwd} title={card.cwd}>{baseName(card.cwd)}</span>
-        )}
+        <span className={css.cardMeta}>
+          {showNode && (
+            <span
+              className={css.cardNode}
+              data-self={card.node.self ? 'true' : undefined}
+              title={nodeTitle}
+            >
+              {nodeLabel}
+            </span>
+          )}
+          {workspace !== '' && (
+            <span className={css.cwd} title={card.cwd ?? workspace}>{workspace}</span>
+          )}
+        </span>
       </button>
       <button
         type="button"
@@ -502,10 +571,131 @@ function SessionCardView({
   )
 }
 
+/** Props of the Nodes tab. */
+interface NodesBoardProps {
+  readonly columns: readonly NodeColumn[]
+  readonly pinBusy: ReadonlySet<SessionId>
+  readonly workspaces: readonly WorkspaceView[]
+  readonly t: Translate
+  readonly now: number
+  readonly useSessionAccess: PageProps['useSessionAccess']
+  readonly onOpen: (card: PinnedCard) => void
+  readonly onOpenSession: (card: PinnedCard) => void
+  readonly onNew: (node: SessionNode) => void
+  readonly onTogglePin: (card: PinnedCard, pinned: boolean) => void
+}
+
+/**
+ * Render one vertical column per node.
+ *
+ * Pinned Sessions head each node column; the rest follow newest first. Up to three columns share the
+ * width; more nodes keep their columns and scroll horizontally.
+ * @param props - node columns, pin state, copy, clock, and the card actions.
+ * @returns the Nodes tab, or its empty state.
+ */
+function NodesBoard({
+  columns,
+  pinBusy,
+  workspaces,
+  t,
+  now,
+  useSessionAccess,
+  onOpen,
+  onOpenSession,
+  onNew,
+  onTogglePin,
+}: NodesBoardProps): ReactNode {
+  if (columns.length === 0) return <p className={css.columnEmpty}>{t('nodes.empty')}</p>
+  const template = columns.length <= 3
+    ? `repeat(${columns.length}, minmax(0, 1fr))`
+    : `repeat(${columns.length}, calc((100% - 24px) / 3))`
+  return (
+    <div className={css.nodesScroller}>
+      <div className={css.nodesTrack} style={{ gridTemplateColumns: template }}>
+        {columns.map((column, index) => {
+          const key = column.node.self ? 'self' : column.node.id ?? column.node.name
+          const count = column.pinned.length + column.rest.length
+          const renderCard = (card: PinnedCard, pinned: boolean): ReactNode => (
+            <li key={card.id}>
+              <SessionCardView
+                card={card}
+                state={card.state}
+                pinned={pinned}
+                pinPending={pinBusy.has(card.id)}
+                workspace={workspaceName(card, workspaces, t)}
+                showNode
+                t={t}
+                now={now}
+                useSessionAccess={useSessionAccess}
+                onOpen={() => {
+                  onOpen(card)
+                }}
+                onOpenSession={() => {
+                  onOpenSession(card)
+                }}
+                onTogglePin={() => {
+                  onTogglePin(card, pinned)
+                }}
+              />
+            </li>
+          )
+          return (
+            <section className={css.nodeColumn} key={key} aria-labelledby={'session-manager-node-' + String(index)}>
+              <header className={css.nodeHead}>
+                <span
+                  className={css.nodeName}
+                  id={'session-manager-node-' + String(index)}
+                  data-self={column.node.self ? 'true' : undefined}
+                  title={column.node.instanceId === undefined
+                    ? column.node.name
+                    : column.node.name + ' · ' + column.node.instanceId}
+                >
+                  {column.node.self ? 'self' : column.node.name}
+                </span>
+                {column.node.instanceId !== undefined && (
+                  <span className={css.nodeHash} title={column.node.instanceId}>
+                    {column.node.instanceId.slice(4, 12)}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className={css.nodeNew}
+                  title={t('nodes.new')}
+                  aria-label={t('nodes.new')}
+                  onClick={() => {
+                    onNew(column.node)
+                  }}
+                >
+                  <IconPlusOutlineRegular size={14} />
+                </button>
+                <span className={css.columnCount}>{count}</span>
+              </header>
+              <div className={css.nodeBody}>
+                {column.pinned.length > 0 && (
+                  <div className={css.nodePinned}>
+                    <IconPinFillRegular size={12} />
+                    <span>{t('nodes.pinned')}</span>
+                  </div>
+                )}
+                <ul className={css.cards}>
+                  {column.pinned.map((card) => renderCard(card, true))}
+                  {column.rest.map((card) => renderCard(card, false))}
+                </ul>
+              </div>
+            </section>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 /** Props of the full-list search dialog. */
 interface SearchDialogProps {
   readonly hits: readonly SessionHit[]
   readonly workspaces: readonly WorkspaceView[]
+  /** Whether node identity is meaningful; hidden when no peer is online. */
+  readonly showNode: boolean
   readonly now: number
   readonly t: Translate
   readonly onPick: (hit: SessionHit) => void
@@ -525,6 +715,7 @@ interface SearchDialogProps {
 function SessionSearchDialog({
   hits,
   workspaces,
+  showNode,
   now,
   t,
   onPick,
@@ -605,6 +796,8 @@ function SessionSearchDialog({
             <ul ref={list} className={css.searchList} role="listbox" aria-label={t('search.title')}>
               {results.map((hit, index) => {
                 const workspace = workspaceName(hit, workspaces, t)
+                const node = hit.node.self ? 'self' : hit.node.name
+                const scope = !showNode ? workspace : workspace === '' ? node : node + ' · ' + workspace
                 return (
                   <li key={hit.id} role="none">
                     <button
@@ -622,9 +815,7 @@ function SessionSearchDialog({
                     >
                       <span className={css.searchRowTitle} title={hit.title}>{hit.title}</span>
                       <span className={css.searchRowMeta}>
-                        {workspace !== '' && (
-                          <span className={css.searchRowWorkspace}>{workspace}</span>
-                        )}
+                        <span className={css.searchRowWorkspace}>{scope}</span>
                         <span className={css.searchRowState}>{stateText(hit.state, hit, t)}</span>
                         <span className={css.searchRowTime} title={fullDate(hit.updatedAt)}>
                           {timeText(hit.updatedAt, now, t)}
@@ -655,11 +846,18 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     retainMainView,
     openSession,
     connectWorkspace,
+    createLocalSession,
+    adoptLocalSession,
+    waitForSession,
+    createRemoteSession,
     moveDraft,
     draftAttachmentCount,
     setPinned,
     archiveSession,
     openPreviewDestination,
+    settings,
+    saveSettings,
+    sharedStatus,
     useSessionAccess,
     SessionProvider,
     renderSlot,
@@ -667,6 +865,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   } = props
   const list = useSessions((state) => state)
   const statuses = useSessionStatus((state) => state)
+  const sharedStatuses = useSyncExternalStore(sharedStatus.subscribe, sharedStatus.getSnapshot)
   const workspaces = useWorkspaces((state) => state)
   const archived = workspaces.archivedSessionIds
   const [now, setNow] = useState(() => Date.now())
@@ -675,6 +874,8 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const [composer, setComposer] = useState<Composer | undefined>(undefined)
   const [startError, setStartError] = useState<string | undefined>(undefined)
   const [tab, setTab] = useState<PageTab>('board')
+  const [hasPeerNodes, setHasPeerNodes] = useState(false)
+  const [remotePins, setRemotePins] = useState<readonly SessionId[]>(() => readRemotePins())
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [pinError, setPinError] = useState<string | undefined>(undefined)
@@ -689,8 +890,46 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   // registry through a ref rather than keeping a stale snapshot.
   const workspacesRef = useRef(workspaces)
   workspacesRef.current = workspaces
+  const listRef = useRef(list)
+  listRef.current = list
+  const preparedRemote = useRef(new Map<string, { promise: Promise<SessionId>; sessionId?: SessionId }>())
   const composerRef = useRef<Composer | undefined>(undefined)
   composerRef.current = composer
+
+  // The node UI is only meaningful with an online peer. Poll the directory the picker already uses;
+  // when the network is off it returns no rows and every node affordance disappears.
+  useEffect(() => {
+    let live = true
+    const load = async (): Promise<void> => {
+      if (typeof fetch !== 'function') return
+      try {
+        const response = await fetch('/api/session-manager/nodes')
+        if (!response.ok) {
+          if (live) setHasPeerNodes(false)
+          return
+        }
+        const body = await response.json() as { nodes?: readonly { self?: unknown }[] }
+        const peers = (body.nodes ?? []).some((node) => node.self !== true)
+        if (live) setHasPeerNodes(peers)
+      } catch {
+        if (live) setHasPeerNodes(false)
+      }
+    }
+    void load()
+    const timer = setInterval(() => {
+      void load()
+    }, 5000)
+    return () => {
+      live = false
+      clearInterval(timer)
+    }
+  }, [])
+
+  // A remote row is itself proof of a peer, even if the directory poll has not landed yet.
+  const showNodes = hasPeerNodes || list.ids.some((id) => !sessionNodeOf(list, id).self)
+  useEffect(() => {
+    if (!showNodes && tab === 'nodes') setTab('board')
+  }, [showNodes, tab])
 
   // The tracker is global; this board only needs to re-render when its local completion map moves.
   useEffect(() => subscribeLocalCompletions(() => {
@@ -714,6 +953,8 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     return () => {
       mounted.current = false
       setChooseWorkspace(undefined)
+      setChooseNode(undefined)
+      setPrepareNode(undefined)
     }
   }, [])
 
@@ -729,6 +970,19 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       clearInterval(timer)
     }
   }, [preview, composer])
+
+  // Remote pins live in the browser, so another tab's pin change arrives as a storage event.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const onStorage = (event: StorageEvent): void => {
+      if (event.key !== REMOTE_PIN_KEY) return
+      setRemotePins(readRemotePins())
+    }
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
 
   // The preview owns one retained Session reference. Releasing it in the effect cleanup runs after
   // the Conversation for the old reference has unmounted, including when the page itself unmounts.
@@ -747,12 +1001,14 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const presentedId = preview?.card.id
   useLayoutEffect(() => {
     if (presentedId === undefined) return
+    const shared = sharedStatuses.get(presentedId)
+    if (shared?.unread === true) void sharedStatus.read(presentedId)
     const mark = previewReadMark(list, statuses, presentedId, completionReadAt)
     if (mark === undefined) return
     completionReadAt.set(presentedId, mark)
     clearLocalCompletion(presentedId)
     bumpBoardRevision((value) => value + 1)
-  }, [presentedId, list, statuses, bumpBoardRevision])
+  }, [presentedId, list, statuses, sharedStatuses, sharedStatus, bumpBoardRevision])
 
   // The overlay owns both handles; the cleanup runs after the Conversation unmounts.
   const composerReference = composer?.reference
@@ -766,9 +1022,23 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   }, [composerReference, composerMainView])
 
   const locallyCompleted = localCompletionIds(list)
-  const pinned = derivePinned(list, statuses, archived, workspaces.pinnedSessionIds, completionReadAt, locallyCompleted)
+  const localPinnedIds = new Set(workspaces.pinnedSessionIds)
+  const pinnedSessionIds = [
+    ...workspaces.pinnedSessionIds,
+    ...remotePins.filter((id) => !localPinnedIds.has(id)),
+  ]
+  const pinned = derivePinned(list, statuses, archived, pinnedSessionIds, completionReadAt, locallyCompleted, sharedStatuses)
   const pinnedIds = new Set(pinned.map((card) => card.id))
-  const board = deriveBoard(list, statuses, archived, locallyCompleted, completionReadAt)
+  const board = deriveBoard(list, statuses, archived, locallyCompleted, completionReadAt, sharedStatuses)
+  const nodeColumns = deriveNodeColumns(
+    list,
+    statuses,
+    archived,
+    pinnedSessionIds,
+    completionReadAt,
+    locallyCompleted,
+    sharedStatuses,
+  )
   const windowDays = recentWindowDays()
   const recent = withinRecent(board.recent, now, windowDays)
   const columns: Record<BoardColumn, readonly SessionCard[]> = {
@@ -777,17 +1047,12 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     recent: recent.filter((card) => !pinnedIds.has(card.id)),
   }
   const total = columns.running.length + columns.unread.length + columns.recent.length + pinned.length
-  const windowItems: MenuEntry[] = [
-    { type: 'label', id: 'recent-window', text: t('settings.recent') },
-    ...RECENT_WINDOW_DAYS.map((days) => ({
-      id: String(days),
-      label: t(days === 1 ? 'settings.day' : 'settings.days', { n: days }),
-    })),
-  ]
   const tabOptions: readonly SegmentedControlOption<PageTab>[] = [
     { value: 'board', label: t('tab.board') },
+    ...(showNodes ? [{ value: 'nodes' as const, label: t('tab.nodes') }] : []),
     { value: 'management', label: t('tab.management') },
   ]
+  const visibleTab: PageTab = showNodes ? tab : tab === 'nodes' ? 'board' : tab
 
   /**
    * Open the card's preview dialog.
@@ -799,6 +1064,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
    */
   function openPreview(card: SessionCard, state: PinnedState): void {
     setPreviewError(undefined)
+    void sharedStatus.read(card.id)
     try {
       const reference = retainSession(card.id)
       if (state === 'completed') {
@@ -826,6 +1092,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
    */
   function openSessionPage(card: SessionCard, state: PinnedState): boolean {
     setPreviewError(undefined)
+    void sharedStatus.read(card.id)
     armBackToBoard()
     try {
       openSession(card.id)
@@ -863,7 +1130,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   }
 
   /**
-   * Select one page tab, closing the board's settings menu with it.
+   * Select one page tab, closing the board's settings dialog with it.
    * @param next - the tab to show.
    */
   function selectTab(next: PageTab): void {
@@ -890,9 +1157,165 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     const agentPreset = sessionPreset(list, card.id)
     closePreview()
     void startConversation({
-      ...(workspace === undefined ? {} : { workspaceId: workspace.workspaceId }),
+      node: card.node,
+      ...(workspace === undefined
+        ? card.cwd === undefined ? {} : { cwd: card.cwd }
+        : { workspaceId: workspace.workspaceId }),
       ...(agentPreset === undefined ? {} : { agentPreset }),
     })
+  }
+
+  /** Find one Workspace by its path. */
+  function workspaceAt(path: string | undefined): WorkspaceView | undefined {
+    return path === undefined ? undefined : workspacesRef.current.items.find((workspace) => workspace.path === path)
+  }
+
+  /** The newest directory a node already uses, for a column's new-session button. */
+  function nodeDirectory(node: SessionNode): string | undefined {
+    let latest: { readonly updatedAt: number; readonly cwd: string | undefined } | undefined
+    const current = listRef.current
+    for (const id of current.ids) {
+      const row = current.byId[id]
+      if (row === undefined) continue
+      const owner = sessionNodeOf(current, id)
+      if (node.self ? !owner.self : owner.id !== node.id) continue
+      if (row.cwd === undefined) continue
+      if (latest === undefined || row.updatedAt > latest.updatedAt) latest = { updatedAt: row.updatedAt, cwd: row.cwd }
+    }
+    return latest?.cwd
+  }
+
+  /** Warm one peer's blank at a known directory. */
+  function prepareRemote(node: SessionNode, cwd: string): void {
+    if (node.self || node.id === undefined) return
+    const fromId = composerRef.current?.reference.sessionId
+    if (fromId !== undefined) {
+      const owner = sessionNodeOf(listRef.current, fromId)
+      if (!owner.self && owner.id === node.id) return
+    }
+    const key = node.id + '\n' + cwd
+    const prior = preparedRemote.current.get(key)
+    if (prior !== undefined) {
+      if (prior.sessionId === undefined) return
+      const row = listRef.current.byId[prior.sessionId]
+      if (row !== undefined && row.blank === true) return
+      preparedRemote.current.delete(key)
+    }
+    const parked = listRef.current.ids.some((id) => {
+      const row = listRef.current.byId[id]
+      if (row === undefined || row.blank !== true || row.cwd !== cwd || archived.includes(id)) return false
+      const owner = sessionNodeOf(listRef.current, id)
+      return !owner.self && owner.id === node.id
+    })
+    if (parked) return
+    const prepared = createRemoteSession(node.id, { cwd })
+      .then(async (sessionId) => {
+        await waitForSession(sessionId)
+        return sessionId
+      })
+    const entry: { promise: Promise<SessionId>; sessionId?: SessionId } = { promise: prepared }
+    preparedRemote.current.set(key, entry)
+    void prepared.then((sessionId) => {
+      if (preparedRemote.current.get(key)?.promise === prepared) entry.sessionId = sessionId
+    }).catch(() => {
+      if (preparedRemote.current.get(key)?.promise === prepared) preparedRemote.current.delete(key)
+    })
+  }
+
+  /** Warm the node menu target from the open conversation. */
+  function prepareNode(node: SessionNode): void {
+    const fromId = composerRef.current?.reference.sessionId
+    if (node.self || node.id === undefined || fromId === undefined) return
+    const source = listRef.current.byId[fromId]
+    if (source === undefined) return
+    const workspacesNow = workspacesRef.current
+    const workspace = workspaceAt(source.cwd)
+      ?? workspacesNow.items.find((item) => item.workspaceId === currentWorkspaceId(workspacesNow, listRef.current))
+      ?? workspacesNow.items.find((item) => item.workspaceId === recentWorkspaceId(workspacesNow, listRef.current))
+    const cwd = workspace?.path ?? nodeDirectory(node)
+    if (cwd === undefined) return
+    prepareRemote(node, cwd)
+  }
+
+  /** Warm every online peer as soon as the overlay opens. */
+  async function warmPeers(cwd: string | undefined): Promise<void> {
+    if (cwd === undefined) return
+    try {
+      const response = await fetch('/api/session-manager/nodes')
+      if (!response.ok || !mounted.current || composerRef.current === undefined) return
+      const body = await response.json() as { nodes?: readonly { nodeId?: unknown; name?: unknown; self?: unknown }[] }
+      for (const value of body.nodes ?? []) {
+        if (typeof value.nodeId !== 'string' || typeof value.name !== 'string' || value.self === true) continue
+        prepareRemote({ id: value.nodeId, name: value.name, self: false }, cwd)
+      }
+    } catch {
+      // A later menu preview retries the warm-up.
+    }
+  }
+
+  /**
+   * Create one blank on a node, at a Workspace path when it has one.
+   *
+   * A local node reuses the Workspace controller's blank resolution. A remote node has no local
+   * Workspace id here, so the peer creates a blank at the chosen directory and the federated list
+   * supplies the row before the overlay retains it.
+   */
+  async function createBlank(
+    node: SessionNode,
+    workspace: WorkspaceView | undefined,
+    agentPreset?: string,
+    fallbackCwd?: string,
+    fresh = false,
+  ): Promise<SessionId> {
+    if (node.self) {
+      if (workspace === undefined) throw new Error(t('new.failed'))
+      if (!fresh) return await connectWorkspace(workspace.workspaceId, agentPreset)
+      const parked = listRef.current.ids.find((id) => {
+        const row = listRef.current.byId[id]
+        if (row === undefined || row.blank !== true || row.cwd !== workspace.path || archived.includes(id)) return false
+        if (Object.values(row.retainedBy).some((count) => typeof count === 'number' && count > 0)) return false
+        if (!sessionNodeOf(listRef.current, id).self) return false
+        const preset = (row.projectionValues as Readonly<Record<string, unknown>> | undefined)?.['agentPreset']
+        return agentPreset === undefined || typeof preset !== 'string' || preset === agentPreset
+      })
+      if (parked !== undefined) {
+        adoptLocalSession(workspace.workspaceId, parked)
+        return parked
+      }
+      return await createLocalSession(workspace.workspaceId, agentPreset)
+    }
+    const cwd = workspace?.path ?? fallbackCwd ?? nodeDirectory(node)
+    if (node.id === undefined || cwd === undefined) throw new Error(t('new.failed'))
+    const key = node.id + '\n' + cwd
+    const existing = listRef.current.ids.find((id) => {
+      const row = listRef.current.byId[id]
+      if (row === undefined || row.blank !== true || row.cwd !== cwd || archived.includes(id)) return false
+      const owner = sessionNodeOf(listRef.current, id)
+      if (owner.self || owner.id !== node.id) return false
+      const preset = (row.projectionValues as Readonly<Record<string, unknown>> | undefined)?.['agentPreset']
+      return agentPreset === undefined || typeof preset !== 'string' || preset === agentPreset
+    })
+    if (existing !== undefined) {
+      preparedRemote.current.delete(key)
+      return existing
+    }
+    const prepared = preparedRemote.current.get(key)
+    if (prepared !== undefined) {
+      try {
+        const sessionId = await prepared.promise
+        if (preparedRemote.current.get(key) === prepared) preparedRemote.current.delete(key)
+        const row = listRef.current.byId[sessionId]
+        if (row !== undefined && row.blank === true) return sessionId
+      } catch {
+        if (preparedRemote.current.get(key) === prepared) preparedRemote.current.delete(key)
+      }
+    }
+    const sessionId = await createRemoteSession(node.id, {
+      cwd,
+      ...(agentPreset === undefined ? {} : { agentPreset }),
+    })
+    await waitForSession(sessionId)
+    return sessionId
   }
 
   /**
@@ -901,18 +1324,22 @@ export function SessionBoardPage(props: PageProps): ReactNode {
    * The target follows the native New Session order: the Workspace of the Session the app currently
    * shows, then the Workspace with the most recent activity. The Workspace controller resolves the
    * blank itself, so the overlay gets the same reused Session and Agent preset the main New Session
-   * would.
+   * would. A remote target creates its blank through the bridge instead.
    */
   async function startConversation(target?: ConversationTarget): Promise<void> {
     if (opening.current) return
     opening.current = true
     setStartError(undefined)
     try {
-      const workspaceId = target?.workspaceId
-        ?? currentWorkspaceId(workspaces, list)
-        ?? recentWorkspaceId(workspaces, list)
-      if (workspaceId === undefined) throw new Error(t('new.failed'))
-      const sessionId = await connectWorkspace(workspaceId, target?.agentPreset)
+      const node = target?.node ?? { id: undefined, name: 'self', self: true }
+      const workspace = target?.workspaceId !== undefined
+        ? workspaces.items.find((item) => item.workspaceId === target.workspaceId)
+        : target?.cwd !== undefined
+          ? workspaceAt(target.cwd)
+          : workspaces.items.find((item) => item.workspaceId === currentWorkspaceId(workspaces, list))
+            ?? workspaces.items.find((item) => item.workspaceId === recentWorkspaceId(workspaces, list))
+      if (node.self && workspace === undefined) throw new Error(t('new.failed'))
+      const sessionId = await createBlank(node, workspace, target?.agentPreset, target?.cwd)
       const reference = retainSession(sessionId)
       let mainView: SessionReference
       try {
@@ -927,7 +1354,10 @@ export function SessionBoardPage(props: PageProps): ReactNode {
         return
       }
       setChooseWorkspace(switchWorkspace)
+      setChooseNode(switchNode)
+      setPrepareNode(prepareNode)
       setComposer({ reference, mainView })
+      void warmPeers(workspace?.path ?? target?.cwd)
     } catch (cause) {
       setStartError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -938,19 +1368,30 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   /** Hand the screen back to the board; the release effect drops the retained references. */
   function closeConversation(): void {
     setChooseWorkspace(undefined)
+    setChooseNode(undefined)
+    setPrepareNode(undefined)
     setComposer(undefined)
   }
 
   /**
-   * Pin or unpin one Session on the Host.
+   * Pin or unpin one Session.
    *
-   * The Host snapshot is the source of truth, so the rail and the columns move on their own. The ref
-   * only prevents a double click from sending pin and unpin together; a failed write is reported
-   * above the columns.
+   * A local Session uses the Host workspace pin, so the native rail and the columns stay in sync. A
+   * remote Session cannot enter this Host's workspace registry; its pin belongs to the viewing
+   * browser and is stored with the other remote pins. The ref only prevents a double click from
+   * sending a local pin and unpin together; a failed local write is reported above the columns.
    * @param sessionId - Session to change.
    * @param pinned - whether the Session is pinned now.
    */
   async function togglePin(sessionId: SessionId, pinned: boolean): Promise<void> {
+    setPinError(undefined)
+    const remote = list.byId[sessionId] !== undefined && !sessionNodeOf(list, sessionId).self
+    if (remote) {
+      const next = toggleRemotePin(remotePins, sessionId, pinned)
+      setRemotePins(next)
+      writeRemotePins(next)
+      return
+    }
     if (pinning.current.has(sessionId)) return
     pinning.current.add(sessionId)
     setPinBusy(new Set(pinning.current))
@@ -984,13 +1425,70 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     if (current === undefined || current.reference.sessionId !== fromId) return undefined
     const owner = workspacesRef.current.items.find((workspace) => workspace.sessionIds.includes(fromId))
     if (owner?.workspaceId === workspaceId) return undefined
+    if (workspacesRef.current.items.find((workspace) => workspace.workspaceId === workspaceId)?.path === listRef.current.byId[fromId]?.cwd) return undefined
     if (switching.current) return undefined
     switching.current = true
     try {
       if (draftAttachmentCount(fromId) > 0) return t('workspace.attachments')
-      const sessionId = await connectWorkspace(workspaceId)
+      const node = sessionNodeOf(listRef.current, fromId)
+      const workspace = workspacesRef.current.items.find((item) => item.workspaceId === workspaceId)
+      if (workspace === undefined) return t('new.failed')
+      const sessionId = await createBlank(node, workspace)
       // A lagging client snapshot can make the Host reuse the very Session being shown; there is
       // nothing to move in that case.
+      if (sessionId === fromId) return undefined
+      const reference = retainSession(sessionId)
+      let mainView: SessionReference
+      try {
+        mainView = retainMainView(sessionId)
+      } catch (cause) {
+        reference.release()
+        throw cause
+      }
+      try {
+        moveDraft(fromId, sessionId)
+      } catch (cause) {
+        reference.release()
+        mainView.release()
+        throw cause
+      }
+      setComposer({ reference, mainView })
+      return undefined
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : String(cause)
+    } finally {
+      switching.current = false
+    }
+  }
+
+  /**
+   * Move the open new conversation to another node.
+   *
+   * The source blank supplies its directory; a remote target reuses that path, or the newest
+   * directory already known on that node. The draft follows the same way a Workspace switch moves
+   * it, and attachments refuse the move rather than being dropped.
+   * @param fromId - the blank Session the overlay is showing.
+   * @param node - the node the user picked.
+   * @returns a localized failure, or undefined after the overlay moved.
+   */
+  async function switchNode(fromId: SessionId, node: SessionNode): Promise<string | undefined> {
+    const current = composerRef.current
+    if (current === undefined || current.reference.sessionId !== fromId) return undefined
+    const currentList = listRef.current
+    const source = currentList.byId[fromId]
+    if (source === undefined) return undefined
+    const owner = sessionNodeOf(currentList, fromId)
+    if (node.self ? owner.self : owner.id === node.id) return undefined
+    if (switching.current) return undefined
+    switching.current = true
+    try {
+      if (draftAttachmentCount(fromId) > 0) return t('node.attachments')
+      const currentWorkspaces = workspacesRef.current
+      const workspace = workspaceAt(source.cwd)
+        ?? currentWorkspaces.items.find((item) => item.workspaceId === currentWorkspaceId(currentWorkspaces, currentList))
+        ?? currentWorkspaces.items.find((item) => item.workspaceId === recentWorkspaceId(currentWorkspaces, currentList))
+      const targetCwd = nodeDirectory(node) ?? source.cwd
+      const sessionId = await createBlank(node, workspace, undefined, targetCwd, true)
       if (sessionId === fromId) return undefined
       const reference = retainSession(sessionId)
       let mainView: SessionReference
@@ -1053,10 +1551,16 @@ export function SessionBoardPage(props: PageProps): ReactNode {
 
   const previewTitle = preview === undefined
     ? ''
-    : list.byId[preview.card.id]?.displayTitle ?? preview.card.title
+    : list.byId[preview.card.id] === undefined
+      ? preview.card.title
+      : sessionDisplayTitle(list.byId[preview.card.id]?.displayTitle ?? preview.card.title, preview.card.node)
   const previewSubtitle = preview === undefined
     ? ''
-    : [workspaceName(preview.card, workspaces.items, t), timeText(preview.card.updatedAt, now, t)]
+    : [
+        ...(showNodes ? [preview.card.node.self ? 'self' : preview.card.node.name] : []),
+        workspaceName(preview.card, workspaces.items, t),
+        timeText(preview.card.updatedAt, now, t),
+      ]
         .filter((part) => part !== '')
         .join(' · ')
 
@@ -1102,16 +1606,16 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           <SegmentedControl
             id="session-manager"
             className={css.viewSwitch ?? ''}
-            value={tab}
+            value={visibleTab}
             options={tabOptions}
             onChange={selectTab}
             label={t('tab.label')}
           />
           <div className={css.headerTools}>
-            {tab === 'board' && total > 0 && (
+            {visibleTab === 'board' && total > 0 && (
               <span className={css.total}>{t('page.count', { count: total })}</span>
             )}
-            {tab === 'board' && (
+            {visibleTab === 'board' && (
               <button
                 type="button"
                 className={css.searchTrigger}
@@ -1136,39 +1640,20 @@ export function SessionBoardPage(props: PageProps): ReactNode {
             >
               <IconNewChatOutlineRegular size={16} />
             </button>
-            {tab === 'board' && (
-              <Menu
-                open={settingsOpen}
-                anchor={(
-                  <button
-                    type="button"
-                    className={css.settings}
-                    aria-label={t('settings.open')}
-                    aria-haspopup="menu"
-                    aria-expanded={settingsOpen}
-                    title={t('settings.open')}
-                    onClick={() => {
-                      setSettingsOpen((open) => !open)
-                    }}
-                  >
-                    <IconSettingsOutlineRegular size={16} />
-                  </button>
-                )}
-                items={windowItems}
-                selectedId={String(windowDays)}
-                onSelect={(id) => {
-                  setRecentWindowDays(Number(id))
-                  setSettingsOpen(false)
+            {(visibleTab === 'board' || visibleTab === 'nodes') && (
+              <button
+                type="button"
+                className={css.settings}
+                aria-label={t('settings.open')}
+                aria-haspopup="dialog"
+                aria-expanded={settingsOpen}
+                title={t('settings.open')}
+                onClick={() => {
+                  setSettingsOpen((open) => !open)
                 }}
-                onClose={() => {
-                  setSettingsOpen(false)
-                }}
-                align="end"
-                side="bottom"
-                autoFocus
-                portal
-                className={css.settingsAnchor}
-              />
+              >
+                <IconSettingsOutlineRegular size={16} />
+              </button>
             )}
           </div>
         </header>
@@ -1185,13 +1670,13 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           </p>
         )}
 
-        {tab === 'board' && pinError !== undefined && (
+        {(visibleTab === 'board' || visibleTab === 'nodes') && pinError !== undefined && (
           <p className={css.previewError} role="alert">
             {t('pin.failed')}: {pinError}
           </p>
         )}
 
-        {tab === 'board' ? (
+        {visibleTab === 'board' ? (
           <div className={css.tabPanel} role="tabpanel" id="session-manager-board-panel" aria-labelledby="session-manager-board">
             {total === 0 && list.phase === 'pending' && (
               <p className={css.loading} role="status">{t('state.loading')}</p>
@@ -1212,6 +1697,8 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                         state={card.state}
                         pinned
                         pinPending={pinBusy.has(card.id)}
+                        workspace={workspaceName(card, workspaces.items, t)}
+                        showNode={showNodes}
                         t={t}
                         now={now}
                         useSessionAccess={useSessionAccess}
@@ -1258,7 +1745,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                               const state: PinnedState = column === 'running'
                                 ? 'running'
                                 : column === 'unread'
-                                  ? statuses.get(card.id)?.pendingInteraction !== undefined
+                                  ? card.waitingKind !== undefined
                                     ? 'waiting'
                                     : 'completed'
                                   : 'idle'
@@ -1269,6 +1756,8 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                                     state={state}
                                     pinned={false}
                                     pinPending={pinBusy.has(card.id)}
+                                    workspace={workspaceName(card, workspaces.items, t)}
+                                    showNode={showNodes}
                                     t={t}
                                     now={now}
                                     useSessionAccess={useSessionAccess}
@@ -1293,11 +1782,38 @@ export function SessionBoardPage(props: PageProps): ReactNode {
               </div>
             )}
           </div>
+        ) : visibleTab === 'nodes' ? (
+          <div className={css.tabPanel} role="tabpanel" id="session-manager-nodes-panel" aria-labelledby="session-manager-nodes">
+            {list.phase === 'pending' && nodeColumns.length === 0
+              ? <p className={css.loading} role="status">{t('state.loading')}</p>
+              : <NodesBoard
+              columns={nodeColumns}
+              pinBusy={pinBusy}
+              workspaces={workspaces.items}
+              t={t}
+              now={now}
+              useSessionAccess={useSessionAccess}
+              onOpen={(card) => {
+                openPreview(card, card.state)
+              }}
+              onOpenSession={(card) => {
+                openSessionPage(card, card.state)
+              }}
+              onNew={(node) => {
+                const cwd = node.self ? undefined : nodeDirectory(node)
+                void startConversation({ node, ...(cwd === undefined ? {} : { cwd }) })
+              }}
+              onTogglePin={(card, pinned) => {
+                void togglePin(card.id, pinned)
+              }}
+            />}
+          </div>
         ) : (
           <div className={css.tabPanel} role="tabpanel" id="session-manager-management-panel" aria-labelledby="session-manager-management">
             <Management
-              sessions={searchableSessions(list, statuses, archived, completionReadAt, locallyCompleted)}
+              sessions={searchableSessions(list, statuses, archived, completionReadAt, locallyCompleted, sharedStatuses)}
               workspaces={workspaces.items}
+              showNode={showNodes}
               now={now}
               t={t}
               archiveSession={archiveSession}
@@ -1313,7 +1829,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           preview={preview}
           title={previewTitle}
           subtitle={previewSubtitle}
-          waitingKind={statuses.get(preview.card.id)?.pendingInteraction?.kind}
+          waitingKind={preview.card.waitingKind}
           t={t}
           SessionProvider={SessionProvider}
           renderSlot={renderSlot}
@@ -1325,13 +1841,17 @@ export function SessionBoardPage(props: PageProps): ReactNode {
             openRealPage(preview)
           }}
           onOpenDestination={openDestination}
+          onSubmitted={() => {
+            sharedStatus.noteRunning(preview.card.id)
+          }}
           onNewSession={newSessionFromPreview}
         />
       )}
       {searchOpen && (
         <SessionSearchDialog
-          hits={searchableSessions(list, statuses, archived, completionReadAt, locallyCompleted)}
+          hits={searchableSessions(list, statuses, archived, completionReadAt, locallyCompleted, sharedStatuses)}
           workspaces={workspaces.items}
+          showNode={showNodes}
           now={now}
           t={t}
           onPick={openSearchHit}
@@ -1346,10 +1866,24 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           t={t}
           renderSlot={renderSlot}
           SessionProvider={SessionProvider}
-          onSent={closeConversation}
+          onSent={(sessionId) => {
+            sharedStatus.noteRunning(sessionId)
+            closeConversation()
+          }}
           onClose={closeConversation}
         />
       )}
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => {
+          setSettingsOpen(false)
+        }}
+        form={settings()}
+        saveSettings={saveSettings}
+        windowDays={windowDays}
+        onWindowDays={setRecentWindowDays}
+        t={t}
+      />
     </>
   )
 }

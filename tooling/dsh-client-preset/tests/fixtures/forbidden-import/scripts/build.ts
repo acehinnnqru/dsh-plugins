@@ -1,6 +1,6 @@
 import { rmSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
@@ -35,17 +35,17 @@ function run(args: readonly string[]): ReturnType<typeof spawnSync> {
   return spawnSync(args[0] as string, args.slice(1), {
     cwd: fixture,
     encoding: 'utf8',
-    // pnpm is a shell script on some platforms; a shell keeps this working everywhere.
+    // The fixture's own bin shims are shell scripts on POSIX and .cmd files on Windows.
     shell: process.platform === 'win32',
   })
 }
 
-const compiled = run(['pnpm', 'exec', 'tsc', '-b', 'tsconfig.json'])
+const compiled = run([join(fixture, 'node_modules', '.bin', 'tsc'), '-b', 'tsconfig.json'])
 process.stdout.write(compiled.stdout ?? '')
 process.stderr.write(compiled.stderr ?? '')
 if (compiled.status !== 0) process.exit(compiled.status ?? 1)
 
-const built = run(['pnpm', 'exec', 'tsdown'])
+const built = run([join(fixture, 'node_modules', '.bin', 'tsdown')])
 process.stdout.write(built.stdout ?? '')
 process.stderr.write(built.stderr ?? '')
 process.exit(built.status ?? 1)

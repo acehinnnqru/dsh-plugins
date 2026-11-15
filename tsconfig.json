@@ -6,6 +6,7 @@
     { "path": "./plugins/now" },
     { "path": "./plugins/workspace-diff" },
     { "path": "./plugins/session-manager" },
+    { "path": "./plugins/session-manager/server" },
     { "path": "./tooling/dsh-client-preset" },
     { "path": "./tooling/dsh-compat" },
     { "path": "./tooling/market-index" },
