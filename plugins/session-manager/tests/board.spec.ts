@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -6,7 +6,10 @@ import {
   deriveBoard,
   deriveNodeColumns,
   derivePinned,
+  forgetSessionNode,
   previewReadMark,
+  rememberSessionNode,
+  sessionNodeOf,
   waitingCopyKey,
   withinRecent,
   type SessionCard,
@@ -411,6 +414,37 @@ describe('previewReadMark', () => {
 
     expect(previewReadMark(list, statusesOf([[session, status()]]), session, new Map())).toBeUndefined()
     expect(previewReadMark(list, statusesOf([]), id('gone'), new Map())).toBeUndefined()
+  })
+})
+
+describe('federated node identity', () => {
+  const remote = id('remote-node')
+
+  afterEach(() => {
+    forgetSessionNode(remote)
+  })
+
+  it('keeps the owning node after a projection reseed erases it', () => {
+    rememberSessionNode(remote, { sessionManagerNode: { nodeId: 'nd_b', name: 'node-b' } })
+    // Opening the remote Session reseeded its store: only the owner's own keys remain.
+    const list = listOf([summary('remote-node', { displayTitle: '[node-b] remote-node' })])
+    expect(sessionNodeOf(list, remote)).toMatchObject({ id: 'nd_b', name: 'node-b', self: false })
+  })
+
+  it('reads the node from the list when it was never remembered', () => {
+    const list = listOf([summary('remote-node')])
+    list.projectionsBySession[remote] = {
+      values: { sessionManagerNode: { nodeId: 'nd_b', name: 'node-b' } },
+      state: 'ready',
+      error: null,
+    } as never
+    expect(sessionNodeOf(list, remote)).toMatchObject({ name: 'node-b', self: false })
+  })
+
+  it('falls back to self once the row leaves the list', () => {
+    rememberSessionNode(remote, { sessionManagerNode: { name: 'node-b' } })
+    forgetSessionNode(remote)
+    expect(sessionNodeOf(listOf([summary('remote-node')]), remote)).toMatchObject({ self: true })
   })
 })
 

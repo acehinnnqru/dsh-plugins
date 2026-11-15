@@ -38,7 +38,7 @@ import { SharedStatusStore } from './status.ts'
 import { SessionConversationHost } from './ConversationHost.tsx'
 import { SessionBoardPage, type SessionManagerInjected } from './SessionBoardPage.tsx'
 import { SessionManagerIcon } from './SessionManagerIcon.tsx'
-import { sessionNodeOf } from './board.ts'
+import { forgetSessionNode, rememberSessionNode, sessionNodeOf } from './board.ts'
 import { mergeWorkspaceMembers, remoteSessionsByPath } from './workspace-membership.ts'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, NS, zh } from './locales.ts'
@@ -180,6 +180,26 @@ export function apply(ctx: ClientContext): void {
       return { ok: false, message: error instanceof Error ? error.message : String(error) }
     }
   }
+
+  // The owning node is federation metadata, not a Session projection: opening a remote
+  // conversation seeds that Session's projection store from its owner and erases the node
+  // key. Remember each listed row's node so the badge survives the reseed.
+  ctx.effect(() => {
+    let listed = new Set<SessionId>()
+    const sync = (): void => {
+      const list = ctx.sessions.list.getSnapshot()
+      const next = new Set<SessionId>()
+      for (const id of list.ids) {
+        next.add(id)
+        rememberSessionNode(id, list.byId[id]?.projectionValues)
+      }
+      for (const id of listed) if (!next.has(id)) forgetSessionNode(id)
+      listed = next
+    }
+    const dispose = ctx.sessions.list.subscribe(sync)
+    sync()
+    return dispose
+  }, 'session-manager: federated node identity')
 
   startCompletionTracker(ctx)
   const sharedStatus = new SharedStatusStore()

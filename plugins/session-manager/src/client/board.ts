@@ -213,23 +213,55 @@ function effectiveStatus(status: SessionStatus | undefined, shared: SharedStatus
   }
 }
 
+/**
+ * Owning node of every federated Session currently listed.
+ *
+ * The node projection is federation metadata, not a Session projection: opening a
+ * remote Session seeds its projection store from the owning host, which erases
+ * every key that host does not compute. Remembering the identity here keeps the
+ * badge stable for as long as the row is listed.
+ */
+const federatedNodes = new Map<SessionId, SessionNode>()
+
+/** Read one `sessionManagerNode` value, if it names a node. */
+function nodeValue(value: unknown): SessionNode | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const node = value as { readonly nodeId?: unknown; readonly name?: unknown; readonly instanceId?: unknown }
+  if (typeof node.name !== 'string' || node.name.length === 0) return undefined
+  return {
+    id: typeof node.nodeId === 'string' && node.nodeId.length > 0 ? node.nodeId : undefined,
+    name: node.name,
+    self: false,
+    ...(typeof node.instanceId === 'string' && node.instanceId.length > 0 ? { instanceId: node.instanceId } : {}),
+  }
+}
+
+/**
+ * Remember the node that owns one listed Session.
+ * @param sessionId - listed Session identity.
+ * @param values - that row's current projection values, when it has any.
+ */
+export function rememberSessionNode(sessionId: SessionId, values: unknown): void {
+  if (typeof values !== 'object' || values === null) return
+  const node = nodeValue((values as Readonly<Record<string, unknown>>)['sessionManagerNode'])
+  if (node !== undefined) federatedNodes.set(sessionId, node)
+}
+
+/**
+ * Forget one Session that is no longer listed.
+ * @param sessionId - Session identity that left the list.
+ */
+export function forgetSessionNode(sessionId: SessionId): void {
+  federatedNodes.delete(sessionId)
+}
+
 /** Read one row's owning node from the federation projection. */
 export function sessionNodeOf(list: SessionListState, sessionId: SessionId): SessionNode {
+  const remembered = federatedNodes.get(sessionId)
+  if (remembered !== undefined) return remembered
   const values = (list.projectionsBySession[sessionId]?.values
     ?? list.byId[sessionId]?.projectionValues) as Readonly<Record<string, unknown>> | undefined
-  const value = values?.['sessionManagerNode']
-  if (typeof value === 'object' && value !== null) {
-    const node = value as { readonly nodeId?: unknown; readonly name?: unknown; readonly instanceId?: unknown }
-    if (typeof node.name === 'string' && node.name.length > 0) {
-      return {
-        id: typeof node.nodeId === 'string' && node.nodeId.length > 0 ? node.nodeId : undefined,
-        name: node.name,
-        self: false,
-        ...(typeof node.instanceId === 'string' && node.instanceId.length > 0 ? { instanceId: node.instanceId } : {}),
-      }
-    }
-  }
-  return SELF_NODE
+  return nodeValue(values?.['sessionManagerNode']) ?? SELF_NODE
 }
 
 /** Drop the transport title prefix once the node badge carries the same fact. */
