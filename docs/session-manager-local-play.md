@@ -114,7 +114,7 @@ a new server's status snapshot is ignored by an old node.
 - Opening one renders the native Conversation on A. The host serving that
   Session remains B; A's host only forwards calls through the server.
 - A prompt or cancel from A is forwarded to B. B's board shows the turn running.
-- B's running/pending status reaches A within one status poll (three seconds).
+- B's running/pending status reaches A within one status poll (one second).
 - When B finishes a turn, A shows the same completion as unread. Opening it on A
   clears it on B too; opening on B clears it on A.
 - Restarting A must not stop B's turn; A reconnects and follows the current
@@ -133,7 +133,8 @@ session-manager: federation installed for group ...
   not store Session content. The current transport is plain WebSocket with no TLS and no E2EE.
 - No workspace-row merge; remote rows use their own `cwd` fallback.
 - The owner publishes running/pending/unread rows; the browser polls the status route every
-  three seconds and the Host list every five. A newly online peer needs no page reload.
+  second, and asks for a Host listing only when a disposed row needs restoring or while the
+  board is open with a peer online. A newly online peer needs no page reload.
 - A browser that already holds a native unread marker imports it when the client mounts. A marker
   that disappeared before the browser loaded is not recoverable, because DSH never persisted it.
 - Approval and question answering stays on the owning node.

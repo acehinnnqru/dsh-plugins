@@ -5,6 +5,12 @@
  * status row, and publishes it through the server. Readers on any node send a
  * read acknowledgement back through the same server record, so an owner's
  * browser and every peer agree on which completion is still unread.
+ *
+ * Rows are maintained incrementally. Live edges and activity arrive as Host
+ * events, pending input is read from the in-memory remote-event registry, and
+ * Session storage is listed only for the boot baseline and a slow reconcile.
+ * One listing costs a header read per stored Session, so it must never sit on a
+ * timer measured in seconds.
  * @module dsh-plugin-session-manager/network/status
  */
 
@@ -23,8 +29,10 @@ interface LocalStatus {
 
 /** Local Session reads the coordinator needs. */
 export interface StatusSource {
+  /** One complete local listing; the only call that touches Session storage. */
   list(): Promise<SessionListValue>
-  state(sessionId: SessionId): Promise<{ readonly running: boolean; readonly pendingInput: readonly { readonly kind: string }[] }>
+  /** Pending-input kinds per Session, read from the in-memory remote-event registry. */
+  pending(): ReadonlyMap<string, readonly string[]>
 }
 
 /** Wire operations supplied once the server link exists. */
@@ -32,6 +40,12 @@ export interface StatusPublisher {
   publish(status: StatusPublishFrame): void
   read(sessionId: SessionId, readAt: number): void
 }
+
+/** Pending-input re-read cadence; memory only, never storage. */
+const PENDING_TICK_MS = 1_000
+
+/** Cold-baseline reconcile cadence; one header read per stored Session. */
+const RECONCILE_INTERVAL_MS = 10 * 60 * 1000
 
 /** Whether one list row is owned by another node through federation. */
 function remoteSummary(summary: SessionSummary): boolean {
@@ -46,11 +60,15 @@ export class StatusCoordinator {
   private readonly logger: (message: string) => void
   private readonly local = new Map<string, LocalStatus>()
   private readonly remote = new Map<string, SessionStatusRecord>()
-  private localIds = new Set<string>()
+  private readonly localIds = new Set<string>()
+  /** Consecutive listings that missed a row, so one stale listing cannot drop it. */
+  private readonly missed = new Map<string, number>()
   private publisher: StatusPublisher | undefined
   private nodeId: string | undefined
-  private timer: NodeJS.Timeout | undefined
-  private polling = false
+  private pendingTimer: NodeJS.Timeout | undefined
+  private reconcileTimer: NodeJS.Timeout | undefined
+  private reconciling: Promise<void> | undefined
+  private seeded: Promise<void> | undefined
   private running = false
 
   constructor(source: StatusSource, logger: (message: string) => void) {
@@ -58,7 +76,7 @@ export class StatusCoordinator {
     this.logger = logger
   }
 
-  /** Attach the server operations; called before the first poll. */
+  /** Attach the server operations; called before the first publish. */
   setPublisher(publisher: StatusPublisher | undefined): void {
     this.publisher = publisher
   }
@@ -93,24 +111,94 @@ export class StatusCoordinator {
     for (const [sessionId, local] of this.local) this.publishLocal(sessionId, local)
   }
 
-  /** Start periodic local state sampling. */
+  /**
+   * Start incremental status tracking.
+   *
+   * The boot baseline is the only full listing; every later row change is an
+   * event, and pending input is sampled from memory once per second.
+   */
   start(): void {
     if (this.running) return
     this.running = true
-    void this.poll()
-    this.timer = setInterval(() => {
-      void this.poll()
-    }, 3000)
+    this.seeded = this.reconcile()
+    this.pendingTimer = setInterval(() => {
+      this.syncPending()
+    }, PENDING_TICK_MS)
+    this.pendingTimer.unref?.()
+    this.reconcileTimer = setInterval(() => {
+      void this.reconcile()
+    }, RECONCILE_INTERVAL_MS)
+    this.reconcileTimer.unref?.()
   }
 
-  /** Stop periodic sampling. */
+  /** Stop the memory sampler and the slow reconcile. */
   stop(): void {
     this.running = false
-    if (this.timer !== undefined) clearInterval(this.timer)
-    this.timer = undefined
+    if (this.pendingTimer !== undefined) clearInterval(this.pendingTimer)
+    if (this.reconcileTimer !== undefined) clearInterval(this.reconcileTimer)
+    this.pendingTimer = undefined
+    this.reconcileTimer = undefined
   }
 
-  /** React to one local Agent running edge without waiting for the next poll. */
+  /**
+   * Merge one full local listing into the index.
+   *
+   * This is the boot baseline and the slow drift repair, not a polling path: a
+   * listing reads every stored Session header.
+   * @returns completion of this or the already-running listing.
+   */
+  reconcile(): Promise<void> {
+    if (this.reconciling !== undefined) return this.reconciling
+    const operation = (async () => {
+      try {
+        const list = await this.source.list()
+        this.merge(list.items)
+      } catch (error) {
+        this.logger('session-manager: status reconcile failed: ' + (error instanceof Error ? error.message : String(error)))
+      } finally {
+        this.reconciling = undefined
+      }
+    })()
+    this.reconciling = operation
+    return operation
+  }
+
+  /** Apply one live Session row pushed by the Host. */
+  onAdded(summary: SessionSummary): void {
+    // A federated row belongs to another node; its shared status is already
+    // authoritative and must not be replaced by a local row.
+    if (remoteSummary(summary)) return
+    this.apply(summary)
+  }
+
+  /**
+   * Apply one disposal edge.
+   *
+   * Disposal releases the live Agent only: the Session stays persisted and
+   * stays a visible row, so the identity is kept and only the running edge is
+   * cleared.
+   * @param sessionId - disposed Session identity.
+   */
+  onRemoved(sessionId: string): void {
+    const local = this.local.get(sessionId)
+    if (local === undefined || !local.running) return
+    local.running = false
+    this.publishLocal(sessionId, local)
+  }
+
+  /**
+   * Advance one row's ordering timestamp from a durable user message.
+   * @param sessionId - Session whose activity moved.
+   * @param updatedAt - durable message time.
+   */
+  onActivity(sessionId: string, updatedAt: number): void {
+    const local = this.local.get(sessionId)
+    if (local === undefined || updatedAt <= local.updatedAt) return
+    local.updatedAt = updatedAt
+    this.publishLocal(sessionId, local)
+  }
+
+  /** React to one local Agent running edge without waiting for the next sample. */
   onRunning(sessionId: string, running: boolean): void {
     this.localIds.add(sessionId)
     const previous = this.local.get(sessionId)
@@ -145,14 +233,10 @@ export class StatusCoordinator {
   /** Import an unread completion the owner's browser still holds. */
   async reportUnread(sessionId: SessionId, updatedAt: number): Promise<void> {
     if (!this.localIds.has(sessionId)) {
-      try {
-        const list = await this.source.list()
-        const summary = list.items.find((item) => item.sessionId === sessionId)
-        if (summary === undefined || remoteSummary(summary)) return
-        this.localIds.add(sessionId)
-      } catch {
-        return
-      }
+      // The boot baseline is the only listing that can still introduce this
+      // identity, so wait for it instead of listing again.
+      await this.seeded
+      if (!this.localIds.has(sessionId)) return
     }
     const cached = this.remote.get(sessionId)
     if (cached !== undefined && cached.readAt >= updatedAt) return
@@ -184,49 +268,70 @@ export class StatusCoordinator {
     return [...result.values()]
   }
 
-  /** Read local state at a bounded cadence and publish only changes. */
-  private async poll(): Promise<void> {
-    if (this.polling) return
-    this.polling = true
-    try {
-      const list = await this.source.list()
-      const ids = new Set<string>()
-      for (const item of list.items) {
-        // A federated row belongs to another node; its shared status is already
-        // authoritative and must not be replaced by a local poll or read mark.
-        if (remoteSummary(item)) continue
-        ids.add(item.sessionId)
-        this.localIds.add(item.sessionId)
-        let state: { readonly running: boolean; readonly pendingInput: readonly { readonly kind: string }[] }
-        try {
-          state = await this.source.state(item.sessionId as SessionId)
-        } catch {
-          continue
-        }
-        const previous = this.local.get(item.sessionId)
-        const cached = this.remote.get(item.sessionId)
-        let unread = previous?.unread ?? cached?.unread ?? false
-        if (state.running) unread = false
-        else if (previous?.running === true) unread = true
-        const next: LocalStatus = {
-          running: state.running,
-          pending: state.pendingInput[0]?.kind ?? null,
-          unread,
-          updatedAt: Math.max(item.updatedAt, previous?.updatedAt ?? 0),
-          readAt: previous?.readAt ?? cached?.readAt ?? 0,
-        }
-        this.local.set(item.sessionId, next)
-        if (previous === undefined || previous.running !== next.running || previous.pending !== next.pending ||
-          previous.unread !== next.unread || previous.updatedAt !== next.updatedAt) {
-          this.publishLocal(item.sessionId, next)
-        }
+  /** Merge one listing and drop rows storage no longer reports. */
+  private merge(items: readonly SessionSummary[]): void {
+    const seen = new Set<string>()
+    for (const item of items) {
+      if (remoteSummary(item)) continue
+      seen.add(item.sessionId)
+      this.missed.delete(item.sessionId)
+      this.apply(item)
+    }
+    for (const [sessionId, local] of this.local) {
+      // A running Session is live by definition; a listing that missed it is stale.
+      if (seen.has(sessionId) || local.running) continue
+      // A Session created while this listing was being read is missing from it.
+      // Two consecutive misses mean storage really no longer has the row.
+      const missed = (this.missed.get(sessionId) ?? 0) + 1
+      if (missed < 2) {
+        this.missed.set(sessionId, missed)
+        continue
       }
-      for (const id of this.localIds) if (!ids.has(id)) this.localIds.delete(id)
-      for (const id of this.local.keys()) if (!ids.has(id)) this.local.delete(id)
+      this.missed.delete(sessionId)
+      this.local.delete(sessionId)
+      this.localIds.delete(sessionId)
+    }
+  }
+
+  /** Upsert one local row from a listing row or a pushed summary. */
+  private apply(summary: SessionSummary): void {
+    const sessionId = summary.sessionId
+    this.localIds.add(sessionId)
+    const previous = this.local.get(sessionId)
+    const cached = this.remote.get(sessionId)
+    // A listing can add a running edge; a stop edge only ever arrives as an event.
+    const running = summary.running || previous?.running === true
+    let unread = previous?.unread ?? cached?.unread ?? false
+    if (running) unread = false
+    else if (previous?.running === true) unread = true
+    const next: LocalStatus = {
+      running,
+      pending: previous?.pending ?? null,
+      unread,
+      updatedAt: Math.max(summary.updatedAt, previous?.updatedAt ?? 0),
+      readAt: previous?.readAt ?? cached?.readAt ?? 0,
+    }
+    this.local.set(sessionId, next)
+    if (previous === undefined || previous.running !== next.running || previous.pending !== next.pending ||
+      previous.unread !== next.unread || previous.updatedAt !== next.updatedAt) {
+      this.publishLocal(sessionId, next)
+    }
+  }
+
+  /** Re-read pending input from memory and publish only rows that changed. */
+  private syncPending(): void {
+    let pending: ReadonlyMap<string, readonly string[]>
+    try {
+      pending = this.source.pending()
     } catch (error) {
-      this.logger('session-manager: status poll failed: ' + (error instanceof Error ? error.message : String(error)))
-    } finally {
-      this.polling = false
+      this.logger('session-manager: status pending read failed: ' + (error instanceof Error ? error.message : String(error)))
+      return
+    }
+    for (const [sessionId, local] of this.local) {
+      const next = pending.get(sessionId)?.[0] ?? null
+      if (next === local.pending) continue
+      local.pending = next
+      this.publishLocal(sessionId, local)
     }
   }
 

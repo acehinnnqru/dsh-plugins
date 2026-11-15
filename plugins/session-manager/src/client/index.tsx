@@ -32,6 +32,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { BackToBoard } from './BackToBoard.tsx'
 import { disarmBackToBoard } from './back-to-board.ts'
+import { ListRepair, PEER_LIST_INTERVAL_MS } from './list-repair.ts'
 import { localCompletionIds, startCompletionTracker, subscribeLocalCompletions } from './completion-tracker.ts'
 import { SharedStatusStore } from './status.ts'
 import { SessionConversationHost } from './ConversationHost.tsx'
@@ -272,17 +273,50 @@ export function apply(ctx: ClientContext): void {
     }
   }, 'session-manager: unread import')
 
-  // Keep the Host list current while the client is open; remote rows and their state arrive through
-  // the federated list, not through a Host push.
+  // Local rows are event-fed, so the client never polls the list. These are the only full listings
+  // it still asks for, and both are rare: a disposal frame removes a row the Host keeps persisted,
+  // and rows owned by another node only enter through a listing. One shared floor keeps them cheap.
+  const repair = typeof ctx.sessions.refresh === 'function'
+    ? new ListRepair(() => ctx.sessions.refresh())
+    : undefined
+
+  // A disposal frame drops a row that storage still reports; one listing puts it back.
   ctx.effect(() => {
-    if (typeof ctx.sessions.refresh !== 'function') return () => {}
-    const timer = setInterval(() => {
-      void ctx.sessions.refresh().catch(() => {})
-    }, 5000)
-    return () => {
-      clearInterval(timer)
+    if (repair === undefined) return () => {}
+    let size = ctx.sessions.list.getSnapshot().ids.length
+    const dispose = ctx.sessions.list.subscribe(() => {
+      const next = ctx.sessions.list.getSnapshot().ids.length
+      if (next < size) repair.request()
+      size = next
+    })
+    return dispose
+  }, 'session-manager: disposed row repair')
+
+  // Peer rows are re-read at a slow cadence while the board is open; their running and unread
+  // state arrives continuously through the shared status route, so nothing here is urgent.
+  ctx.effect(() => {
+    if (repair === undefined) return () => {}
+    let timer: ReturnType<typeof setInterval> | undefined
+    const sync = (): void => {
+      const open = ctx.layout.panelInfo.getSnapshot().activePanelId === PANEL_ID
+      if (!open) {
+        if (timer !== undefined) clearInterval(timer)
+        timer = undefined
+        return
+      }
+      if (timer !== undefined) return
+      repair.request()
+      timer = setInterval(() => {
+        repair.request()
+      }, PEER_LIST_INTERVAL_MS)
     }
-  }, 'session-manager: remote list refresh')
+    const dispose = ctx.layout.panelInfo.subscribe(sync)
+    sync()
+    return () => {
+      dispose()
+      if (timer !== undefined) clearInterval(timer)
+    }
+  }, 'session-manager: peer row refresh')
 
   // A global panel is not the Session page; a marker left by an earlier board visit is stale.
   ctx.effect(() => ctx.layout.panelInfo.subscribe(() => {

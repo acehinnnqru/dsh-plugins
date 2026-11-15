@@ -28,10 +28,6 @@ class FakeController {
   }
 
   async *follow(): AsyncGenerator<unknown> {}
-
-  async state(): Promise<{ running: boolean; pendingInput: readonly { kind: string }[] }> {
-    return { running: false, pendingInput: [] }
-  }
 }
 
 /** Wait until a read produces the wanted value. */

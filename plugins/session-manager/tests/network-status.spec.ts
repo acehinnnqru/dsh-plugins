@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { StatusCoordinator } from '../src/network/status.ts'
@@ -20,28 +20,42 @@ function remoteSummary(sessionId: SessionId): SessionSummary {
   }
 }
 
-/** A source with no Sessions unless the test supplies rows. */
+/** One local list row. */
+function summary(sessionId: string, overrides: Partial<SessionSummary> = {}): SessionSummary {
+  return {
+    agentAvailable: true,
+    sessionId: sessionId as SessionId,
+    updatedAt: 100,
+    running: false,
+    blank: false,
+    ...overrides,
+  }
+}
+
+/** A coordinator over a fixed listing and an in-memory pending registry. */
 function coordinator(items: readonly SessionSummary[] = []): {
   status: StatusCoordinator
   published: StatusPublishFrame[]
   reads: string[]
-  states: string[]
+  pending: Map<string, readonly string[]>
+  lists: () => number
 } {
   const published: StatusPublishFrame[] = []
   const reads: string[] = []
-  const states: string[] = []
+  const pending = new Map<string, readonly string[]>()
+  let lists = 0
   const status = new StatusCoordinator({
-    list: async () => ({ items }),
-    state: async (sessionId) => {
-      states.push(sessionId)
-      return { running: false, pendingInput: [] }
+    list: async () => {
+      lists += 1
+      return { items }
     },
+    pending: () => pending,
   }, () => {})
   status.setPublisher({
     publish: (frame) => published.push(frame),
     read: (sessionId) => reads.push(sessionId),
   })
-  return { status, published, reads, states }
+  return { status, published, reads, pending, lists: () => lists }
 }
 
 /** One server row. */
@@ -57,6 +71,11 @@ function record(overrides: Partial<SessionStatusRecord> = {}): SessionStatusReco
     revision: 1,
     ...overrides,
   }
+}
+
+/** Let the boot baseline settle. */
+async function settle(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 describe('StatusCoordinator', () => {
@@ -88,13 +107,13 @@ describe('StatusCoordinator', () => {
 
   it('leaves federated rows to their owner', async () => {
     const remote = 'remote' as SessionId
-    const { status, published, reads, states } = coordinator([remoteSummary(remote)])
+    const { status, published, reads, lists } = coordinator([remoteSummary(remote)])
     status.applyServer([record({ sessionId: remote, ownerNodeId: 'nd_b', unread: true, readAt: 0 })])
 
     status.start()
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settle()
     status.stop()
-    expect(states).toEqual([])
+    expect(lists()).toBe(1)
     expect(published).toEqual([])
 
     status.markRead(remote)
@@ -103,6 +122,70 @@ describe('StatusCoordinator', () => {
 
     await status.reportUnread(remote, 100)
     expect(published).toEqual([])
+  })
+
+  it('lists storage once for the boot baseline and never on a timer', async () => {
+    const { status, lists } = coordinator([summary('session')])
+    status.start()
+    await settle()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    status.stop()
+    expect(lists()).toBe(1)
+  })
+
+  it('applies live rows, activity, and disposal without listing', async () => {
+    const { status, published, lists } = coordinator()
+    status.onAdded(summary('session', { running: true }))
+    expect(status.snapshot().find((row) => row.sessionId === 'session')).toMatchObject({ running: true })
+
+    status.onActivity('session', 500)
+    expect(status.snapshot().find((row) => row.sessionId === 'session')?.updatedAt).toBe(500)
+
+    status.onRemoved('session')
+    expect(status.snapshot().find((row) => row.sessionId === 'session')).toMatchObject({ running: false })
+    expect(status.snapshot().some((row) => row.sessionId === 'session')).toBe(true)
+    expect(lists()).toBe(0)
+    expect(published.length).toBeGreaterThan(0)
+  })
+
+  it('publishes pending input from the memory registry', async () => {
+    vi.useFakeTimers()
+    try {
+      const { status, published, pending } = coordinator()
+      status.start()
+      await vi.advanceTimersByTimeAsync(0)
+      status.onAdded(summary('session'))
+
+      pending.set('session', ['approval'])
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(published.at(-1)?.pending).toBe('approval')
+
+      pending.delete('session')
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(published.at(-1)?.pending).toBe(null)
+      status.stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('imports an unread completion the baseline found', async () => {
+    const { status, published } = coordinator([summary('session')])
+    status.start()
+    await status.reconcile()
+    await status.reportUnread('session' as never, 100)
+    expect(published.at(-1)).toMatchObject({ sessionId: 'session', unread: true })
+    status.stop()
+  })
+
+  it('does not list storage for an unread report the baseline never saw', async () => {
+    const { status, published, lists } = coordinator([summary('session')])
+    status.start()
+    await status.reconcile()
+    await status.reportUnread('gone' as never, 100)
+    status.stop()
+    expect(lists()).toBe(1)
+    expect(published.some((frame) => frame.sessionId === 'gone')).toBe(false)
   })
 
   it('ignores an old browser unread report after a read', async () => {

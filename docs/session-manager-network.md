@@ -139,8 +139,11 @@ The same fields are available through the profile config and `SM_SERVER`,
 
 - The server relays peer payloads; it is a trusted relay, not an E2EE tunnel.
 - Plain WebSocket in this slice. TLS and E2EE are future work.
-- The board polls the Host list every five seconds; status rows poll every three
-  seconds, so a peer change is visible after at most one poll interval.
+- The Host lists Session storage once per process start and reconciles it every ten
+  minutes; every other local row change arrives as a Host event, so a board with many
+  stored Sessions costs no rescan. The browser asks for a full listing only when a
+  disposal drops a persisted row, or while the board is open and a peer may have added
+  rows (at most once a minute). Status rows poll once a second from memory.
 - Running, pending, and unread state is shared and persisted by the server. The
   owner publishes its browser's pre-existing unread markers when the client
   mounts; a marker that vanished before the client ever loaded is not recoverable.

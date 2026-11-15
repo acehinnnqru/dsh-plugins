@@ -62,7 +62,7 @@ export class SharedStatusStore {
    * Reflect a locally observed running edge before the next shared poll.
    *
    * The native Session stream knows a submitted prompt started the turn before
-   * the three-second status poll returns, so the board would otherwise classify
+   * the one-second status poll returns, so the board would otherwise classify
    * a fresh remote turn as Recent.
    * @param sessionId - Session whose turn started.
    */

@@ -153,16 +153,30 @@ export function apply(ctx: Context, config?: Config): void {
   ctx.inject(['sessionController'], (scope) => {
     const controller = scope.get('sessionController') as {
       list?: (request: unknown, signal: AbortSignal) => Promise<SessionListValue>
-      state?: (request: { sessionId: SessionId }, signal: AbortSignal) => Promise<{ running: boolean; pendingInput: readonly { kind: string }[] }>
     } | undefined
-    if (controller === undefined || typeof controller.list !== 'function' || typeof controller.state !== 'function') return
+    if (controller === undefined || typeof controller.list !== 'function') return
 
-    // Capture the pre-federation methods: local status must never include peer rows.
+    // Capture the pre-federation method: local status must never include peer rows.
     const localList = controller.list
-    const localState = controller.state
+    const gateway = scope.get('typertGateway') as {
+      getPendingRemoteEvents(): readonly { readonly event: string; readonly agentId: unknown }[]
+    } | undefined
+    // Pending input is the same registry the Session Controller reads for
+    // `state().pendingInput`; sampling it costs no storage read.
+    const pendingKinds = (): ReadonlyMap<string, readonly string[]> => {
+      const kinds = new Map<string, string[]>()
+      for (const { event, agentId } of gateway?.getPendingRemoteEvents() ?? []) {
+        const kind = event === 'approval/request' ? 'approval' : event === 'user-questions/request' ? 'question' : 'other'
+        const sessionId = String(agentId)
+        const known = kinds.get(sessionId)
+        if (known === undefined) kinds.set(sessionId, [kind])
+        else if (!known.includes(kind)) known.push(kind)
+      }
+      return kinds
+    }
     const coordinator = new StatusCoordinator({
       list: () => localList.call(controller, {}, new AbortController().signal),
-      state: (sessionId) => localState.call(controller, { sessionId }, new AbortController().signal),
+      pending: pendingKinds,
     }, (message) => ctx.logger.info(message))
 
     let runtime: NodeRuntime | undefined
@@ -207,9 +221,20 @@ export function apply(ctx: Context, config?: Config): void {
       coordinator.stop()
       closeRuntime()
     }, 'session-manager: status runtime')
+    // Local rows are an event-sourced index: the boot baseline lists storage once,
+    // these edges keep it current, and nothing rescans on a timer.
     scope.effect(() => ctx.on('api-session/status', (sessionId, running) => {
       coordinator.onRunning(sessionId as string, running)
     }), 'session-manager: local running edges')
+    scope.effect(() => ctx.on('api-session/added', (summary) => {
+      coordinator.onAdded(summary)
+    }), 'session-manager: local Session rows')
+    scope.effect(() => ctx.on('api-session/removed', (sessionId) => {
+      coordinator.onRemoved(sessionId as string)
+    }), 'session-manager: local Session disposals')
+    scope.effect(() => ctx.on('api-session/activity', (sessionId, updatedAt) => {
+      coordinator.onActivity(sessionId as string, updatedAt)
+    }), 'session-manager: local Session activity')
     scope.effect(() => {
       const timer = setInterval(startRuntime, 1000)
       return () => {
