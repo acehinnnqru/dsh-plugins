@@ -199,15 +199,22 @@ export function newestFirst<T extends SessionCard>(cards: T[]): T[] {
  * @returns the board, one newest-first list per column.
  */
 /** Fold the shared Host status over the browser's own status snapshot. */
-function effectiveStatus(status: SessionStatus | undefined, shared: SharedStatus | undefined, sessionId: SessionId): SessionStatus | undefined {
+function effectiveStatus(
+  status: SessionStatus | undefined,
+  shared: SharedStatus | undefined,
+  sessionId: SessionId,
+  federated: boolean,
+): SessionStatus | undefined {
   if (shared === undefined) return status
   const pendingInteraction = status?.pendingInteraction ?? (shared.pending !== null && shared.pending.length > 0
     ? { key: 'shared:' + sessionId, kind: shared.pending, sessionId }
     : undefined)
   return {
-    // A remote Session's local status is only a snapshot of the last follow frame. Its explicit
-    // `false` must not hide a fresh shared running edge; either source saying running wins.
-    running: status?.running === true || shared.running,
+    // A federated row's local status can only echo a list snapshot or one follow frame, and a
+    // stale `true` there would outlive the turn. The shared record is the owner's own row, so it
+    // decides whether a remote turn is live. A local row keeps the either-source rule: its own
+    // optimistic running edge must survive a shared record that has not caught up yet.
+    running: federated ? shared.running : status?.running === true || shared.running,
     pendingInteraction,
     completionUnread: shared.unread,
   }
@@ -283,14 +290,14 @@ function classify(
   const row = list.byId[sessionId]
   if (row === undefined || row.blank || row.origin === 'subagent' || archived.has(sessionId)) return undefined
   const shared = sharedStatuses.get(sessionId)
-  const effective = effectiveStatus(statuses.get(sessionId), shared, sessionId)
+  const node = sessionNodeOf(list, sessionId)
+  const effective = effectiveStatus(statuses.get(sessionId), shared, sessionId, !node.self)
   const state = sessionState(
     effective,
     effective?.running ?? row.running,
     shared === undefined ? (readAt.get(sessionId) ?? Number.NEGATIVE_INFINITY) >= row.updatedAt : !shared.unread,
     locallyCompleted.has(sessionId) && (shared === undefined || shared.unread),
   )
-  const node = sessionNodeOf(list, sessionId)
   return {
     id: sessionId,
     title: sessionDisplayTitle(row.displayTitle, node),

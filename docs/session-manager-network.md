@@ -81,6 +81,14 @@ kind (`approval`, `question`, or `other`), `unread`, `updatedAt`, and `readAt`.
 The server keeps this metadata in the group record and pushes every change to
 the other nodes.
 
+A node never publishes a row for a federated Session: a running edge relayed from
+a peer updates the browser only, and a local copy would shadow the owner's record
+and could pin a card after the turn ended. The record's `ownerNodeId` is the node
+whose row was accepted last, so a corrected owner replaces a stale one instead of
+being rejected. The board reads a federated card's `running` from this shared
+record; the browser's own per-Session status is only a list snapshot and a follow
+frame, so it must not keep a remote card running after the owner says otherwise.
+
 A browser reads the merged status through `GET /api/session-manager/status` on
 its own host. Opening a card posts to `/api/session-manager/read`, which sends a
 read acknowledgement to the server. The server clears `unread` and broadcasts

@@ -70,6 +70,8 @@ export class StatusCoordinator {
   private readonly local = new Map<string, LocalStatus>()
   private readonly remote = new Map<string, SessionStatusRecord>()
   private readonly localIds = new Set<string>()
+  /** Identities owned by another node; local facts never apply to them. */
+  private readonly federated = new Set<string>()
   /** Consecutive listings that missed a row, so one stale listing cannot drop it. */
   private readonly missed = new Map<string, number>()
   private publisher: StatusPublisher | undefined
@@ -140,6 +142,32 @@ export class StatusCoordinator {
     }
   }
 
+  /**
+   * Mark one identity as owned by another node.
+   *
+   * A federated identity is never a local row: its status belongs to the owner
+   * and arrives through the server record. Without this, a local copy would
+   * shadow the owner's row and a missed edge would pin it forever.
+   * @param sessionId - federated Session identity.
+   */
+  noteFederated(sessionId: string): void {
+    this.federated.add(sessionId)
+    // The owner's row is the authority; a cached copy published from here would
+    // shadow it until the next server push.
+    this.remote.delete(sessionId)
+    this.local.delete(sessionId)
+    this.localIds.delete(sessionId)
+    this.missed.delete(sessionId)
+  }
+
+  /**
+   * Release one identity that is local again, or no longer listed.
+   * @param sessionId - Session identity to forget.
+   */
+  forgetFederated(sessionId: string): void {
+    this.federated.delete(sessionId)
+  }
+
   /** Publish every local row after the link becomes ready. */
   publishAll(): void {
     for (const [sessionId, local] of this.local) this.publishLocal(sessionId, local)
@@ -201,7 +229,7 @@ export class StatusCoordinator {
   onAdded(summary: SessionSummary): void {
     // A federated row belongs to another node; its shared status is already
     // authoritative and must not be replaced by a local row.
-    if (isFederatedSummary(summary)) return
+    if (isFederatedSummary(summary) || this.federated.has(summary.sessionId)) return
     this.apply(summary)
   }
 
@@ -214,6 +242,7 @@ export class StatusCoordinator {
    * @param sessionId - disposed Session identity.
    */
   onRemoved(sessionId: string): void {
+    if (this.federated.has(sessionId)) return
     const local = this.local.get(sessionId)
     if (local === undefined || !local.running) return
     local.running = false
@@ -226,6 +255,7 @@ export class StatusCoordinator {
    * @param updatedAt - durable message time.
    */
   onActivity(sessionId: string, updatedAt: number): void {
+    if (this.federated.has(sessionId)) return
     const local = this.local.get(sessionId)
     if (local === undefined || updatedAt <= local.updatedAt) return
     local.updatedAt = updatedAt
@@ -234,6 +264,9 @@ export class StatusCoordinator {
 
   /** React to one local Agent running edge without waiting for the next sample. */
   onRunning(sessionId: string, running: boolean): void {
+    // A running edge for a federated Session is the owner's fact, relayed here
+    // for the browser only; this node must not publish it as its own row.
+    if (this.federated.has(sessionId)) return
     this.localIds.add(sessionId)
     const previous = this.local.get(sessionId)
     const unread = running ? false : previous?.running === true ? true : previous?.unread ?? false
@@ -266,6 +299,7 @@ export class StatusCoordinator {
 
   /** Import an unread completion the owner's browser still holds. */
   async reportUnread(sessionId: SessionId, updatedAt: number): Promise<void> {
+    if (this.federated.has(sessionId)) return
     if (!this.localIds.has(sessionId)) {
       // The boot baseline is the only listing that can still introduce this
       // identity, so wait for it instead of listing again.
@@ -337,6 +371,9 @@ export class StatusCoordinator {
   /** Upsert one local row from a listing row or a pushed summary. */
   private apply(summary: SessionSummary): void {
     const sessionId = summary.sessionId
+    // A federated identity stays owned by the other node even when it shows up
+    // in this host's listing, for example when both nodes share one home.
+    if (this.federated.has(sessionId)) return
     this.localIds.add(sessionId)
     const previous = this.local.get(sessionId)
     const cached = this.remote.get(sessionId)

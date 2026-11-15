@@ -226,8 +226,27 @@ describe('session-manager server', () => {
     if (read.type !== 'status.state') throw new Error('wrong frame')
     expect(read.status.readAt).toBeGreaterThanOrEqual(2000)
 
+    // The node hosting the Session is the authority: its row replaces the record
+    // another node published, so ownership can move instead of freezing.
+    const moved = nextFrame(a.socket, (frame) => frame.type === 'status.state'
+      && frame.status.sessionId === sessionId && frame.status.ownerNodeId === b.welcome.nodeId)
+    b.socket.send(JSON.stringify({
+      type: 'status.publish',
+      v: 1,
+      sessionId,
+      running: false,
+      pending: null,
+      unread: true,
+      // Later than the read acknowledgement, which is stamped with the wall clock.
+      updatedAt: Date.now() + 1_000,
+    }))
+    const adopted = await moved
+    if (adopted.type !== 'status.state') throw new Error('wrong frame')
+    expect(adopted.status.ownerNodeId).toBe(b.welcome.nodeId)
+    expect(adopted.status.unread).toBe(true)
+
     const c = await register(url, server.token ?? '', 'status-c')
-    expect(c.welcome.statuses?.find((status) => status.sessionId === sessionId)?.unread).toBe(false)
+    expect(c.welcome.statuses?.find((status) => status.sessionId === sessionId)?.unread).toBe(true)
     a.socket.close()
     b.socket.close()
     c.socket.close()

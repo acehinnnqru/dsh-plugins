@@ -275,6 +275,13 @@ export function apply(ctx: Context, config?: Config): void {
       coordinator.onRunning(sessionId as string, running)
     }), 'session-manager: local running edges')
     scope.effect(() => ctx.on('api-session/added', (summary) => {
+      if (isFederatedSummary(summary)) {
+        // Owned by another node: its status arrives through the server record and
+        // this host must never publish a local row for it.
+        coordinator.noteFederated(summary.sessionId)
+        return
+      }
+      coordinator.forgetFederated(summary.sessionId)
       coordinator.onAdded(summary)
     }), 'session-manager: local Session rows')
     scope.effect(() => ctx.on('api-session/removed', (sessionId) => {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SharedStatus } from '../src/client/status.ts'
 import {
   deriveBoard,
   deriveNodeColumns,
@@ -445,6 +446,41 @@ describe('federated node identity', () => {
     rememberSessionNode(remote, { sessionManagerNode: { name: 'node-b' } })
     forgetSessionNode(remote)
     expect(sessionNodeOf(listOf([summary('remote-node')]), remote)).toMatchObject({ self: true })
+  })
+
+  it('lets the shared row end a federated turn whose local status is stale', () => {
+    rememberSessionNode(remote, { sessionManagerNode: { name: 'node-b' } })
+    const list = listOf([summary('remote-node')])
+    const statuses = statusesOf([[remote, status({ running: true })]])
+    const shared = new Map<string, SharedStatus>([['remote-node', {
+      sessionId: 'remote-node',
+      running: false,
+      pending: null,
+      unread: false,
+      updatedAt: 5,
+      readAt: 0,
+    }]])
+
+    const board = deriveBoard(list, statuses, [], new Set(), new Map(), shared)
+    expect(idsOf(board.running)).toEqual([])
+    expect(idsOf(board.recent)).toEqual([remote])
+  })
+
+  it('keeps a local optimistic edge over a shared row that has not caught up', () => {
+    const local = id('local-node')
+    const list = listOf([summary('local-node')])
+    const statuses = statusesOf([[local, status({ running: true })]])
+    const shared = new Map<string, SharedStatus>([['local-node', {
+      sessionId: 'local-node',
+      running: false,
+      pending: null,
+      unread: false,
+      updatedAt: 5,
+      readAt: 0,
+    }]])
+
+    const board = deriveBoard(list, statuses, [], new Set(), new Map(), shared)
+    expect(idsOf(board.running)).toEqual([local])
   })
 })
 

@@ -173,6 +173,40 @@ describe('StatusCoordinator', () => {
     }
   })
 
+  it('never keeps a local row for a federated identity', () => {
+    const { status, published } = coordinator()
+    status.noteFederated('remote')
+
+    status.onRunning('remote', true)
+    status.onActivity('remote', 50)
+    status.onRemoved('remote')
+    expect(published).toEqual([])
+    expect(status.snapshot().some((row) => row.sessionId === 'remote')).toBe(false)
+
+    status.forgetFederated('remote')
+    status.onAdded(summary('remote'))
+    expect(status.snapshot().some((row) => row.sessionId === 'remote')).toBe(true)
+  })
+
+  it('drops a local row that turns out to be federated', () => {
+    const { status } = coordinator()
+    status.onAdded(summary('shared'))
+    expect(status.snapshot().some((row) => row.sessionId === 'shared')).toBe(true)
+
+    status.noteFederated('shared')
+    expect(status.snapshot().some((row) => row.sessionId === 'shared')).toBe(false)
+  })
+
+  it('ignores an unread report and a listing row for a federated identity', async () => {
+    const { status, published } = coordinator([summary('remote')])
+    status.noteFederated('remote')
+    status.start()
+    await status.reconcile()
+    await status.reportUnread('remote' as never, 100)
+    status.stop()
+    expect(published.some((frame) => frame.sessionId === 'remote')).toBe(false)
+  })
+
   it('reports a row a later reconcile discovers', async () => {
     const changes: StatusChange[] = []
     const { status, rows } = coordinator([summary('early')], changes)

@@ -350,8 +350,10 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     const groupToWrite = state.groups[groupIdToWrite]
     if (groupToWrite === undefined) return
     if (!validStatus(frame.sessionId, frame.running, frame.pending, frame.unread, frame.updatedAt)) return
+    // Exactly one node owns a Session and publishes its row, so a newer row from
+    // another node is a corrected ownership, not a conflict: accepting it lets a
+    // moved identity converge instead of freezing on whoever published first.
     const existing = groupToWrite.statuses[frame.sessionId]
-    if (existing !== undefined && existing.ownerNodeId !== nodeId) return
     const readAt = existing?.readAt ?? 0
     const unread = frame.running ? false : frame.unread && readAt < frame.updatedAt
     const record: SessionStatusRecord = {
