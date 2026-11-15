@@ -1284,6 +1284,12 @@ body[data-session-manager-preview] [class*='_portal_'] > [class*='_card_'] {
   white-space: nowrap;
 }
 
+/* A management row wears the board card's node badge, but its meta line aligns on the baseline, so
+   the bordered chip centers itself instead of hanging below the text. */
+.manageRowNode {
+  align-self: center;
+}
+
 .searchRowState,
 .manageRowState {
   flex: none;

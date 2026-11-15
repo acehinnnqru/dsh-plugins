@@ -20,6 +20,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { archiveSessions, unarchiveSessions } from './archive.ts'
 import { matchSessions, type SessionHit } from './session-search.ts'
+import { NodeBadge } from './NodeBadge.tsx'
 import { fullDate, stateText, timeText, workspaceName, type Translate } from './session-view.ts'
 import css from './SessionBoard.module.css'
 
@@ -251,8 +252,6 @@ export function Management({
           <ul className={css.manageList}>
             {results.map((hit) => {
               const workspace = workspaceName(hit, workspaces, t)
-              const node = hit.node.self ? 'self' : hit.node.name
-              const scope = !showNode ? workspace : workspace === '' ? node : node + ' · ' + workspace
               return (
                 <li
                   key={hit.id}
@@ -271,12 +270,15 @@ export function Management({
                   />
                   {mode === 'archived'
                     ? (
-                      // An archived conversation cannot be opened; the row names what it was
-                      // and offers the one action that applies here.
+                      // An archived conversation cannot be opened, and the archive set is this
+                      // Host's registry, so the row is local by definition and carries no node
+                      // badge. It names what it was and offers the one action that applies here.
                       <span className={css.manageRowBody} title={hit.title} data-static="true">
                         <span className={css.manageRowTitle}>{hit.title}</span>
                         <span className={css.manageRowMeta}>
-                          <span className={css.manageRowWorkspace}>{scope}</span>
+                          {workspace !== '' && (
+                            <span className={css.manageRowWorkspace}>{workspace}</span>
+                          )}
                           <span className={css.manageRowState}>{stateText(hit.state, hit, t)}</span>
                           <span className={css.manageRowTime} title={fullDate(hit.updatedAt)}>
                             {timeText(hit.updatedAt, now, t)}
@@ -295,7 +297,12 @@ export function Management({
                       >
                         <span className={css.manageRowTitle}>{hit.title}</span>
                         <span className={css.manageRowMeta}>
-                          <span className={css.manageRowWorkspace}>{scope}</span>
+                          {showNode && (
+                            <NodeBadge node={hit.node} className={css.manageRowNode ?? ''} />
+                          )}
+                          {workspace !== '' && (
+                            <span className={css.manageRowWorkspace}>{workspace}</span>
+                          )}
                           <span className={css.manageRowState}>{stateText(hit.state, hit, t)}</span>
                           <span className={css.manageRowTime} title={fullDate(hit.updatedAt)}>
                             {timeText(hit.updatedAt, now, t)}

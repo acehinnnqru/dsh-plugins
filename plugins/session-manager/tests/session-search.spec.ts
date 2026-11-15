@@ -10,7 +10,7 @@ import { DEFAULT_WORKSPACE_TITLE } from '../src/client/workspace-search.ts'
  * The search dialog's pure half.
  *
  * The dialog owns the field and the keyboard; these tests cover the full-list derivation and the
- * title-or-Workspace filter it feeds from that field.
+ * title-or-node-or-Workspace filter it feeds from that field.
  */
 
 /** Brand a literal string as a Session id. */
@@ -253,6 +253,32 @@ describe('matchSessions', () => {
     expect(idsOf(matchSessions(hits, 'dsh-plugins', [PLUGINS]))).toEqual([id('alpha'), id('beta')])
   })
 
+  it('matches every Session a node owns by its badge name', () => {
+    // A remote row wears its node name; a local one wears the literal `self` badge.
+    const local: SessionHit = {
+      id: id('alpha'),
+      title: 'Release checklist',
+      cwd: '/work/alpha',
+      updatedAt: 3,
+      waitingKind: undefined,
+      node: { id: undefined, name: 'self', self: true },
+      state: 'idle',
+    }
+    const remote: SessionHit = {
+      id: id('delta'),
+      title: 'Deploy notes',
+      cwd: undefined,
+      updatedAt: 4,
+      waitingKind: undefined,
+      node: { id: 'node-1', name: 'workshop', self: false },
+      state: 'idle',
+    }
+    const both = [local, remote]
+
+    expect(idsOf(matchSessions(both, 'workshop'))).toEqual([id('delta')])
+    expect(idsOf(matchSessions(both, 'self'))).toEqual([id('alpha')])
+  })
+
   it('matches the default Workspace by its directory name', () => {
     // The default Workspace's label is the product marker, so the directory names the project.
     expect(idsOf(matchSessions(hits, 'monorepo', [DEFAULT]))).toEqual([id('gamma')])
@@ -263,7 +289,7 @@ describe('matchSessions', () => {
     expect(matchSessions(hits, '/home/me/monorepo', [PLUGINS, DEFAULT])).toEqual([])
   })
 
-  it('returns nothing when no title or Workspace matches', () => {
+  it('returns nothing when no title, node, or Workspace matches', () => {
     expect(matchSessions(hits, 'missing', [PLUGINS, DEFAULT])).toEqual([])
   })
 })

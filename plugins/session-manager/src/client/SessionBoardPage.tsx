@@ -80,6 +80,7 @@ import { workspaceOf } from './workspace-search.ts'
 import { fullDate, stateText, timeText, workspaceName, type Translate } from './session-view.ts'
 import { Management } from './Management.tsx'
 import { NewConversation } from './NewConversation.tsx'
+import { NodeBadge } from './NodeBadge.tsx'
 import { handsOffToSessionPage, previewDestination, type PreviewDestination } from './preview-links.ts'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { SettingsDialog } from './SettingsDialog.tsx'
@@ -522,10 +523,6 @@ function SessionCardView({
   const archiveAllowed = useSessionAccess(card.id, 'workspace/archiveSession')
   // Archiving is a local registry action; a federated row has no owner-side command here.
   const showArchive = onArchive !== undefined && archiveAllowed === true && card.node.self
-  const nodeLabel = card.node.self ? 'self' : card.node.name
-  const nodeTitle = card.node.self || card.node.instanceId === undefined
-    ? nodeLabel
-    : nodeLabel + ' · ' + card.node.instanceId
   return (
     <article
       className={css.card}
@@ -547,15 +544,7 @@ function SessionCardView({
           </span>
         </span>
         <span className={css.cardMeta}>
-          {showNode && (
-            <span
-              className={css.cardNode}
-              data-self={card.node.self ? 'true' : undefined}
-              title={nodeTitle}
-            >
-              {nodeLabel}
-            </span>
-          )}
+          {showNode && <NodeBadge node={card.node} />}
           {workspace !== '' && (
             <span className={css.cwd} title={card.cwd ?? workspace}>{workspace}</span>
           )}
@@ -737,8 +726,9 @@ interface SearchDialogProps {
  * Render the full-list Session search in a dialog.
  *
  * The dialog opens with the field focused and the whole newest-first hit set listed, so it is also a
- * quick jump list. Typing filters it by title and by the Workspace each row lives in; a row opens
- * the board's preview dialog, which is why a waiting Session still surfaces its native question.
+ * quick jump list. Typing filters it by title, by node, and by the Workspace each row lives in; a
+ * row opens the board's preview dialog, which is why a waiting Session still surfaces its native
+ * question.
  * The arrow keys and Enter work from the field, and the Modal layer keeps Escape for closing.
  * @param props - the search hits, Workspaces for the row hint, the clock, copy, and two actions.
  * @returns the search dialog.

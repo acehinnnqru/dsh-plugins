@@ -11,6 +11,7 @@ full-screen new-conversation overlay that embeds the native composer.
   its selected state; this plugin contributes the icon and the page behind the row.
 - Draws three columns: **Running**, **Unread**, and **Recent**. Every card names its owning node
   before the Workspace label: a remote node shows its node name and a local Session shows **self**.
+  The management tab's active rows wear the same badge.
 - Adds a **Nodes** tab with one vertical column per node. Pinned Sessions head their node column;
   every other Session follows newest first. Up to three columns share the width, and more nodes
   scroll horizontally.
@@ -81,22 +82,25 @@ full-screen new-conversation overlay that embeds the native composer.
   Saving restarts the network runtime with the new values. The node name is empty by default and
   the Host uses the machine host name.
 - Switches the page between **Board** (the three columns) and **Management** with the header's
-  segmented control. Management lists every eligible Session, newest first, with a title-or-Workspace
-  filter; a row opens the same preview dialog a card does. A checkbox selects a row, the toolbar
-  checkbox selects the filtered set, and **Archive** removes the selected Sessions after a
-  confirmation. The batch runs one
+  segmented control. Management lists every eligible Session, newest first, with a
+  title-or-node-or-Workspace filter; each active row wears the node badge a card does, so one
+  query lists every Session a node owns. A row opens the same preview dialog a card does. A
+  checkbox selects a row, the toolbar checkbox selects the filtered set, and **Archive** removes the
+  selected Sessions after a confirmation. The batch runs one
   Session at a time: the Host refuses a Session whose work is still running, so the tab reports how
   many were refused and leaves those rows listed and selected.
 - Switches Management between **Active** and **Archived**. The archived set is the undo surface for
   the card's one-click archive: each row can be restored in place, or the filtered selection can be
   restored in one batch. An archived row is plain text rather than a button, because an archived
-  conversation cannot be opened until it is restored.
+  conversation cannot be opened until it is restored. The archive set is this Host's registry, so an
+  archived row is local by definition and carries no node badge.
 - Searches the whole Session list from the magnifier in the Board tab's top-right. Matching is a
-  case-insensitive substring test over what a row shows: the card title — the host-facing label — and
-  the Workspace the Session lives in, named by the Workspace title or the directory basename. A
-  Workspace name therefore lists every Session of that project, including Sessions whose durable
-  title says nothing about it. The search covers every eligible Session, not just the Recent window;
-  blank drafts, subagent-origin rows, and archived Sessions stay out. The dialog opens with the
+  case-insensitive substring test over what a row shows: the card title — the host-facing label —
+  the node badge, and the Workspace the Session lives in, named by the Workspace title or the
+  directory basename. A Workspace name therefore lists every Session of that project, including
+  Sessions whose durable title says nothing about it, and a node name lists every Session that node
+  owns. The search covers every eligible Session, not just the Recent window; blank drafts,
+  subagent-origin rows, and archived Sessions stay out. The dialog opens with the
   newest-first list and the field focused; the arrow keys and Enter pick a row, and picking one opens
   the same preview dialog a card does, so a waiting Session still surfaces its native question.
   Closing that preview returns to the board.
@@ -224,7 +228,7 @@ lists and restores from.
 boundary, and the pinned states (whose ids come from the Host pin set plus the browser-local remote
 pin order); `tests/remote-pins.spec.ts` covers that stored order;
 `tests/session-search.spec.ts` covers the full-list and archived derivations and the
-title-or-Workspace filter;
+title-or-node-or-Workspace filter;
 `tests/archive.spec.ts` covers the batch archive and unarchive outcomes;
 `tests/recent-window.spec.ts` covers the window preference; `tests/back-to-board.spec.ts` covers the
 return marker; `tests/conversation-input.spec.ts` covers the embedded Factory phase;

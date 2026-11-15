@@ -4,9 +4,10 @@
  * The board only shows Sessions that are running, unread, or inside the Recent window; the dialog
  * searches the whole listed set so an older Session stays reachable without widening that window.
  * Matching is a case-insensitive substring test on what a row shows — the card title, which is the
- * host-facing label and the durable title when the Host projected one, and the Workspace the
- * Session lives in, named by the Workspace label or the directory basename. Searching a Workspace
- * name therefore lists every Session of that project.
+ * host-facing label and the durable title when the Host projected one, the owning node's badge, and
+ * the Workspace the Session lives in, named by the Workspace label or the directory basename.
+ * Searching a Workspace name therefore lists every Session of that project, and a node name lists
+ * every Session that node owns.
  *
  * The derivation lives here, apart from React, so it can be tested like `board.ts`.
  * @module dsh-plugin-session-manager/client/session-search
@@ -131,17 +132,18 @@ function collect(
 /**
  * The text one hit is matched against: its title and where it lives.
  *
- * The haystack is the card title plus where the Session lives: the label of the Workspace the
- * registry accounts it to, and its directory basename. Both are included so the product's default
- * Workspace — whose stored title is the `default-workspace` marker rather than the project name —
- * stays reachable by the project it holds. The full path is deliberately absent, so a query does not
- * match half the machine.
+ * The haystack is the card title, the badge naming the owning node, and where the Session lives:
+ * the label of the Workspace the registry accounts it to, and its directory basename. The node is
+ * included because the management row shows its badge, so the filter has to find what it shows. The
+ * Workspace is included so the product's default Workspace — whose stored title is the
+ * `default-workspace` marker rather than the project name — stays reachable by the project it
+ * holds. The full path is deliberately absent, so a query does not match half the machine.
  * @param hit - one searchable Session.
  * @param workspaces - Workspace rows.
  * @returns the lowercased haystack for one hit.
  */
 function searchText(hit: SessionHit, workspaces: readonly WorkspaceView[]): string {
-  const parts = [hit.title]
+  const parts = [hit.title, hit.node.name]
   const workspace = workspaceOf(hit, workspaces)
   if (workspace !== undefined) parts.push(workspaceLabel(workspace))
   if (hit.cwd !== undefined) parts.push(baseName(hit.cwd))
@@ -149,7 +151,7 @@ function searchText(hit: SessionHit, workspaces: readonly WorkspaceView[]): stri
 }
 
 /**
- * Filter search results by a free-text query over the title and the Workspace.
+ * Filter search results by a free-text query over the title, the node, and the Workspace.
  *
  * Surrounding whitespace is ignored, so a trailing space from typing does not empty the list. An
  * empty query keeps the full newest-first set, which is what the dialog shows when it opens.
