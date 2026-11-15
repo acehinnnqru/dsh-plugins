@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { StatusCoordinator } from '../src/network/status.ts'
+import { StatusCoordinator, type StatusChange } from '../src/network/status.ts'
 import type { SessionStatusRecord, StatusPublishFrame } from '../src/network/protocol.ts'
 
 /** One federated row owned by another node. */
@@ -32,30 +32,34 @@ function summary(sessionId: string, overrides: Partial<SessionSummary> = {}): Se
   }
 }
 
-/** A coordinator over a fixed listing and an in-memory pending registry. */
-function coordinator(items: readonly SessionSummary[] = []): {
+/** A coordinator over a mutable listing and an in-memory pending registry. */
+function coordinator(items: readonly SessionSummary[] = [], changes: StatusChange[] = []): {
   status: StatusCoordinator
   published: StatusPublishFrame[]
   reads: string[]
   pending: Map<string, readonly string[]>
+  rows: SessionSummary[]
   lists: () => number
 } {
   const published: StatusPublishFrame[] = []
   const reads: string[] = []
   const pending = new Map<string, readonly string[]>()
+  const rows = [...items]
   let lists = 0
   const status = new StatusCoordinator({
     list: async () => {
       lists += 1
-      return { items }
+      return { items: rows }
     },
     pending: () => pending,
-  }, () => {})
+  }, () => {}, (change) => {
+    changes.push(change)
+  })
   status.setPublisher({
     publish: (frame) => published.push(frame),
     read: (sessionId) => reads.push(sessionId),
   })
-  return { status, published, reads, pending, lists: () => lists }
+  return { status, published, reads, pending, rows, lists: () => lists }
 }
 
 /** One server row. */
@@ -167,6 +171,35 @@ describe('StatusCoordinator', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('reports a row a later reconcile discovers', async () => {
+    const changes: StatusChange[] = []
+    const { status, rows } = coordinator([summary('early')], changes)
+    status.start()
+    await status.reconcile()
+    // The boot baseline reports nothing: the browser lists storage itself.
+    expect(changes).toEqual([])
+
+    rows.push(summary('late'))
+    await status.reconcile()
+    expect(changes).toHaveLength(1)
+    expect(changes[0]).toMatchObject({ kind: 'added' })
+    if (changes[0]?.kind === 'added') expect(changes[0].summary.sessionId).toBe('late')
+    status.stop()
+  })
+
+  it('drops a row only after two listings miss it', async () => {
+    const changes: StatusChange[] = []
+    const { status, rows } = coordinator([summary('gone')], changes)
+    status.start()
+    await status.reconcile()
+    rows.length = 0
+    await status.reconcile()
+    expect(changes).toEqual([])
+    await status.reconcile()
+    expect(changes).toEqual([{ kind: 'removed', sessionId: 'gone' }])
+    status.stop()
   })
 
   it('imports an unread completion the baseline found', async () => {

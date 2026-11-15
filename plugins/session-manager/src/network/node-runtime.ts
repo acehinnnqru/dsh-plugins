@@ -11,7 +11,8 @@ import type { PeerInfo, SessionStatusRecord, StatusPublishFrame } from './protoc
 import { NodeLink } from './node.ts'
 import { PeerPool } from './peer-client.ts'
 import { createPeerResponder, type PeerResponder } from './peer-responder.ts'
-import { installFederation } from './federation.ts'
+import { installFederation, type FederationEvents } from './federation.ts'
+import type { RosterFrame } from './roster.ts'
 
 /** Network configuration contributed by the plugin profile. */
 export interface NetworkConfig {
@@ -28,6 +29,21 @@ export interface RuntimeNode {
   readonly name: string
   readonly self: boolean
   readonly instanceId?: string
+}
+
+/** Host integrations the runtime needs: row events and this node's local roster. */
+export interface PeerHooks {
+  readonly events: FederationEvents
+  readonly roster: (signal: AbortSignal) => AsyncIterable<RosterFrame>
+}
+
+/** Events a runtime without host wiring emits; only tests construct that. */
+const quietEvents: FederationEvents = {
+  isLocal: () => false,
+  added: () => {},
+  removed: () => {},
+  status: () => {},
+  activity: () => {},
 }
 
 /** One running node runtime. */
@@ -47,6 +63,7 @@ export class NodeRuntime {
     logger: (message: string) => void,
     onStatusSnapshot?: (statuses: readonly SessionStatusRecord[]) => void,
     onStatus?: (status: SessionStatusRecord) => void,
+    hooks?: PeerHooks,
   ) {
     this.logger = logger
     this.name = config.name.length > 0 ? config.name : hostname()
@@ -66,11 +83,12 @@ export class NodeRuntime {
     this.pool = new PeerPool('', {
       send: (frame) => this.link.sendBridge(frame),
     })
-    this.disposeFederation = installFederation(controller, this.pool)
+    this.disposeFederation = installFederation(controller, this.pool, hooks?.events ?? quietEvents)
     this.responder = createPeerResponder({
       controller,
       logger,
       sender: (frame) => this.link.sendBridge(frame),
+      ...(hooks === undefined ? {} : { roster: hooks.roster }),
     })
   }
 

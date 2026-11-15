@@ -133,8 +133,8 @@ session-manager: federation installed for group ...
   not store Session content. The current transport is plain WebSocket with no TLS and no E2EE.
 - No workspace-row merge; remote rows use their own `cwd` fallback.
 - The owner publishes running/pending/unread rows; the browser polls the status route every
-  second, and asks for a Host listing only when a disposed row needs restoring or while the
-  board is open with a peer online. A newly online peer needs no page reload.
+  second and asks for a Host listing only when a disposed row needs restoring. Remote rows
+  arrive over the peer roster, so a newly online peer needs no page reload and no polling.
 - A browser that already holds a native unread marker imports it when the client mounts. A marker
   that disappeared before the browser loaded is not recoverable, because DSH never persisted it.
 - Approval and question answering stays on the owning node.

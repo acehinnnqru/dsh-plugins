@@ -1,18 +1,14 @@
 /**
- * Bounded full-list repairs for rows the event stream cannot add.
+ * Bounded full-list repairs for the one row the event stream cannot add back.
  *
- * Local rows arrive as `api-session/*` events, so the browser never polls the
- * list. Two cases still need one listing: a disposal frame removes a row the
- * Host keeps persisted, and rows owned by another node only enter through a
- * listing. Both are rare, so every repair shares one floor.
+ * Local and remote rows both arrive as `api-session/*` events, so the browser
+ * never polls the list. The exception is a disposal frame: it removes a row the
+ * Host still persists, so one listing restores it.
  * @module dsh-plugin-session-manager/client/list-repair
  */
 
 /** Minimum spacing between two full listings. */
 export const LIST_REPAIR_INTERVAL_MS = 30_000
-
-/** Peer rows are re-read at this cadence while the board is open. */
-export const PEER_LIST_INTERVAL_MS = 60_000
 
 /** Throttle for the full listings this client still needs. */
 export class ListRepair {

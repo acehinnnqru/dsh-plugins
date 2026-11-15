@@ -35,12 +35,19 @@ no peer listener.
 
 ## 3. Session visibility and control
 
-When a node lists Sessions, its federation wrapper:
+Each online peer serves one long-lived `session.roster` stream: an initial
+snapshot of its local list, then one frame per local change (add, remove,
+running edge, activity) and a heartbeat every 15 seconds. The federation wrapper
+keeps one such stream per peer and applies every frame to its remote-row map,
+titled `[peer-name] <title>`. A listing then merges those rows with the local
+ones instead of asking each peer for a list, so the cost of a listing does not
+grow with what the peers have stored.
 
-1. calls the local Session Controller and keeps those rows;
-2. asks each online peer for its local list through the bridge;
-3. merges remote rows into the same result, titled `[peer-name] <title>`;
-4. remembers the remote Session id and its owning node.
+Roster changes are re-emitted as the Host's own Session events
+(`api-session/added`/`removed`/`status`/`activity`), so the browser list follows a
+peer without polling. A row whose id is already local stays local: a peer copy
+never shadows a Session this host owns. A stalled stream (45 seconds without a
+frame) or a peer restart reopens the roster after five seconds.
 
 For a remembered remote id, follow/state/projections/events/page/prompt/
 cancel/rename/attachment/selectModel/updateQueue and the observation streams
@@ -55,8 +62,8 @@ No fake client binding is involved.
 A new-session request carries the selected node id and a directory. The local
 host posts it to `/api/session-manager/new`; the node runtime sends
 `session.create` to that peer, and the peer creates a blank through its own
-Session Controller at that directory. The new id appears through the ordinary
-federated list on the next refresh. `/api/session-manager/nodes` returns the
+Session Controller at that directory. The new id reaches every other node when
+the peer announces it through its roster. `/api/session-manager/nodes` returns the
 online directory for the picker.
 
 The native new-session shell only enables its composer for a Session that is a
@@ -140,10 +147,14 @@ The same fields are available through the profile config and `SM_SERVER`,
 - The server relays peer payloads; it is a trusted relay, not an E2EE tunnel.
 - Plain WebSocket in this slice. TLS and E2EE are future work.
 - The Host lists Session storage once per process start and reconciles it every ten
-  minutes; every other local row change arrives as a Host event, so a board with many
-  stored Sessions costs no rescan. The browser asks for a full listing only when a
-  disposal drops a persisted row, or while the board is open and a peer may have added
-  rows (at most once a minute). Status rows poll once a second from memory.
+  minutes; every other row change — local or federated — arrives as a Host event, so a
+  board with many stored Sessions costs no rescan. A reconcile publishes the rows it
+  discovered or dropped as Host events, so a Session another process on the same home
+  stored reaches every browser and peer. The browser asks for a full listing only when a
+  disposal drops a persisted row. Status rows poll once a second from memory.
+- A peer older than the roster operation contributes no remote rows: the stream is
+  rejected as unsupported and retried while the peer stays online. Run the same
+  plugin version on every node.
 - Running, pending, and unread state is shared and persisted by the server. The
   owner publishes its browser's pre-existing unread markers when the client
   mounts; a marker that vanished before the client ever loaded is not recoverable.
@@ -157,9 +168,12 @@ The network tests cover:
 
 - server registration and directory presence;
 - bridge request/response routing and offline errors;
-- responder/PeerPool list, follow, and prompt over an in-memory bridge;
-- federation merge and call routing;
+- responder/PeerPool list, follow, prompt, and roster over an in-memory bridge;
+- roster snapshot, ordering, and listener cleanup;
+- federation merge, roster replay, removal, and call routing;
 - status publish/read and the status route;
+- two nodes sharing one server: the second node's row reaches the first over its
+  roster, titled, with no listing request;
 - runtime registration against a real server.
 
 ```sh

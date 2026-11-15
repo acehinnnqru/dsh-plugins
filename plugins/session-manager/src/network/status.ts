@@ -35,6 +35,11 @@ export interface StatusSource {
   pending(): ReadonlyMap<string, readonly string[]>
 }
 
+/** One row-level change the coordinator cannot emit as a status frame. */
+export type StatusChange =
+  | { readonly kind: 'added'; readonly summary: SessionSummary }
+  | { readonly kind: 'removed'; readonly sessionId: string }
+
 /** Wire operations supplied once the server link exists. */
 export interface StatusPublisher {
   publish(status: StatusPublishFrame): void
@@ -47,8 +52,12 @@ const PENDING_TICK_MS = 1_000
 /** Cold-baseline reconcile cadence; one header read per stored Session. */
 const RECONCILE_INTERVAL_MS = 10 * 60 * 1000
 
-/** Whether one list row is owned by another node through federation. */
-function remoteSummary(summary: SessionSummary): boolean {
+/**
+ * Whether one list row is owned by another node through federation.
+ * @param summary - one list row.
+ * @returns true when the row carries a peer node projection.
+ */
+export function isFederatedSummary(summary: SessionSummary): boolean {
   const values = summary.projections?.values as Readonly<Record<string, unknown>> | undefined
   const node = values?.['sessionManagerNode']
   return typeof node === 'object' && node !== null && typeof (node as { readonly name?: unknown }).name === 'string'
@@ -69,9 +78,20 @@ export class StatusCoordinator {
   private reconcileTimer: NodeJS.Timeout | undefined
   private reconciling: Promise<void> | undefined
   private seeded: Promise<void> | undefined
+  private baseline = false
   private running = false
 
-  constructor(source: StatusSource, logger: (message: string) => void) {
+  /**
+   * @param source - local listing plus the in-memory pending registry.
+   * @param logger - diagnostics sink.
+   * @param changed - receives rows a reconcile discovered or dropped, so they can
+   *   be published as Host events; the boot baseline reports nothing.
+   */
+  constructor(
+    source: StatusSource,
+    logger: (message: string) => void,
+    private readonly changed?: (change: StatusChange) => void,
+  ) {
     this.source = source
     this.logger = logger
   }
@@ -89,6 +109,20 @@ export class StatusCoordinator {
   /** Drop cached peer status rows, for example when the runtime switches groups. */
   clearRemote(): void {
     this.remote.clear()
+  }
+
+  /** Whether the boot baseline merged, so local identities are known. */
+  hasBaseline(): boolean {
+    return this.baseline
+  }
+
+  /**
+   * Whether one identity is a local row of this host.
+   * @param sessionId - Session identity to test.
+   * @returns true for a locally owned row.
+   */
+  isLocal(sessionId: string): boolean {
+    return this.localIds.has(sessionId)
   }
 
   /** Replace or extend the cached server view after a welcome or push. */
@@ -167,7 +201,7 @@ export class StatusCoordinator {
   onAdded(summary: SessionSummary): void {
     // A federated row belongs to another node; its shared status is already
     // authoritative and must not be replaced by a local row.
-    if (remoteSummary(summary)) return
+    if (isFederatedSummary(summary)) return
     this.apply(summary)
   }
 
@@ -270,12 +304,17 @@ export class StatusCoordinator {
 
   /** Merge one listing and drop rows storage no longer reports. */
   private merge(items: readonly SessionSummary[]): void {
+    const first = !this.baseline
     const seen = new Set<string>()
     for (const item of items) {
-      if (remoteSummary(item)) continue
+      if (isFederatedSummary(item)) continue
       seen.add(item.sessionId)
       this.missed.delete(item.sessionId)
+      const known = this.local.has(item.sessionId)
       this.apply(item)
+      // A later reconcile discovers Sessions another process stored. The boot
+      // baseline reports nothing: the browser lists storage itself at start.
+      if (!first && !known) this.changed?.({ kind: 'added', summary: item })
     }
     for (const [sessionId, local] of this.local) {
       // A running Session is live by definition; a listing that missed it is stale.
@@ -290,7 +329,9 @@ export class StatusCoordinator {
       this.missed.delete(sessionId)
       this.local.delete(sessionId)
       this.localIds.delete(sessionId)
+      if (!first) this.changed?.({ kind: 'removed', sessionId })
     }
+    this.baseline = true
   }
 
   /** Upsert one local row from a listing row or a pushed summary. */

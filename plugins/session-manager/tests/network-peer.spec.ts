@@ -4,6 +4,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { BridgeFrame, PeerInfo } from '../src/network/protocol.ts'
 import { PeerPool } from '../src/network/peer-client.ts'
 import { createPeerResponder, type PeerResponder } from '../src/network/peer-responder.ts'
+import { rosterStream, type RosterFrame } from '../src/network/roster.ts'
 
 /** One minimal summary. */
 function summary(sessionId: SessionId): SessionSummary {
@@ -66,6 +67,10 @@ describe('bridged peer session RPC', () => {
       controller,
       logger: () => {},
       sender: (frame) => transportB.send(frame),
+      roster: (signal) => rosterStream({
+        list: () => controller.list(),
+        subscribe: () => () => {},
+      }, signal),
     })
     const responderA = createPeerResponder({
       controller: { async list() { return { items: [] } } },
@@ -108,6 +113,16 @@ describe('bridged peer session RPC', () => {
 
     const created = await link?.request('session.create', { cwd: '/work/new' })
     expect((created as { sessionId?: string } | undefined)?.sessionId).toBe('/work/new')
+
+    const rosterFrames: RosterFrame[] = []
+    for await (const frame of link?.stream('session.roster', {}) ?? []) {
+      rosterFrames.push(frame as RosterFrame)
+      if (rosterFrames.length === 1) break
+    }
+    expect(rosterFrames[0]).toMatchObject({ type: 'roster/snapshot' })
+    if (rosterFrames[0]?.type === 'roster/snapshot') {
+      expect(rosterFrames[0].items.map((item) => item.sessionId)).toEqual(['01S'])
+    }
 
     responderA.close()
     responderB.close()

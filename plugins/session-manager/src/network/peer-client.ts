@@ -184,6 +184,7 @@ export class PeerPool {
   private readonly links = new Map<string, PeerLink>()
   private peers: readonly PeerInfo[] = []
   private resolveReady: (() => void) | undefined
+  private readonly listeners = new Set<() => void>()
 
   /** Resolves after the first directory arrives. */
   readonly ready: Promise<void>
@@ -202,6 +203,7 @@ export class PeerPool {
     this.nodeId = nodeId
     for (const link of this.links.values()) link.close()
     this.links.clear()
+    this.notify()
   }
 
   /** Replace the directory and keep links for online peers. */
@@ -221,6 +223,19 @@ export class PeerPool {
       if (online.has(nodeId)) continue
       link.close()
       this.links.delete(nodeId)
+    }
+    this.notify()
+  }
+
+  /**
+   * Observe link-set changes.
+   * @param listener - called after the directory, the self id, or the link set changed.
+   * @returns unsubscribe.
+   */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
     }
   }
 
@@ -252,5 +267,10 @@ export class PeerPool {
   close(): void {
     for (const link of this.links.values()) link.close()
     this.links.clear()
+    this.notify()
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) listener()
   }
 }

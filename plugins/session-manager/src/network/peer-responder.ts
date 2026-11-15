@@ -15,6 +15,7 @@ import type {
   BridgeStreamFrame,
 } from './protocol.ts'
 import type { IncomingBridgeRequest } from './node.ts'
+import type { RosterFrame } from './roster.ts'
 import { localMethods } from './federation.ts'
 
 /** Structural controller methods the responder may call. */
@@ -35,6 +36,8 @@ export interface PeerResponderOptions {
   readonly controller: object
   readonly logger: (message: string) => void
   readonly sender: (frame: BridgeResponseFrame | BridgeStreamFrame | BridgeEndFrame | BridgeErrorFrame) => void
+  /** Serve this node's local Session roster; absent leaves the operation unsupported. */
+  readonly roster?: (signal: AbortSignal) => AsyncIterable<RosterFrame>
 }
 
 /** One live responder. */
@@ -85,6 +88,21 @@ export function createPeerResponder(options: PeerResponderOptions): PeerResponde
     switch (request.op) {
       case 'session.list': {
         respond(request, await invoke(controller, 'list', {}, new AbortController().signal))
+        return
+      }
+      case 'session.roster': {
+        if (options.roster === undefined) {
+          // A stream op has no unary answer; fail the stream so the caller can stop.
+          send(request, { type: 'bridge.error', error: { code: 'peer/unsupported', message: 'Unsupported operation.' } })
+          return
+        }
+        const abort = new AbortController()
+        streams.set(request.id, abort)
+        for await (const frame of options.roster(abort.signal)) {
+          send(request, { type: 'bridge.stream', frame })
+        }
+        streams.delete(request.id)
+        send(request, { type: 'bridge.end' })
         return
       }
       case 'session.create': {

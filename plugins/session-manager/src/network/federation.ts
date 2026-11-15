@@ -5,6 +5,11 @@
  * A remote Session is never opened in this host's store. Every call for its id
  * is routed to the peer link that advertised it; the peer's host remains the
  * only writer.
+ *
+ * Remote rows are maintained by one `session.roster` stream per online peer:
+ * an initial snapshot plus live changes. The wrapper re-emits those changes as
+ * Host Session events, so the browser list follows without asking any node for
+ * a full listing — a listing reads one header per stored Session.
  * @module dsh-plugin-session-manager/network/federation
  */
 
@@ -19,10 +24,21 @@ import type {
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { PeerInfo } from './protocol.ts'
 import type { PeerPool } from './peer-client.ts'
+import { isRosterFrame, type RosterFrame } from './roster.ts'
 
 /** Structural controller methods the federation wraps. */
 type Method = (this: Controller, ...args: any[]) => any
 type Controller = Record<string, Method>
+
+/** Host events one roster change turns into, so the browser list needs no listing. */
+export interface FederationEvents {
+  /** Whether this identity belongs to this host; a local row always wins over a peer copy. */
+  isLocal(sessionId: string): boolean
+  added(summary: SessionSummary): void
+  removed(sessionId: string): void
+  status(sessionId: string, running: boolean): void
+  activity(sessionId: string, updatedAt: number): void
+}
 
 /** Pre-federation methods per controller, so peer serving stays local. */
 const localMethodsByController = new WeakMap<object, Record<string, (...args: any[]) => any>>()
@@ -35,7 +51,44 @@ export function localMethods(controller: object): Record<string, (...args: any[]
 /** One remote row and the peer that owns it. */
 interface RemoteRow {
   readonly peer: PeerInfo
+  /** Summary as the browser sees it: titled with the peer name and carrying its node projection. */
   readonly summary: SessionSummary
+}
+
+/** One live roster generation for one peer. */
+interface Roster {
+  readonly abort: AbortController
+  /** Session ids this generation currently owns. */
+  rows: Set<string>
+  /** Resolves after the first snapshot, so a listing can wait for remote rows. */
+  readonly ready: Promise<void>
+  readonly settle: () => void
+}
+
+/** How long a listing waits for the first snapshot of each online peer. */
+const ROSTER_READY_TIMEOUT_MS = 1_500
+
+/** Reopen delay after a roster stream ends without this host closing it. */
+const ROSTER_RETRY_MS = 5_000
+
+/** Silence after which a roster stream counts as stalled and is replaced. */
+const ROSTER_STALL_MS = 45_000
+
+/** Resolve later; used for a roster's first snapshot. */
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve: () => void = () => {}
+  const promise = new Promise<void>((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
+
+/** Wait for a delay without holding the process open. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    timer.unref?.()
+  })
 }
 
 /** Pull queue used to merge the local control stream with peer control streams. */
@@ -93,7 +146,7 @@ async function firstWithin(
 }
 
 /** Install the federation wrapper over one Session Controller. */
-export function installFederation(controller: object, pool: PeerPool): () => void {
+export function installFederation(controller: object, pool: PeerPool, events: FederationEvents): () => void {
   const proto = Object.getPrototypeOf(controller) as Controller | null
   if (proto === null) return () => {}
   const originalList = proto['list']
@@ -102,10 +155,12 @@ export function installFederation(controller: object, pool: PeerPool): () => voi
 
   const restores: (() => void)[] = []
   const remote = new Map<string, RemoteRow>()
+  const rosters = new Map<string, Roster>()
   const locals: Record<string, (...args: any[]) => any> = {
     list: (...args: any[]) => originalList.call(controller as Controller, ...args),
     follow: (...args: any[]) => originalFollow.call(controller as Controller, ...args),
   }
+  let disposed = false
 
   const remember = (name: string): Method | undefined => {
     const value = proto[name]
@@ -151,40 +206,175 @@ export function installFederation(controller: object, pool: PeerPool): () => voi
     return { ...summary, projections }
   }
 
-  const refresh = async (self: SessionListValue): Promise<SessionListValue> => {
-    await waitDirectory()
-    const items = [...self.items]
-    const seen = new Set(items.map((item) => item.sessionId))
-    const peers = pool.directory().filter((peer) => peer.online)
-    const next = new Map<string, RemoteRow>()
-    await Promise.all(peers.map(async (peer) => {
-      try {
-        const rows = await Promise.race([
-          pool.sessions(peer.nodeId),
-          new Promise<readonly unknown[]>((resolve) => setTimeout(() => resolve([]), 1500)),
-        ])
-        for (const value of rows) {
-          const summary = value as SessionSummary
-          if (seen.has(summary.sessionId)) continue
-          seen.add(summary.sessionId)
-          next.set(summary.sessionId, { peer, summary })
-          items.push(titled(summary, peer))
+  /** Apply one roster frame and relay it as a Host Session event. */
+  const applyRoster = (peer: PeerInfo, roster: Roster, frame: RosterFrame): void => {
+    switch (frame.type) {
+      case 'roster/snapshot': {
+        const next = new Set<string>()
+        for (const item of frame.items) {
+          if (events.isLocal(item.sessionId)) continue
+          const owner = remote.get(item.sessionId)
+          if (owner !== undefined && owner.peer.nodeId !== peer.nodeId) continue
+          next.add(item.sessionId)
+          remote.set(item.sessionId, { peer, summary: titled(item, peer) })
         }
-      } catch {
-        // A peer that cannot answer simply contributes no rows.
+        for (const sessionId of roster.rows) {
+          if (next.has(sessionId)) continue
+          const owner = remote.get(sessionId)
+          if (owner === undefined || owner.peer.nodeId !== peer.nodeId) continue
+          remote.delete(sessionId)
+          events.removed(sessionId)
+        }
+        roster.rows = next
+        for (const sessionId of next) {
+          const row = remote.get(sessionId)
+          if (row !== undefined) events.added(row.summary)
+        }
+        return
       }
-    }))
-    // Swap only after every peer answered. Clearing first made concurrent follow
-    // and prompt calls fall back to the local controller while the list refreshed.
-    remote.clear()
-    for (const [sessionId, row] of next) remote.set(sessionId, row)
-    return { items }
+      case 'roster/added': {
+        if (events.isLocal(frame.summary.sessionId)) return
+        const owner = remote.get(frame.summary.sessionId)
+        if (owner !== undefined && owner.peer.nodeId !== peer.nodeId) return
+        const summary = titled(frame.summary, peer)
+        remote.set(frame.summary.sessionId, { peer, summary })
+        roster.rows.add(frame.summary.sessionId)
+        events.added(summary)
+        return
+      }
+      case 'roster/removed': {
+        if (remote.get(frame.sessionId)?.peer.nodeId !== peer.nodeId) return
+        remote.delete(frame.sessionId)
+        roster.rows.delete(frame.sessionId)
+        events.removed(frame.sessionId)
+        return
+      }
+      case 'roster/status': {
+        const row = remote.get(frame.sessionId)
+        if (row === undefined || row.peer.nodeId !== peer.nodeId) return
+        remote.set(frame.sessionId, { peer, summary: { ...row.summary, running: frame.running } })
+        events.status(frame.sessionId, frame.running)
+        return
+      }
+      case 'roster/activity': {
+        const row = remote.get(frame.sessionId)
+        if (row === undefined || row.peer.nodeId !== peer.nodeId) return
+        remote.set(frame.sessionId, { peer, summary: { ...row.summary, updatedAt: frame.updatedAt } })
+        events.activity(frame.sessionId, frame.updatedAt)
+        return
+      }
+      default:
+        // Heartbeat: liveness only.
+        return
+    }
   }
+
+  /** Consume one roster generation; reopen it after a stall or a peer restart. */
+  const runRoster = async (peer: PeerInfo, roster: Roster): Promise<void> => {
+    const link = pool.link(peer.nodeId)
+    if (link === undefined) return
+    let stalled = false
+    let watchdog: NodeJS.Timeout | undefined
+    const arm = (): void => {
+      if (watchdog !== undefined) clearTimeout(watchdog)
+      watchdog = setTimeout(() => {
+        stalled = true
+        roster.abort.abort()
+      }, ROSTER_STALL_MS)
+      watchdog.unref?.()
+    }
+    arm()
+    try {
+      for await (const frame of link.stream('session.roster', {}, roster.abort.signal)) {
+        arm()
+        if (!isRosterFrame(frame)) continue
+        applyRoster(peer, roster, frame)
+        if (frame.type === 'roster/snapshot') roster.settle()
+      }
+    } catch {
+      // A closed link, a peer restart, or a peer without the operation.
+    } finally {
+      if (watchdog !== undefined) clearTimeout(watchdog)
+    }
+    // A close of this generation, a replacement, or teardown owns the rows.
+    if (disposed || rosters.get(peer.nodeId) !== roster) return
+    if (roster.abort.signal.aborted && !stalled) return
+    await sleep(ROSTER_RETRY_MS)
+    if (disposed || rosters.get(peer.nodeId) !== roster) return
+    if (pool.link(peer.nodeId) === undefined) return
+    openRoster(peer, roster.rows)
+  }
+
+  /** Open one roster generation, keeping the rows it replaces for a snapshot diff. */
+  const openRoster = (peer: PeerInfo, rows: Set<string> = new Set()): void => {
+    const settled = deferred()
+    const roster: Roster = {
+      abort: new AbortController(),
+      rows,
+      ready: settled.promise,
+      settle: settled.resolve,
+    }
+    rosters.set(peer.nodeId, roster)
+    void runRoster(peer, roster)
+  }
+
+  /** Drop one peer's roster and every row it owns. */
+  const closeRoster = (nodeId: string): void => {
+    const roster = rosters.get(nodeId)
+    if (roster === undefined) return
+    rosters.delete(nodeId)
+    roster.abort.abort()
+    for (const sessionId of roster.rows) {
+      if (remote.get(sessionId)?.peer.nodeId !== nodeId) continue
+      remote.delete(sessionId)
+      if (!disposed) events.removed(sessionId)
+    }
+    roster.rows.clear()
+  }
+
+  /** Match open rosters to the online peer set. */
+  const syncPeers = (): void => {
+    if (disposed) return
+    const online = new Map<string, PeerInfo>()
+    for (const peer of pool.directory()) {
+      if (!peer.online || pool.link(peer.nodeId) === undefined) continue
+      online.set(peer.nodeId, peer)
+    }
+    for (const nodeId of rosters.keys()) {
+      if (!online.has(nodeId)) closeRoster(nodeId)
+    }
+    for (const peer of online.values()) {
+      if (!rosters.has(peer.nodeId)) openRoster(peer)
+    }
+  }
+
+  /** Wait for the first snapshot of every open roster, bounded. */
+  const waitRosters = async (): Promise<void> => {
+    const pending = [...rosters.values()].map((roster) => roster.ready)
+    if (pending.length === 0) return
+    await Promise.race([
+      Promise.all(pending),
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, ROSTER_READY_TIMEOUT_MS)
+      }),
+    ])
+  }
+
+  const unsubscribe = pool.onChange(syncPeers)
+  syncPeers()
 
   const list = async function (this: Controller, request: SessionListRequest, signal: AbortSignal): Promise<SessionListValue> {
     const value = await originalList.call(this, request, signal) as SessionListValue
     if (request.cursor !== undefined) return value
-    return refresh(value)
+    syncPeers()
+    await waitRosters()
+    const seen = new Set<string>(value.items.map((item) => item.sessionId))
+    const items = [...value.items]
+    for (const [sessionId, row] of remote) {
+      if (seen.has(sessionId)) continue
+      items.push(row.summary)
+    }
+    return { items }
   }
 
   const remoteRow = (sessionId: SessionId): RemoteRow | undefined => remote.get(sessionId)
@@ -303,7 +493,7 @@ export function installFederation(controller: object, pool: PeerPool): () => voi
       const active: { readonly iterator: AsyncIterator<SessionControlFrame>; readonly abort: AbortController }[] = []
       for (const peer of remote) {
         try {
-          const frame = await firstWithin(peer.iterator, 1500)
+          const frame = await firstWithin(peer.iterator, 1_500)
           if (frame === undefined || frame.done || frame.value.type !== 'baseline') {
             peer.abort.abort()
             continue
@@ -358,6 +548,9 @@ export function installFederation(controller: object, pool: PeerPool): () => voi
   localMethodsByController.set(controller, locals)
 
   return () => {
+    disposed = true
+    unsubscribe()
+    for (const nodeId of rosters.keys()) closeRoster(nodeId)
     localMethodsByController.delete(controller)
     for (const restore of restores.reverse()) restore()
     remote.clear()

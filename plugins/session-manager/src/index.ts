@@ -15,7 +15,8 @@ import type { SessionListValue } from '@deepseek-ai/dsh-api-session-controller/t
 import type {} from '@deepseek-ai/dsh-api-session-controller/types'
 import z from '@deepseek-ai/schemastery'
 import { NodeRuntime, type NetworkConfig } from './network/node-runtime.ts'
-import { StatusCoordinator } from './network/status.ts'
+import { rosterStream, type RosterFrame } from './network/roster.ts'
+import { isFederatedSummary, StatusCoordinator } from './network/status.ts'
 import type { SessionStatusRecord } from './network/protocol.ts'
 
 /** Loader metadata: the name shown in fiber diagnostics and logs. */
@@ -156,8 +157,37 @@ export function apply(ctx: Context, config?: Config): void {
     } | undefined
     if (controller === undefined || typeof controller.list !== 'function') return
 
-    // Capture the pre-federation method: local status must never include peer rows.
+    // Capture the pre-federation method: local status and the peer roster must
+    // never include federated rows.
     const localList = controller.list
+
+    // One `session.roster` generation per subscribing peer: this host's local
+    // rows once, then every local change. Peers keep their copies current from
+    // it, so no node asks another for a full listing.
+    const roster = (signal: AbortSignal): AsyncIterable<RosterFrame> => rosterStream({
+      list: () => localList.call(controller, {}, new AbortController().signal),
+      subscribe: (emit) => {
+        const disposers = [
+          scope.on('api-session/added', (summary) => {
+            // A federated row belongs to another node; forwarding it would echo.
+            if (isFederatedSummary(summary)) return
+            emit({ type: 'roster/added', summary })
+          }),
+          scope.on('api-session/removed', (sessionId) => {
+            emit({ type: 'roster/removed', sessionId: String(sessionId) })
+          }),
+          scope.on('api-session/status', (sessionId, running) => {
+            emit({ type: 'roster/status', sessionId: String(sessionId), running })
+          }),
+          scope.on('api-session/activity', (sessionId, updatedAt) => {
+            emit({ type: 'roster/activity', sessionId: String(sessionId), updatedAt })
+          }),
+        ]
+        return () => {
+          for (const dispose of disposers) dispose()
+        }
+      },
+    }, signal)
     const gateway = scope.get('typertGateway') as {
       getPendingRemoteEvents(): readonly { readonly event: string; readonly agentId: unknown }[]
     } | undefined
@@ -177,7 +207,13 @@ export function apply(ctx: Context, config?: Config): void {
     const coordinator = new StatusCoordinator({
       list: () => localList.call(controller, {}, new AbortController().signal),
       pending: pendingKinds,
-    }, (message) => ctx.logger.info(message))
+    }, (message) => ctx.logger.info(message), (change) => {
+      // A reconcile can discover a Session another process stored. Publishing it
+      // as a Host event keeps the browser list and every peer roster current
+      // without a listing.
+      if (change.kind === 'added') ctx.emit('api-session/added', change.summary)
+      else ctx.emit('api-session/removed', change.sessionId as SessionId)
+    })
 
     let runtime: NodeRuntime | undefined
     let appliedKey: string | undefined
@@ -210,6 +246,18 @@ export function apply(ctx: Context, config?: Config): void {
           coordinator.start()
         },
         (status) => coordinator.applyOne(status),
+        {
+          events: {
+            // The boot baseline decides which rows are local; until it lands a
+            // peer copy must not shadow the local one.
+            isLocal: (sessionId) => !coordinator.hasBaseline() || coordinator.isLocal(sessionId),
+            added: (summary) => ctx.emit('api-session/added', summary),
+            removed: (sessionId) => ctx.emit('api-session/removed', sessionId as SessionId),
+            status: (sessionId, running) => ctx.emit('api-session/status', sessionId as SessionId, running),
+            activity: (sessionId, updatedAt) => ctx.emit('api-session/activity', sessionId as SessionId, updatedAt),
+          },
+          roster,
+        },
       )
       runtime = created
       void created.start().catch((error: unknown) => {
