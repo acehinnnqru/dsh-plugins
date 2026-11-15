@@ -1079,6 +1079,13 @@ export function SessionBoardPage(props: PageProps): ReactNode {
         state,
         mode: 'dialog',
       })
+      // The preview's New Session control targets this node and Workspace. Warm that blank
+      // while the Conversation opens, so the button does not pay the whole bridge round-trip.
+      const workspace = workspaceOf(card, workspaces.items)
+      const cwd = workspace?.path ?? card.cwd
+      if (!card.node.self && cwd !== undefined) {
+        prepareRemote(card.node, cwd, sessionPreset(list, card.id))
+      }
     } catch (cause) {
       setPreviewError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -1185,15 +1192,15 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     return latest?.cwd
   }
 
-  /** Warm one peer's blank at a known directory. */
-  function prepareRemote(node: SessionNode, cwd: string): void {
+  /** Warm one peer's blank at a known directory and Agent preset. */
+  function prepareRemote(node: SessionNode, cwd: string, agentPreset?: string): void {
     if (node.self || node.id === undefined) return
     const fromId = composerRef.current?.reference.sessionId
     if (fromId !== undefined) {
       const owner = sessionNodeOf(listRef.current, fromId)
       if (!owner.self && owner.id === node.id) return
     }
-    const key = node.id + '\n' + cwd
+    const key = node.id + '\n' + cwd + '\n' + (agentPreset ?? '')
     const prior = preparedRemote.current.get(key)
     if (prior !== undefined) {
       if (prior.sessionId === undefined) return
@@ -1208,7 +1215,10 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       return !owner.self && owner.id === node.id
     })
     if (parked) return
-    const prepared = createRemoteSession(node.id, { cwd })
+    const prepared = createRemoteSession(node.id, {
+      cwd,
+      ...(agentPreset === undefined ? {} : { agentPreset }),
+    })
       .then(async (sessionId) => {
         await waitForSession(sessionId)
         return sessionId
@@ -1286,7 +1296,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     }
     const cwd = workspace?.path ?? fallbackCwd ?? nodeDirectory(node)
     if (node.id === undefined || cwd === undefined) throw new Error(t('new.failed'))
-    const key = node.id + '\n' + cwd
+    const key = node.id + '\n' + cwd + '\n' + (agentPreset ?? '')
     const existing = listRef.current.ids.find((id) => {
       const row = listRef.current.byId[id]
       if (row === undefined || row.blank !== true || row.cwd !== cwd || archived.includes(id)) return false

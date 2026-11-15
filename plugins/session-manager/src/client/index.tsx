@@ -37,6 +37,7 @@ import { SharedStatusStore } from './status.ts'
 import { SessionConversationHost } from './ConversationHost.tsx'
 import { SessionBoardPage, type SessionManagerInjected } from './SessionBoardPage.tsx'
 import { SessionManagerIcon } from './SessionManagerIcon.tsx'
+import { sessionNodeOf } from './board.ts'
 import { mergeWorkspaceMembers, remoteSessionsByPath } from './workspace-membership.ts'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, NS, zh } from './locales.ts'
@@ -57,7 +58,7 @@ const PANEL_ID = 'session-manager' as MainPanelId
 const PANEL_ORDER = 30
 
 /** Cordis service names this half waits for: slots, locale, Session retention, Session status, and navigation. */
-export const inject = ['slots', 'locale', 'sessions', 'workspaces', 'uiSession', 'uiWorkspace', 'layout', 'remote', 'remote.settings']
+export const inject = ['slots', 'locale', 'sessions', 'workspaces', 'uiSession', 'uiWorkspace', 'layout', 'remote', 'remote.settings', 'conversation']
 
 /** The Chat view's settings form, read for the one value that decides where a web link opens. */
 interface ChatSettingsForm {
@@ -67,6 +68,12 @@ interface ChatSettingsForm {
 /** The settings registry, reached through `ctx.get` because this plugin does not require it. */
 interface ConfigFormsFace {
   get(namespace: string): ChatSettingsForm | undefined
+}
+
+/** The composer draft methods this plugin redirects for peer Sessions. */
+interface ConversationDraftFace {
+  createDrafts(sessionId: SessionId, files: readonly File[], uploadImages: boolean): readonly unknown[]
+  rebindDraftFiles(sessionId: SessionId, ids: readonly string[], uploadImages: boolean): void
 }
 
 /** The Client Workspace projection this plugin augments with remote members. */
@@ -113,6 +120,35 @@ function linksOpenInColumn(ctx: ClientContext): boolean {
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'session-manager: dictionaries')
+
+  // A peer Session has no local Agent, so an image upload receipt staged here cannot be resolved
+  // when the prompt reaches its owner. Keep peer images inline instead; the prompt payload already
+  // carries the encoded image, which the owner can admit without a host-local receipt.
+  ctx.effect(() => {
+    const conversation = typeof ctx.get === 'function'
+      ? ctx.get('conversation') as ConversationDraftFace | undefined
+      : undefined
+    const proto = conversation === undefined
+      ? null
+      : Object.getPrototypeOf(conversation) as ConversationDraftFace | null
+    if (proto === null) return () => {}
+    const create = proto.createDrafts
+    const rebind = proto.rebindDraftFiles
+    if (typeof create !== 'function' || typeof rebind !== 'function') return () => {}
+    const isRemote = (sessionId: SessionId): boolean =>
+      !sessionNodeOf(ctx.sessions.list.getSnapshot(), sessionId).self
+    proto.createDrafts = function (this: ConversationDraftFace, sessionId, files, uploadImages) {
+      return create.call(this, sessionId, files, uploadImages && !isRemote(sessionId))
+    }
+    proto.rebindDraftFiles = function (this: ConversationDraftFace, sessionId, ids, uploadImages) {
+      rebind.call(this, sessionId, ids, uploadImages && !isRemote(sessionId))
+    }
+    return () => {
+      proto.createDrafts = create
+      proto.rebindDraftFiles = rebind
+    }
+  }, 'session-manager: peer image drafts')
+
   const t = ctx.locale.bind(NS)
   const settings = (): ConfigForm<SessionManagerSettings> | undefined => {
     if (typeof ctx.get !== 'function') return undefined
