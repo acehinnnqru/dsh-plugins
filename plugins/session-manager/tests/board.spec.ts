@@ -135,6 +135,23 @@ describe('deriveBoard', () => {
     expect(board.unread[0]?.waitingKind).toBe('approval')
   })
 
+  it('keeps a shared running edge when the local snapshot still says false', () => {
+    const session = id('shared-running')
+    const shared = new Map([
+      [session as string, { sessionId: session, running: true, pending: null, unread: false, updatedAt: 2, readAt: 0 }],
+    ])
+
+    const board = deriveBoard(
+      listOf([summary('shared-running')]),
+      statusesOf([[session, status({ running: false })]]),
+      [],
+      new Set(),
+      new Map(),
+      shared,
+    )
+    expect(idsOf(board.running)).toEqual([session])
+  })
+
   it('lets a pending interaction outrank a running turn', () => {
     const session = id('approval')
     const board = deriveBoard(

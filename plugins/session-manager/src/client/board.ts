@@ -205,7 +205,9 @@ function effectiveStatus(status: SessionStatus | undefined, shared: SharedStatus
     ? { key: 'shared:' + sessionId, kind: shared.pending, sessionId }
     : undefined)
   return {
-    running: status?.running ?? shared.running,
+    // A remote Session's local status is only a snapshot of the last follow frame. Its explicit
+    // `false` must not hide a fresh shared running edge; either source saying running wins.
+    running: status?.running === true || shared.running,
     pendingInteraction,
     completionUnread: shared.unread,
   }
