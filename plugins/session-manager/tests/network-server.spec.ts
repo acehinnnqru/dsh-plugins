@@ -4,7 +4,6 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { WebSocket } from 'ws'
 import { canonicalRegister, type ServerFrame, type WelcomeFrame } from '../server/src/protocol.ts'
 import { startServer, type RunningServer } from '../server/src/server.ts'
 
@@ -41,7 +40,7 @@ async function register(
   const signKey = raw(signing.publicKey)
   const socket = new WebSocket(url)
   const welcome = await new Promise<WelcomeFrame>((resolve, reject) => {
-    socket.on('open', () => {
+    socket.addEventListener('open', () => {
       const ts = Date.now()
       const proof = sign(null, Buffer.from(canonicalRegister(name, encKey, signKey, ts)), signing.privateKey).toString('base64url')
       socket.send(JSON.stringify({
@@ -57,12 +56,14 @@ async function register(
         ...(instanceId === undefined ? {} : { instanceId }),
       }))
     })
-    socket.on('message', (data) => {
-      const frame = JSON.parse((data as Buffer).toString('utf8')) as ServerFrame
+    socket.addEventListener('message', (event) => {
+      const frame = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data)) as ServerFrame
       if (frame.type === 'welcome') resolve(frame)
       if (frame.type === 'error') reject(new Error(frame.code))
     })
-    socket.on('error', reject)
+    socket.addEventListener('error', () => {
+      reject(new Error('socket error'))
+    })
   })
   return { welcome, socket }
 }
@@ -71,17 +72,17 @@ async function register(
 function nextFrame(socket: WebSocket, predicate: (frame: ServerFrame) => boolean): Promise<ServerFrame> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      socket.off('message', onMessage)
+      socket.removeEventListener('message', onMessage)
       reject(new Error('frame timeout'))
     }, 2000)
-    const onMessage = (data: unknown): void => {
-      const frame = JSON.parse((data as Buffer).toString('utf8')) as ServerFrame
+    const onMessage = (event: MessageEvent): void => {
+      const frame = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data)) as ServerFrame
       if (!predicate(frame)) return
       clearTimeout(timer)
-      socket.off('message', onMessage)
+      socket.removeEventListener('message', onMessage)
       resolve(frame)
     }
-    socket.on('message', onMessage)
+    socket.addEventListener('message', onMessage)
   })
 }
 
