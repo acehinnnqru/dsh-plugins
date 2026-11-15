@@ -24,7 +24,11 @@ full-screen new-conversation overlay that embeds the native composer.
 - Omits blank drafts, subagent-origin rows, and archived Sessions. A **pending** card body opens a
   dialog that surfaces the native question immediately; every other card body opens the general
   session preview dialog. A separate hover/focus control on the card opens the **real Session page**,
-  so the user's Conversation views and customizations stay intact. The pending dialog's **Full
+  so the user's Conversation views and customizations stay intact. Recent cards carry one more
+  hover/focus control that archives the Session in one click, with no confirmation: those rows are
+  settled, so the Host cannot refuse them for running work, and the Management tab's archived set is
+  where a mistaken click is undone. Only local rows get it, because the archive set is a local
+  Workspace registry fact. The pending dialog's **Full
   conversation** action still expands to the embedded page. The preview dialog's new-conversation
   control, beside **Open session**, starts the board's overlay in the previewed Session's Workspace
   under its Agent preset, then closes the preview. Its archive control, left of the
@@ -82,8 +86,11 @@ full-screen new-conversation overlay that embeds the native composer.
   checkbox selects the filtered set, and **Archive** removes the selected Sessions after a
   confirmation. The batch runs one
   Session at a time: the Host refuses a Session whose work is still running, so the tab reports how
-  many were refused and leaves those rows listed and selected. Archived Sessions can be restored
-  from the native sidebar.
+  many were refused and leaves those rows listed and selected.
+- Switches Management between **Active** and **Archived**. The archived set is the undo surface for
+  the card's one-click archive: each row can be restored in place, or the filtered selection can be
+  restored in one batch. An archived row is plain text rather than a button, because an archived
+  conversation cannot be opened until it is restored.
 - Searches the whole Session list from the magnifier in the Board tab's top-right. Matching is a
   case-insensitive substring test over what a row shows: the card title — the host-facing label — and
   the Workspace the Session lives in, named by the Workspace title or the directory basename. A
@@ -209,11 +216,16 @@ shared status registry.
 6. Opening an unread completion only moves it from **Unread** to **Recent**; it never removes the
    row from the board.
 
+`archivedSessions` in `src/client/session-search.ts` applies the same eligibility rules inverted:
+it keeps only the rows in the registry archive set, which is what the management tab's archived view
+lists and restores from.
+
 `tests/board.spec.ts` covers the precedence, the filters, the read mark, the Recent-window
 boundary, and the pinned states (whose ids come from the Host pin set plus the browser-local remote
 pin order); `tests/remote-pins.spec.ts` covers that stored order;
-`tests/session-search.spec.ts` covers the full-list derivation and the title-or-Workspace filter;
-`tests/archive.spec.ts` covers the batch archive outcome;
+`tests/session-search.spec.ts` covers the full-list and archived derivations and the
+title-or-Workspace filter;
+`tests/archive.spec.ts` covers the batch archive and unarchive outcomes;
 `tests/recent-window.spec.ts` covers the window preference; `tests/back-to-board.spec.ts` covers the
 return marker; `tests/conversation-input.spec.ts` covers the embedded Factory phase;
 `tests/new-conversation.spec.ts` covers the current and most-recent target Workspace;

@@ -420,6 +420,9 @@ export function apply(ctx: ClientContext): void {
   // The management tab batches this command; the Host refuses a Session whose work still runs.
   const archiveSession = (sessionId: SessionId): Promise<void> =>
     ctx.uiWorkspace.archiveSession(sessionId)
+  // Archived rows leave the board, so the management tab restores them from its archived set.
+  const unarchiveSession = (sessionId: SessionId): Promise<void> =>
+    ctx.uiWorkspace.unarchiveSession(sessionId)
   /**
    * Open a destination an embedded Conversation cannot serve, on the real Session page.
    *
@@ -477,6 +480,7 @@ export function apply(ctx: ClientContext): void {
       draftAttachmentCount,
       setPinned,
       archiveSession,
+      unarchiveSession,
       openPreviewDestination,
       settings,
       saveSettings,

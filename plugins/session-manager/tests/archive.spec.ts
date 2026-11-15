@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { archiveSessions } from '../src/client/archive.ts'
+import { archiveSessions, unarchiveSessions } from '../src/client/archive.ts'
 
 /**
  * The management tab's batch step.
@@ -44,5 +44,29 @@ describe('archiveSessions', () => {
     })
 
     expect(result).toEqual({ archived: [], failed: [] })
+  })
+})
+
+describe('unarchiveSessions', () => {
+  it('restores every Session in selection order', async () => {
+    const calls: SessionId[] = []
+    const result = await unarchiveSessions([id('a'), id('b')], async (sessionId) => {
+      calls.push(sessionId)
+    })
+
+    expect(calls).toEqual([id('a'), id('b')])
+    expect(result).toEqual({ archived: [id('a'), id('b')], failed: [] })
+  })
+
+  it('keeps going after a refusal and reports the refused ids', async () => {
+    const attempted: SessionId[] = []
+    const result = await unarchiveSessions([id('a'), id('b')], async (sessionId) => {
+      attempted.push(sessionId)
+      if (sessionId === id('a')) throw new Error('gateway/internal')
+    })
+
+    expect(attempted).toEqual([id('a'), id('b')])
+    expect(result.archived).toEqual([id('b')])
+    expect(result.failed).toEqual([id('a')])
   })
 })

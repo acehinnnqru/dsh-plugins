@@ -1,20 +1,45 @@
 /**
- * Batch archive behind the management tab.
+ * Batch archive and unarchive behind the management tab.
  *
  * The Host installs a complete archive set per call and refuses a Session whose work is still
- * running. The batch therefore runs one Session at a time and keeps going after a refusal, so the
+ * running. A batch therefore runs one Session at a time and keeps going after a refusal, so the
  * outcome can be reported instead of stopping at the first failure.
  * @module dsh-plugin-session-manager/client/archive
  */
 
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-/** How a batch archive settled. */
+/** How a batch settled. */
 export interface ArchiveOutcome {
   /** Sessions the Host accepted, in selection order. */
   readonly archived: readonly SessionId[]
   /** Sessions the Host refused, in selection order. */
   readonly failed: readonly SessionId[]
+}
+
+/**
+ * Run one Host archive-set command per Session.
+ * @param sessionIds - Sessions the user selected.
+ * @param act - Host command for one Session.
+ * @returns the accepted and refused ids, in selection order.
+ */
+async function settle(
+  sessionIds: readonly SessionId[],
+  act: (sessionId: SessionId) => Promise<void>,
+): Promise<ArchiveOutcome> {
+  const archived: SessionId[] = []
+  const failed: SessionId[] = []
+
+  for (const sessionId of sessionIds) {
+    try {
+      await act(sessionId)
+      archived.push(sessionId)
+    } catch {
+      failed.push(sessionId)
+    }
+  }
+
+  return { archived, failed }
 }
 
 /**
@@ -27,17 +52,18 @@ export async function archiveSessions(
   sessionIds: readonly SessionId[],
   archive: (sessionId: SessionId) => Promise<void>,
 ): Promise<ArchiveOutcome> {
-  const archived: SessionId[] = []
-  const failed: SessionId[] = []
+  return await settle(sessionIds, archive)
+}
 
-  for (const sessionId of sessionIds) {
-    try {
-      await archive(sessionId)
-      archived.push(sessionId)
-    } catch {
-      failed.push(sessionId)
-    }
-  }
-
-  return { archived, failed }
+/**
+ * Unarchive the selected Sessions one at a time.
+ * @param sessionIds - Sessions the user selected.
+ * @param unarchive - Host unarchive command for one Session.
+ * @returns the accepted and refused ids, in selection order.
+ */
+export async function unarchiveSessions(
+  sessionIds: readonly SessionId[],
+  unarchive: (sessionId: SessionId) => Promise<void>,
+): Promise<ArchiveOutcome> {
+  return await settle(sessionIds, unarchive)
 }

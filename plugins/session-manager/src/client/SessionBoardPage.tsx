@@ -75,7 +75,7 @@ import {
 import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
 import { REMOTE_PIN_KEY, readRemotePins, toggleRemotePin, writeRemotePins } from './remote-pins.ts'
-import { matchSessions, searchableSessions, type SessionHit } from './session-search.ts'
+import { archivedSessions, matchSessions, searchableSessions, type SessionHit } from './session-search.ts'
 import { workspaceOf } from './workspace-search.ts'
 import { fullDate, stateText, timeText, workspaceName, type Translate } from './session-view.ts'
 import { Management } from './Management.tsx'
@@ -160,6 +160,14 @@ export interface SessionManagerInjected {
    * @param sessionId - Session to archive.
    */
   readonly archiveSession: (sessionId: SessionId) => Promise<void>
+  /**
+   * Restore one archived Session.
+   *
+   * Archived rows are not on the board; the management tab's archived set is the surface that
+   * puts one back, which is what makes a one-click archive on a card safe.
+   * @param sessionId - Session to restore.
+   */
+  readonly unarchiveSession: (sessionId: SessionId) => Promise<void>
   /**
    * Open a destination an embedded Conversation cannot serve, on the real Session page.
    *
@@ -475,6 +483,10 @@ interface SessionCardViewProps {
   readonly onOpen: () => void
   readonly onOpenSession: () => void
   readonly onTogglePin: () => void
+  /** Archive straight from the card; only the Recent column passes it. */
+  readonly onArchive?: () => void
+  /** One archive command is in flight for this card. */
+  readonly archivePending?: boolean
 }
 
 /**
@@ -500,11 +512,16 @@ function SessionCardView({
   onOpen,
   onOpenSession,
   onTogglePin,
+  onArchive,
+  archivePending,
 }: SessionCardViewProps): ReactNode {
   const pinAllowed = useSessionAccess(
     card.id,
     pinned ? 'workspace/unpinSession' : 'workspace/pinSession',
   )
+  const archiveAllowed = useSessionAccess(card.id, 'workspace/archiveSession')
+  // Archiving is a local registry action; a federated row has no owner-side command here.
+  const showArchive = onArchive !== undefined && archiveAllowed === true && card.node.self
   const nodeLabel = card.node.self ? 'self' : card.node.name
   const nodeTitle = card.node.self || card.node.instanceId === undefined
     ? nodeLabel
@@ -514,6 +531,7 @@ function SessionCardView({
       className={css.card}
       data-state={state}
       data-pinned={pinned ? 'true' : undefined}
+      data-archive={showArchive ? 'true' : undefined}
       data-open="true"
     >
       <button type="button" className={css.cardBody} onClick={onOpen}>
@@ -543,6 +561,19 @@ function SessionCardView({
           )}
         </span>
       </button>
+      {showArchive && (
+        <button
+          type="button"
+          className={css.archive}
+          aria-label={t('preview.archive')}
+          title={t('preview.archive')}
+          aria-busy={archivePending === true}
+          disabled={archivePending === true}
+          onClick={onArchive}
+        >
+          <IconArchiveOutlineRegular size={14} />
+        </button>
+      )}
       <button
         type="button"
         className={css.open}
@@ -854,6 +885,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     draftAttachmentCount,
     setPinned,
     archiveSession,
+    unarchiveSession,
     openPreviewDestination,
     settings,
     saveSettings,
@@ -879,6 +911,9 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [pinError, setPinError] = useState<string | undefined>(undefined)
+  const [archiveBusy, setArchiveBusy] = useState<ReadonlySet<SessionId>>(() => new Set())
+  const [archiveError, setArchiveError] = useState<string | undefined>(undefined)
+  const archivingCards = useRef(new Set<SessionId>())
   const [pinBusy, setPinBusy] = useState<ReadonlySet<SessionId>>(() => new Set())
   const [, bumpBoardRevision] = useState(0)
   const [, bumpWindowRevision] = useState(0)
@@ -1417,6 +1452,27 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   }
 
   /**
+   * Archive one card straight from the Recent column.
+   *
+   * The Host refuses a Session whose work is still running; the card then stays put and the
+   * refusal is reported above the board. The archived set lives in the management tab, so the
+   * action needs no confirmation and no undo toast.
+   * @param sessionId - card the user archived.
+   */
+  function archiveCard(sessionId: SessionId): void {
+    if (archivingCards.current.has(sessionId)) return
+    archivingCards.current.add(sessionId)
+    setArchiveError(undefined)
+    setArchiveBusy(new Set(archivingCards.current))
+    void archiveSession(sessionId).catch((cause: unknown) => {
+      setArchiveError(cause instanceof Error ? cause.message : String(cause))
+    }).finally(() => {
+      archivingCards.current.delete(sessionId)
+      setArchiveBusy(new Set(archivingCards.current))
+    })
+  }
+
+  /**
    * Move the open new conversation to another Workspace without leaving the overlay.
    *
    * There is no Host command that re-homes a Session, so the move is a swap: connect a blank Session
@@ -1686,6 +1742,12 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           </p>
         )}
 
+        {visibleTab === 'board' && archiveError !== undefined && (
+          <p className={css.previewError} role="alert">
+            {t('preview.archiveFailed')}: {archiveError}
+          </p>
+        )}
+
         {visibleTab === 'board' ? (
           <div className={css.tabPanel} role="tabpanel" id="session-manager-board-panel" aria-labelledby="session-manager-board">
             {total === 0 && list.phase === 'pending' && (
@@ -1759,6 +1821,12 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                                     ? 'waiting'
                                     : 'completed'
                                   : 'idle'
+                              // A one-click archive only on Recent: those rows are settled, so the
+                              // Host cannot refuse them for running work, and the management tab
+                              // holds the archived set to restore from.
+                              const archive = column === 'recent' && card.node.self
+                                ? { onArchive: (): void => { archiveCard(card.id) } }
+                                : {}
                               return (
                                 <li key={card.id}>
                                   <SessionCardView
@@ -1766,6 +1834,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                                     state={state}
                                     pinned={false}
                                     pinPending={pinBusy.has(card.id)}
+                                    archivePending={archiveBusy.has(card.id)}
                                     workspace={workspaceName(card, workspaces.items, t)}
                                     showNode={showNodes}
                                     t={t}
@@ -1780,6 +1849,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                                     onTogglePin={() => {
                                       void togglePin(card.id, false)
                                     }}
+                                    {...archive}
                                   />
                                 </li>
                               )
@@ -1827,6 +1897,8 @@ export function SessionBoardPage(props: PageProps): ReactNode {
               now={now}
               t={t}
               archiveSession={archiveSession}
+              unarchiveSession={unarchiveSession}
+              archivedSessions={archivedSessions(list, statuses, archived, completionReadAt, locallyCompleted, sharedStatuses)}
               onPreview={openManagedSession}
             />
           </div>

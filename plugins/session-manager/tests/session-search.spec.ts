@@ -3,7 +3,7 @@ import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-sess
 import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { matchSessions, searchableSessions, type SessionHit } from '../src/client/session-search.ts'
+import { archivedSessions, matchSessions, searchableSessions, type SessionHit } from '../src/client/session-search.ts'
 import { DEFAULT_WORKSPACE_TITLE } from '../src/client/workspace-search.ts'
 
 /**
@@ -67,6 +67,34 @@ function pending(kind: string, sessionId: SessionId): NonNullable<SessionStatus[
 function idsOf(hits: readonly { readonly id: SessionId }[]): SessionId[] {
   return hits.map((hit) => hit.id)
 }
+
+describe('archivedSessions', () => {
+  it('keeps only the registry archive set, newest first', () => {
+    const archivedOld = summary('archived-old', { updatedAt: 10 })
+    const archivedNew = summary('archived-new', { updatedAt: 20 })
+    const active = summary('active', { updatedAt: 30 })
+    const hits = archivedSessions(
+      listOf([archivedOld, archivedNew, active]),
+      statusesOf([[archivedOld.id, status()], [archivedNew.id, status()], [active.id, status()]]),
+      [archivedOld.id, archivedNew.id],
+    )
+
+    expect(idsOf(hits)).toEqual([archivedNew.id, archivedOld.id])
+  })
+
+  it('still drops blank and subagent rows', () => {
+    const blank = summary('blank', { blank: true })
+    const child = summary('child', { origin: 'subagent' })
+    const normal = summary('normal')
+    const hits = archivedSessions(
+      listOf([blank, child, normal]),
+      statusesOf([[blank.id, status()], [child.id, status()], [normal.id, status()]]),
+      [blank.id, child.id, normal.id],
+    )
+
+    expect(idsOf(hits)).toEqual([normal.id])
+  })
+})
 
 describe('searchableSessions', () => {
   it('keeps every listed Session, including one outside the Recent window', () => {

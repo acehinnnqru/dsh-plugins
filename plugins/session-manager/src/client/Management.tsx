@@ -16,8 +16,9 @@ import {
   IconSearchOutlineRegular,
   Input,
   Modal,
+  SegmentedControl,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { archiveSessions } from './archive.ts'
+import { archiveSessions, unarchiveSessions } from './archive.ts'
 import { matchSessions, type SessionHit } from './session-search.ts'
 import { fullDate, stateText, timeText, workspaceName, type Translate } from './session-view.ts'
 import css from './SessionBoard.module.css'
@@ -36,6 +37,10 @@ export interface ManagementProps {
   readonly t: Translate
   /** Archive one Session on the Host. */
   readonly archiveSession: (sessionId: SessionId) => Promise<void>
+  /** Restore one archived Session on the Host. */
+  readonly unarchiveSession: (sessionId: SessionId) => Promise<void>
+  /** Sessions the registry currently holds as archived. */
+  readonly archivedSessions: readonly SessionHit[]
   /** Open one row in the board's preview dialog. */
   readonly onPreview: (hit: SessionHit) => void
 }
@@ -52,9 +57,12 @@ export function Management({
   now,
   t,
   archiveSession,
+  unarchiveSession,
+  archivedSessions,
   onPreview,
 }: ManagementProps): ReactNode {
   const [query, setQuery] = useState('')
+  const [mode, setMode] = useState<'active' | 'archived'>('active')
   const [selected, setSelected] = useState<ReadonlySet<SessionId>>(() => new Set())
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -62,10 +70,12 @@ export function Management({
   const selectAll = useRef<HTMLInputElement>(null)
   const archiving = useRef(false)
 
-  const results = matchSessions(sessions, query, workspaces)
+  // Archived rows are a separate set: the tab is also the undo surface for a one-click archive.
+  const source = mode === 'active' ? sessions : archivedSessions
+  const results = matchSessions(source, query, workspaces)
   // A selection can outlive the row it named (archived here or in the native sidebar); only the
   // listed ids count, so the toolbar and the batch never act on a ghost.
-  const available = new Set(sessions.map((hit) => hit.id))
+  const available = new Set(source.map((hit) => hit.id))
   const chosen = new Set([...selected].filter((id) => available.has(id)))
   const chosenVisible = results.filter((hit) => chosen.has(hit.id)).length
   const allVisible = results.length > 0 && chosenVisible === results.length
@@ -120,7 +130,9 @@ export function Management({
     setBusy(true)
     setFailed(0)
     try {
-      const outcome = await archiveSessions(ids, archiveSession)
+      const outcome = mode === 'active'
+        ? await archiveSessions(ids, archiveSession)
+        : await unarchiveSessions(ids, unarchiveSession)
       setSelected((current) => {
         const updated = new Set(current)
         for (const sessionId of outcome.archived) updated.delete(sessionId)
@@ -133,9 +145,49 @@ export function Management({
     }
   }
 
+  /**
+   * Restore one archived Session.
+   * @param sessionId - row the user restored.
+   */
+  async function restore(sessionId: SessionId): Promise<void> {
+    if (archiving.current) return
+    archiving.current = true
+    setBusy(true)
+    setFailed(0)
+    try {
+      const outcome = await unarchiveSessions([sessionId], unarchiveSession)
+      setFailed(outcome.failed.length)
+      if (outcome.archived.length === 0) return
+      setSelected((current) => {
+        const updated = new Set(current)
+        updated.delete(sessionId)
+        return updated
+      })
+    } finally {
+      archiving.current = false
+      setBusy(false)
+    }
+  }
+
   return (
     <section className={css.management} aria-label={t('tab.management')}>
       <div className={css.manageBar}>
+        <SegmentedControl
+          id="session-manager-manage-mode"
+          className={css.manageModes ?? ''}
+          value={mode}
+          options={[
+            { value: 'active', label: t('manage.modeActive') },
+            { value: 'archived', label: t('manage.modeArchived') },
+          ]}
+          label={t('tab.management')}
+          onChange={(value) => {
+            setMode(value === 'archived' ? 'archived' : 'active')
+            setSelected(new Set())
+            setFailed(0)
+            setConfirming(false)
+          }}
+        />
         <Input
           className={css.manageFilter ?? ''}
           value={query}
@@ -172,23 +224,27 @@ export function Management({
           aria-busy={busy}
           onClick={() => {
             setFailed(0)
-            setConfirming(true)
+            // Archive asks once for the whole batch; restoring a row is always safe.
+            if (mode === 'active') setConfirming(true)
+            else void runArchive()
           }}
         >
-          {t('manage.archive', { count: chosen.size })}
+          {t(mode === 'active' ? 'manage.archive' : 'manage.unarchive', { count: chosen.size })}
         </Button>
       </div>
 
       {failed > 0 && (
         <p className={css.manageError} role="alert">
-          {t('manage.failed', { count: failed })}
+          {t(mode === 'active' ? 'manage.failed' : 'manage.unarchiveFailed', { count: failed })}
         </p>
       )}
 
       {results.length === 0
         ? (
           <p className={css.manageEmpty}>
-            {t(sessions.length === 0 ? 'manage.emptyAll' : 'manage.empty')}
+            {mode === 'archived'
+              ? t('manage.emptyArchived')
+              : t(sessions.length === 0 ? 'manage.emptyAll' : 'manage.empty')}
           </p>
         )
         : (
@@ -213,30 +269,60 @@ export function Management({
                       setRow(hit.id, event.currentTarget.checked)
                     }}
                   />
-                  <button
-                    type="button"
-                    className={css.manageRowBody}
-                    title={hit.title}
-                    onClick={() => {
-                      onPreview(hit)
-                    }}
-                  >
-                    <span className={css.manageRowTitle}>{hit.title}</span>
-                    <span className={css.manageRowMeta}>
-                      <span className={css.manageRowWorkspace}>{scope}</span>
-                      <span className={css.manageRowState}>{stateText(hit.state, hit, t)}</span>
-                      <span className={css.manageRowTime} title={fullDate(hit.updatedAt)}>
-                        {timeText(hit.updatedAt, now, t)}
+                  {mode === 'archived'
+                    ? (
+                      // An archived conversation cannot be opened; the row names what it was
+                      // and offers the one action that applies here.
+                      <span className={css.manageRowBody} title={hit.title} data-static="true">
+                        <span className={css.manageRowTitle}>{hit.title}</span>
+                        <span className={css.manageRowMeta}>
+                          <span className={css.manageRowWorkspace}>{scope}</span>
+                          <span className={css.manageRowState}>{stateText(hit.state, hit, t)}</span>
+                          <span className={css.manageRowTime} title={fullDate(hit.updatedAt)}>
+                            {timeText(hit.updatedAt, now, t)}
+                          </span>
+                        </span>
                       </span>
-                    </span>
-                  </button>
+                    )
+                    : (
+                      <button
+                        type="button"
+                        className={css.manageRowBody}
+                        title={hit.title}
+                        onClick={() => {
+                          onPreview(hit)
+                        }}
+                      >
+                        <span className={css.manageRowTitle}>{hit.title}</span>
+                        <span className={css.manageRowMeta}>
+                          <span className={css.manageRowWorkspace}>{scope}</span>
+                          <span className={css.manageRowState}>{stateText(hit.state, hit, t)}</span>
+                          <span className={css.manageRowTime} title={fullDate(hit.updatedAt)}>
+                            {timeText(hit.updatedAt, now, t)}
+                          </span>
+                        </span>
+                      </button>
+                    )}
+                  {mode === 'archived' && (
+                    <button
+                      type="button"
+                      className={css.manageRowAction}
+                      aria-label={t('manage.unarchiveOne', { title: hit.title })}
+                      disabled={busy}
+                      onClick={() => {
+                        void restore(hit.id)
+                      }}
+                    >
+                      {t('manage.unarchiveAction')}
+                    </button>
+                  )}
                 </li>
               )
             })}
           </ul>
         )}
 
-      {confirming && (
+      {confirming && mode === 'active' && (
         <Modal
           open
           onClose={() => {

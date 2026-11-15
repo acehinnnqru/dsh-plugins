@@ -54,11 +54,49 @@ export function searchableSessions(
   sharedStatuses: ReadonlyMap<string, SharedStatus> = new Map(),
 ): SessionHit[] {
   const archived = new Set(archivedSessionIds)
+  return collect(list, (id) => !archived.has(id), statuses, readAt, locallyCompleted, sharedStatuses)
+}
+
+/**
+ * Build the archived set the management tab restores from.
+ *
+ * Eligibility is the same as {@link searchableSessions}, inverted: only Sessions in the
+ * registry-global archive set are returned. A restored choice puts the row back on the board, so
+ * the archived list is the undo surface for the card's one-click archive.
+ * @param list - Session Controller list snapshot.
+ * @param statuses - unified UI status by Session.
+ * @param archivedSessionIds - registry-global archive set.
+ * @param readAt - completion read marks, keyed by Session, valued by the summary `updatedAt` read.
+ * @param locallyCompleted - stops the board observed itself and has not acknowledged.
+ * @param sharedStatuses - merged shared status rows, keyed by Session.
+ * @returns every archived Session, newest first, with its runtime state.
+ */
+export function archivedSessions(
+  list: SessionListState,
+  statuses: SessionStatusSnapshot,
+  archivedSessionIds: readonly SessionId[],
+  readAt: ReadonlyMap<SessionId, number> = new Map(),
+  locallyCompleted: ReadonlySet<SessionId> = new Set(),
+  sharedStatuses: ReadonlyMap<string, SharedStatus> = new Map(),
+): SessionHit[] {
+  const archived = new Set(archivedSessionIds)
+  return collect(list, (id) => archived.has(id), statuses, readAt, locallyCompleted, sharedStatuses)
+}
+
+/** Collect the eligible rows one archive filter keeps, newest first. */
+function collect(
+  list: SessionListState,
+  keep: (sessionId: SessionId) => boolean,
+  statuses: SessionStatusSnapshot,
+  readAt: ReadonlyMap<SessionId, number>,
+  locallyCompleted: ReadonlySet<SessionId>,
+  sharedStatuses: ReadonlyMap<string, SharedStatus>,
+): SessionHit[] {
   const hits: SessionHit[] = []
 
   for (const id of list.ids) {
     const row = list.byId[id]
-    if (row === undefined || row.blank || row.origin === 'subagent' || archived.has(id)) continue
+    if (row === undefined || row.blank || row.origin === 'subagent' || !keep(id)) continue
 
     const status = statuses.get(id)
     const shared = sharedStatuses.get(id)
