@@ -8,7 +8,6 @@
  * @module dsh-plugin-session-manager/network/node
  */
 
-import { WebSocket } from 'ws'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   canonicalHello,
@@ -158,7 +157,7 @@ export class NodeLink {
     const socket = new WebSocket(serverUrl(this.options.server))
     this.socket = socket
 
-    socket.on('open', () => {
+    socket.addEventListener('open', () => {
       this.ready = false
       this.retryMs = 1000
       if (identity.nodeId === undefined || identity.groupId === undefined) {
@@ -168,17 +167,17 @@ export class NodeLink {
       this.sendHello(socket, identity)
     })
 
-    socket.on('message', (data) => {
-      this.handle(socket, data)
+    socket.addEventListener('message', (event) => {
+      this.handle(socket, event.data)
     })
 
-    socket.on('close', () => {
+    socket.addEventListener('close', () => {
       this.ready = false
       if (this.socket === socket) this.socket = undefined
       this.retry()
     })
 
-    socket.on('error', () => {
+    socket.addEventListener('error', () => {
       // The close event owns reconnect scheduling.
     })
   }
@@ -191,7 +190,7 @@ export class NodeLink {
   }
 
   private send(socket: WebSocket | undefined, frame: ClientFrame): void {
-    if (socket?.readyState === 1) socket.send(JSON.stringify(frame))
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame))
   }
 
   private sendRegister(socket: WebSocket, identity: Identity): void {
@@ -232,7 +231,12 @@ export class NodeLink {
   private handle(socket: WebSocket, data: unknown): void {
     let frame: ServerFrame
     try {
-      frame = JSON.parse(typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString('utf8') : String(data)) as ServerFrame
+      const text = typeof data === 'string'
+        ? data
+        : data instanceof ArrayBuffer
+          ? new TextDecoder().decode(data)
+          : String(data)
+      frame = JSON.parse(text) as ServerFrame
     } catch {
       this.options.logger('session-manager: malformed server frame')
       return
