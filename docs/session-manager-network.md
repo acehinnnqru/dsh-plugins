@@ -52,9 +52,17 @@ frame) or a peer restart reopens the roster after five seconds.
 For a remembered remote id, follow/state/projections/events/page/prompt/
 cancel/rename/attachment/selectModel/updateQueue and the observation streams
 are sent over the bridge to the owner. So are the other endpoints that name an
-Agent — `@` file-reference candidates, the `/` command catalog, and a Session's
-skills list — because the browser's Host resolves a local Agent for those
-before they run; the owner dispatches them through its own gateway. The owner executes them against its
+Agent — `@` file-reference candidates, the `/` command catalog, a Session's
+skills list, and the workspace-file reads a reference chip opens — because the
+browser's Host resolves a local Agent for those before they run; the owner
+dispatches them through its own gateway. The file-change feed a preview
+subscribes to is a stream, so it still ends on the local Host; the preview
+falls back to a single stat and shows the file without live updates.
+
+An answer larger than 4 M characters is refused instead of being buffered
+whole on both nodes and on the directory server, and
+`workspaceFiles/readBytes` is never forwarded: JSON cannot carry raw bytes, so
+a binary preview in a peer Session stays on the local Host. The owner executes them against its
 local Session Controller. The remote Session is never opened in the local host,
 so the owner remains the only writer.
 

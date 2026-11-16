@@ -14,13 +14,27 @@ describe('payloadSession', () => {
     expect(payloadSession('commands/execute', { args: { agentId: '01S', line: '/goal' } })).toBe('01S')
   })
 
+  it('reads the workspace-file scope a reference chip opens through', () => {
+    // `workspaceFiles/*` names its Session `workspaceFileScopeId`, not `sessionId`.
+    const stat = { args: { workspaceFileScopeId: '01S', path: 'README.md' } }
+    expect(payloadSession('workspaceFiles/stat', stat)).toBe('01S')
+    expect(payloadSession('workspaceFiles/read', { args: { ...stat.args, range: {} } })).toBe('01S')
+  })
+
   it('reads a Session identity nested in a request object', () => {
     // The skills catalog names its Session inside the request value, not as a wire argument.
     expect(payloadSession('skills/list', { args: { request: { sessionId: '01S' } } })).toBe('01S')
+    const wrapped = { args: { request: { workspaceFileScopeId: '01S' } } }
+    expect(payloadSession('some/endpoint', wrapped)).toBe('01S')
   })
 
   it('reads a bare Session identity outside the request object', () => {
     expect(payloadSession('some/endpoint', { args: { sessionId: '01S' } })).toBe('01S')
+  })
+
+  it('leaves a binary read local, because JSON cannot carry raw bytes', () => {
+    const bytes = { args: { workspaceFileScopeId: '01S', path: 'logo.png', options: {} } }
+    expect(payloadSession('workspaceFiles/readBytes', bytes)).toBeUndefined()
   })
 
   it('leaves the whole session namespace to the Host', () => {

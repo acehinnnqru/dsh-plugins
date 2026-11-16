@@ -2,9 +2,10 @@
  * Which Remote calls a federated Session must have answered by its owner.
  *
  * The browser's Host resolves a *local* Agent before a non-`session` endpoint runs, and a federated
- * row has none, so `@` candidates, the `/` catalog, and a Session's skills list all come back
- * empty for a peer Session. Those calls carry the Session identity in the payload — as `agentId`,
- * or inside a `request` object — which is what lets one interceptor cover every such endpoint.
+ * row has none, so `@` candidates, the `/` catalog, a Session's skills list, and the file reads a
+ * reference chip opens all came back empty or wrong for a peer Session. Those calls carry the
+ * Session identity in the payload under one of a few wire names, which is what lets one interceptor
+ * cover every such endpoint.
  *
  * The `session` namespace is deliberately excluded: the Host half already federates the Session
  * Controller, so forwarding those calls again would route the same work twice.
@@ -14,6 +15,14 @@
  */
 
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+
+/**
+ * Wire argument names that carry a Session identity.
+ *
+ * `agentId` names the Agent-scoped endpoints, `sessionId` the Session-scoped ones, and
+ * `workspaceFileScopeId` the file reads and listings behind a reference chip.
+ */
+const SESSION_KEYS = ['agentId', 'sessionId', 'workspaceFileScopeId'] as const
 
 /**
  * Whether the Host half already federates one endpoint.
@@ -32,12 +41,20 @@ export function federatedByHost(endpoint: string): boolean {
  */
 export function payloadSession(endpoint: string, payload: unknown): SessionId | undefined {
   if (federatedByHost(endpoint)) return undefined
+  // Raw bytes cannot ride a JSON bridge: they arrive as an index-keyed object, not a Uint8Array.
+  if (endpoint === 'workspaceFiles/readBytes') return undefined
   const args = (payload as { readonly args?: Readonly<Record<string, unknown>> } | undefined)?.args
   if (args === undefined) return undefined
-  const agentId = args['agentId']
-  if (typeof agentId === 'string') return agentId as SessionId
+  for (const key of SESSION_KEYS) {
+    const value = args[key]
+    if (typeof value === 'string') return value as SessionId
+  }
+  // A few endpoints wrap their scope in a `request` value instead of naming it directly.
   const request = args['request'] as Readonly<Record<string, unknown>> | undefined
-  if (typeof request?.['sessionId'] === 'string') return request['sessionId'] as SessionId
-  const sessionId = args['sessionId']
-  return typeof sessionId === 'string' ? sessionId as SessionId : undefined
+  if (request === undefined) return undefined
+  for (const key of SESSION_KEYS) {
+    const value = request[key]
+    if (typeof value === 'string') return value as SessionId
+  }
+  return undefined
 }

@@ -99,7 +99,9 @@ export class PeerLink {
       if (pending === undefined) return
       this.pending.delete(frame.id)
       if (frame.ok) pending.resolve(frame.value)
-      else pending.reject(new Error(frame.error?.code ?? 'peer/failed'))
+      else pending.reject(new Error(frame.error === undefined
+        ? 'peer/failed'
+        : frame.error.code + ': ' + frame.error.message))
       return
     }
     if (frame.type === 'bridge.stream') {

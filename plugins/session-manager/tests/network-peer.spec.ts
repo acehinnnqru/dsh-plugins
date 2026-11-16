@@ -161,6 +161,29 @@ describe('bridged peer session RPC', () => {
     poolA.close()
   })
 
+  it('refuses an answer too large to carry in one bridge frame', async () => {
+    let poolA: PeerPool
+    const responderB = createPeerResponder({
+      controller: {},
+      logger: () => {},
+      sender: (frame) => poolA.handle({ ...frame, from: 'nd_b' } as never),
+      // Comfortably past the 4 M character bridge limit.
+      invokeAgent: async () => 'x'.repeat(4 * 1024 * 1024 + 1),
+    })
+    poolA = new PeerPool('nd_a', {
+      send(frame: BridgeFrame): void {
+        if (frame.type === 'bridge.request') responderB.handle({ ...frame, from: 'nd_a' })
+      },
+    })
+    poolA.update([peer('nd_b', 'b')])
+
+    const read = { endpoint: 'workspaceFiles/read', args: { agentId: '01S' } }
+    await expect(poolA.link('nd_b')?.request('agent.invoke', read)).rejects.toThrow(/over the bridge limit/)
+
+    responderB.close()
+    poolA.close()
+  })
+
   it('refuses an Agent-scoped endpoint when the owner dispatches none', async () => {
     let poolA: PeerPool
     const responderB = createPeerResponder({

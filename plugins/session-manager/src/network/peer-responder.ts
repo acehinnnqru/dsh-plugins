@@ -50,6 +50,12 @@ export interface PeerResponderOptions {
   ) => Promise<unknown>
 }
 
+/**
+ * Largest result one bridge answer carries, in JSON characters. The answer is a frame on the server
+ * link, so a large file read would be buffered whole on this node, on the server, and on the caller.
+ */
+const MAX_RESULT_CHARS = 4 * 1024 * 1024
+
 /** One live responder. */
 export interface PeerResponder {
   handle(frame: IncomingBridgeRequest): void
@@ -204,11 +210,16 @@ export function createPeerResponder(options: PeerResponderOptions): PeerResponde
         const slash = endpoint.indexOf('/')
         if (slash <= 0) throw new Error('agent.invoke needs a namespaced endpoint')
         const payload = (args['args'] ?? {}) as Readonly<Record<string, unknown>>
-        respond(request, await options.invokeAgent(
+        const value = await options.invokeAgent(
           endpoint.slice(0, slash),
           endpoint.slice(slash + 1),
           payload,
-        ))
+        )
+        const carried = JSON.stringify(value)
+        if (carried !== undefined && carried.length > MAX_RESULT_CHARS) {
+          throw new Error(`${endpoint} answers ${carried.length} characters, over the bridge limit`)
+        }
+        respond(request, value)
         return
       }
       case 'session.selectModel': {
