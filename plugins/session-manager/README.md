@@ -125,7 +125,10 @@ full-screen new-conversation overlay that embeds the native composer.
   The host sends it on register and hello, and the server reuses one node id for that installation.
 - Carries an optional host runtime. With a server URL configured, the host half registers with the
   directory server, bridges peer Session RPC over that single WebSocket, federates peer Sessions
-  into the ordinary Session Controller surface, and keeps the shared status/unread registry. No
+  into the ordinary Session Controller surface, and keeps the shared status/unread registry. The
+  The endpoints that name an Agent follow the node too: the `@` menu, the `/` command catalog, and
+  a Session's skills list are answered by the node that owns the Session, because this browser's
+  Host resolves a local Agent for those endpoints and a federated row has none. No
   node opens an inbound listener. With no server URL it starts no network runtime; it still
   serves the authenticated group-create route so the settings dialog can bootstrap a group. See
   [`docs/session-manager-local-play.md`](../../docs/session-manager-local-play.md).

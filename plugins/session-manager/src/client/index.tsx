@@ -32,6 +32,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { BackToBoard } from './BackToBoard.tsx'
 import { disarmBackToBoard } from './back-to-board.ts'
+import { payloadSession } from './agent-call.ts'
 import { ListRepair } from './list-repair.ts'
 import { localCompletionIds, startCompletionTracker, subscribeLocalCompletions } from './completion-tracker.ts'
 import { SharedStatusStore } from './status.ts'
@@ -75,6 +76,32 @@ interface ConfigFormsFace {
 interface ConversationDraftFace {
   createDrafts(sessionId: SessionId, files: readonly File[], uploadImages: boolean): readonly unknown[]
   rebindDraftFiles(sessionId: SessionId, ids: readonly string[], uploadImages: boolean): void
+}
+
+/** One decoded Remote result, as the client gateway hands it back. */
+type RemoteResultFace =
+  | { readonly ok: true; readonly value: unknown }
+  | {
+      readonly ok: false
+      readonly error: { readonly code: string; readonly details?: unknown; readonly message: string }
+    }
+
+/** The client channel every Remote endpoint rides. */
+interface ClientRpcFace {
+  /**
+   * Call one endpoint on a logical channel.
+   * @param channel - absolute channel such as `/api`.
+   * @param endpoint - channel-relative endpoint such as `commands/list`.
+   * @param payload - endpoint payload; the `/api` channel carries its arguments under `args`.
+   * @param signal - caller cancellation.
+   * @returns the endpoint's business result.
+   */
+  call(
+    channel: string,
+    endpoint: string,
+    payload: unknown,
+    signal?: AbortSignal,
+  ): Promise<RemoteResultFace>
 }
 
 /** The Client Workspace projection this plugin augments with remote members. */
@@ -149,6 +176,70 @@ export function apply(ctx: ClientContext): void {
       proto.rebindDraftFiles = rebind
     }
   }, 'session-manager: peer image drafts')
+
+  // Every non-`session` Remote endpoint that names an Agent resolves a *local* one before it runs,
+  // and a federated Session has none: `@` candidates (`agentId`), the `/` catalog (`agentId`), and
+  // the skills list (`request.sessionId`) all come back empty in a peer Session. Route those calls
+  // to the owning node instead. The `session` namespace is excluded because the Host half already
+  // federates it: forwarding it again would route the same call twice.
+  ctx.effect(() => {
+    const connection = typeof ctx.get === 'function'
+      ? ctx.get('connection') as { readonly rpc?: ClientRpcFace } | undefined
+      : undefined
+    const rpc = connection?.rpc
+    if (rpc === undefined || typeof rpc.call !== 'function') return () => {}
+    const local = rpc.call.bind(rpc)
+    const routed = async (
+      channel: string,
+      endpoint: string,
+      payload: unknown,
+      signal?: AbortSignal,
+    ): Promise<RemoteResultFace> => {
+      const target = channel === '/api' ? payloadSession(endpoint, payload) : undefined
+      if (target === undefined) return await local(channel, endpoint, payload, signal)
+      const owner = sessionNodeOf(ctx.sessions.list.getSnapshot(), target)
+      if (owner.self || owner.id === undefined) return await local(channel, endpoint, payload, signal)
+      const args = (payload as { readonly args?: Readonly<Record<string, unknown>> } | undefined)?.args ?? {}
+      try {
+        const response = await fetch('/api/session-manager/agent', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ nodeId: owner.id, endpoint, args }),
+          ...(signal === undefined ? {} : { signal }),
+        })
+        const body = await response.json() as { value?: unknown; error?: unknown }
+        if (!response.ok) {
+          return {
+            ok: false,
+            error: {
+              code: 'peer/failed',
+              details: {},
+              message: typeof body.error === 'string' ? body.error : 'peer request failed',
+            },
+          }
+        }
+        return { ok: true, value: body.value }
+      } catch (cause) {
+        return {
+          ok: false,
+          error: {
+            code: 'peer/failed',
+            details: {},
+            message: cause instanceof Error ? cause.message : String(cause),
+          },
+        }
+      }
+    }
+    try {
+      rpc.call = routed
+    } catch {
+      return () => {}
+    }
+    return () => {
+      rpc.call = local
+    }
+  }, 'session-manager: peer agent calls')
 
   const t = ctx.locale.bind(NS)
   const settings = (): ConfigForm<SessionManagerSettings> | undefined => {
@@ -401,8 +492,10 @@ export function apply(ctx: ClientContext): void {
     }
   }
   // Moving a draft across Sessions is a browser-local operation: the input shell owns both the text
-  // and the attachment ids. Text travels; attachments stay with the Session they were added to,
-  // which is why the page refuses a Workspace switch while the draft has any.
+  // and the attachment ids. Text travels; attachments stay with the Session they were added to, and
+  // an attachment lives in the owner node's store — the bridge forwards `session.attachment` to that
+  // owner and has no read-back — so a newer Session on another node could not resolve the ids. That
+  // is why the page refuses a Workspace or node switch while the draft has any.
   const moveDraft = (from: SessionId, to: SessionId): void => {
     if (from === to) return
     const source = inputFor(from)

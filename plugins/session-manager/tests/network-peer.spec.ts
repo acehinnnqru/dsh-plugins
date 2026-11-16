@@ -129,4 +129,57 @@ describe('bridged peer session RPC', () => {
     poolA.close()
     poolB.close()
   })
+
+  it('dispatches an Agent-scoped endpoint on the owning node', async () => {
+    let poolA: PeerPool
+    const invoked: string[] = []
+    const responderB = createPeerResponder({
+      controller: {},
+      logger: () => {},
+      sender: (frame) => poolA.handle({ ...frame, from: 'nd_b' } as never),
+      invokeAgent: async (namespace, method, args) => {
+        invoked.push(namespace + '/' + method + ':' + String(args['agentId']))
+        return [{ path: 'src/index.ts' }]
+      },
+    })
+    poolA = new PeerPool('nd_a', {
+      send(frame: BridgeFrame): void {
+        if (frame.type === 'bridge.request') responderB.handle({ ...frame, from: 'nd_a' })
+        if (frame.type === 'bridge.cancel') responderB.cancel(frame.id)
+      },
+    })
+    poolA.update([peer('nd_b', 'b')])
+
+    const value = await poolA.link('nd_b')?.request('agent.invoke', {
+      endpoint: 'fileReferences/list',
+      args: { agentId: '01S', query: 'src' },
+    })
+    expect(value).toEqual([{ path: 'src/index.ts' }])
+    expect(invoked).toEqual(['fileReferences/list:01S'])
+
+    responderB.close()
+    poolA.close()
+  })
+
+  it('refuses an Agent-scoped endpoint when the owner dispatches none', async () => {
+    let poolA: PeerPool
+    const responderB = createPeerResponder({
+      controller: {},
+      logger: () => {},
+      sender: (frame) => poolA.handle({ ...frame, from: 'nd_b' } as never),
+    })
+    poolA = new PeerPool('nd_a', {
+      send(frame: BridgeFrame): void {
+        if (frame.type === 'bridge.request') responderB.handle({ ...frame, from: 'nd_a' })
+      },
+    })
+    poolA.update([peer('nd_b', 'b')])
+
+    await expect(
+      poolA.link('nd_b')?.request('agent.invoke', { endpoint: 'commands/list', args: { agentId: '01S' } }),
+    ).rejects.toThrow('peer/unsupported')
+
+    responderB.close()
+    poolA.close()
+  })
 })

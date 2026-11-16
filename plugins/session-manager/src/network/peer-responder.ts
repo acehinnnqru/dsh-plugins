@@ -38,6 +38,16 @@ export interface PeerResponderOptions {
   readonly sender: (frame: BridgeResponseFrame | BridgeStreamFrame | BridgeEndFrame | BridgeErrorFrame) => void
   /** Serve this node's local Session roster; absent leaves the operation unsupported. */
   readonly roster?: (signal: AbortSignal) => AsyncIterable<RosterFrame>
+  /**
+   * Dispatch one Agent-scoped Remote endpoint against this node's own Agent. The browser can only
+   * reach a peer Session through this hop: every Agent-scoped endpoint resolves a local Agent first,
+   * and a federated row has none. Absent leaves the operation unsupported.
+   */
+  readonly invokeAgent?: (
+    namespace: string,
+    method: string,
+    args: Readonly<Record<string, unknown>>,
+  ) => Promise<unknown>
 }
 
 /** One live responder. */
@@ -183,6 +193,22 @@ export function createPeerResponder(options: PeerResponderOptions): PeerResponde
       }
       case 'session.attachment': {
         respond(request, await invoke(controller, 'attachment', { sessionId, attachment: args['attachment'] }))
+        return
+      }
+      case 'agent.invoke': {
+        if (options.invokeAgent === undefined) {
+          send(request, { type: 'bridge.response', ok: false, error: { code: 'peer/unsupported', message: 'Unsupported operation.' } })
+          return
+        }
+        const endpoint = typeof args['endpoint'] === 'string' ? args['endpoint'] : ''
+        const slash = endpoint.indexOf('/')
+        if (slash <= 0) throw new Error('agent.invoke needs a namespaced endpoint')
+        const payload = (args['args'] ?? {}) as Readonly<Record<string, unknown>>
+        respond(request, await options.invokeAgent(
+          endpoint.slice(0, slash),
+          endpoint.slice(slash + 1),
+          payload,
+        ))
         return
       }
       case 'session.selectModel': {

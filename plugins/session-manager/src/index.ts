@@ -217,6 +217,9 @@ export function apply(ctx: Context, config?: Config): void {
 
     let runtime: NodeRuntime | undefined
     let appliedKey: string | undefined
+    // One in-process Peer stands for this node's federation: it owns the gateway dispatch of a
+    // forwarded Agent-scoped call, and it lives as long as the connection it was created from.
+    let federationPeer: unknown
     const closeRuntime = (): void => {
       runtime?.close()
       runtime = undefined
@@ -257,6 +260,28 @@ export function apply(ctx: Context, config?: Config): void {
             activity: (sessionId, updatedAt) => ctx.emit('api-session/activity', sessionId as SessionId, updatedAt),
           },
           roster,
+          // Every Agent-scoped endpoint resolves a local Agent before it runs, and a federated row
+          // has none, so the browser forwards those calls here. This node owns the Agent: dispatch
+          // the endpoint through its own gateway as an in-process owner Peer, which keeps the
+          // lookup, the access policy, and the business call exactly as a direct call would.
+          invokeAgent: async (namespace, method, args) => {
+            const gateway = scope.get('typertGateway') as {
+              invoke(request: {
+                namespace: string
+                method: string
+                args: Readonly<Record<string, unknown>>
+                peer: unknown
+              }): Promise<unknown>
+            } | undefined
+            const connection = scope.get('connection') as {
+              createPeer(options: { principal: { kind: 'owner' } }): unknown
+            } | undefined
+            if (gateway === undefined || connection === undefined) {
+              throw new Error('Agent dispatch is unavailable on this node.')
+            }
+            federationPeer ??= connection.createPeer({ principal: { kind: 'owner' } })
+            return await gateway.invoke({ namespace, method, args, peer: federationPeer })
+          },
         },
       )
       runtime = created
@@ -335,6 +360,23 @@ export function apply(ctx: Context, config?: Config): void {
         v: 1,
         nodes: runtime?.nodes() ?? [],
       })), 'session-manager: nodes route')
+      // An Agent-scoped call for a peer Session rides the bridge: the browser cannot resolve an
+      // Agent for a row another node owns. The owner dispatches the endpoint against its own Agent.
+      web.effect(() => route('/api/session-manager/agent', ['POST'], async (request) => {
+        const body = await request.json() as { nodeId?: unknown; endpoint?: unknown; args?: unknown }
+        const nodeId = body.nodeId
+        const endpoint = body.endpoint
+        if (typeof nodeId !== 'string' || nodeId.length === 0 || typeof endpoint !== 'string' || endpoint.length === 0) {
+          return json({ error: 'nodeId and endpoint are required' }, 400)
+        }
+        if (runtime === undefined) return json({ error: 'network is offline' }, 503)
+        try {
+          const value = await runtime.request(nodeId, 'agent.invoke', { endpoint, args: body.args })
+          return json({ value })
+        } catch (error) {
+          return json({ error: error instanceof Error ? error.message : 'peer request failed' }, 502)
+        }
+      }), 'session-manager: agent call route')
       web.effect(() => route('/api/session-manager/new', ['POST'], async (request) => {
         const body = await request.json() as { nodeId?: unknown; cwd?: unknown; agentPreset?: unknown }
         if (typeof body.nodeId !== 'string' || body.nodeId.length === 0 || typeof body.cwd !== 'string' || body.cwd.length === 0) {

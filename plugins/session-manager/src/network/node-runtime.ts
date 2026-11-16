@@ -35,6 +35,12 @@ export interface RuntimeNode {
 export interface PeerHooks {
   readonly events: FederationEvents
   readonly roster: (signal: AbortSignal) => AsyncIterable<RosterFrame>
+  /** Dispatch one Agent-scoped Remote endpoint against a Session this node owns. */
+  readonly invokeAgent?: (
+    namespace: string,
+    method: string,
+    args: Readonly<Record<string, unknown>>,
+  ) => Promise<unknown>
 }
 
 /** Events a runtime without host wiring emits; only tests construct that. */
@@ -89,6 +95,7 @@ export class NodeRuntime {
       logger,
       sender: (frame) => this.link.sendBridge(frame),
       ...(hooks === undefined ? {} : { roster: hooks.roster }),
+      ...(hooks?.invokeAgent === undefined ? {} : { invokeAgent: hooks.invokeAgent }),
     })
   }
 
@@ -113,6 +120,19 @@ export class NodeRuntime {
           ...(peer.instanceId === undefined ? {} : { instanceId: peer.instanceId }),
         })),
     ]
+  }
+
+  /**
+   * Run one unary peer operation, for a Session-scoped call the browser cannot serve locally.
+   * @param peerNodeId - node that owns the Session.
+   * @param op - bridge operation name.
+   * @param args - operation arguments.
+   * @returns the owner's answer.
+   */
+  async request(peerNodeId: string, op: string, args: unknown): Promise<unknown> {
+    const link = this.pool.link(peerNodeId)
+    if (link === undefined) throw new Error('peer is offline')
+    return await link.request(op, args)
   }
 
   /** Create one blank Session on one peer through the bridge. */

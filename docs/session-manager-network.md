@@ -51,7 +51,10 @@ frame) or a peer restart reopens the roster after five seconds.
 
 For a remembered remote id, follow/state/projections/events/page/prompt/
 cancel/rename/attachment/selectModel/updateQueue and the observation streams
-are sent over the bridge to the owner. The owner executes them against its
+are sent over the bridge to the owner. So are the other endpoints that name an
+Agent — `@` file-reference candidates, the `/` command catalog, and a Session's
+skills list — because the browser's Host resolves a local Agent for those
+before they run; the owner dispatches them through its own gateway. The owner executes them against its
 local Session Controller. The remote Session is never opened in the local host,
 so the owner remains the only writer.
 
