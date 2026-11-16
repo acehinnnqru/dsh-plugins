@@ -846,9 +846,10 @@ body[data-session-manager-preview] [class*='_portal_'] > [class*='_card_'] {
   display: none;
 }
 
+/* No z-index here either: the group holds the node and Workspace chips, and it must stay below the
+   composer's popovers so an open `@` / `/` menu paints over them. */
 .newDialog [class*='heroWorkspaceRow']:has([data-session-manager-workspace]) > [class*='heroOptions'] {
   position: relative;
-  z-index: 1101;
   order: -1;
   margin-left: 0;
 }
@@ -896,9 +897,11 @@ body[data-session-manager-preview] [class*='_portal_'] > [class*='_card_'] {
   color: var(--dsw-alias-label-primary);
 }
 
+/* No z-index: the chip must stay below the composer's own popovers. The `@` and `/` menus are
+   `position: absolute; z-index: 100` inside the composer card, so raising this chip would paint it
+   over an open menu. The picker's own menu keeps its own z-index. */
 .nodePicker {
   position: relative;
-  z-index: 1101;
   pointer-events: auto;
   display: inline-flex;
   min-width: 0;
