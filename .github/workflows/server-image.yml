@@ -1,0 +1,57 @@
+# Publish the directory server image to GHCR.
+#
+# The image ships the compiled bundle, so the job builds it with the repository's own toolchain
+# before `docker build` runs: the Dockerfile deliberately installs no TypeScript or bundler.
+name: server image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/session-manager/server/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/server-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Required to push a package under this repository's owner.
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter session-manager-server build
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: plugins/session-manager/server
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/dsh-session-manager-server:latest
+            ghcr.io/${{ github.repository_owner }}/dsh-session-manager-server:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}

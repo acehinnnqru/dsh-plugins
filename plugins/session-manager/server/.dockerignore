@@ -1,0 +1,7 @@
+# Everything the image does not need: the compiled entry and the manifest are enough.
+node_modules
+src
+lib/types
+lib/index.mjs.map
+tsconfig.json
+tsdown.config.ts

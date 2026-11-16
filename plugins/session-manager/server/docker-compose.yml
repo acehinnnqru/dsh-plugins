@@ -1,0 +1,32 @@
+# The directory server every node dials.
+#
+# The image is published to GHCR by .github/workflows/server-image.yml on every push to main. Pulling
+# it needs no build step; pulling a package that is still private needs `docker login ghcr.io` with a
+# token that can read packages first.
+#
+# Only the node WebSocket is published. The admin listener binds loopback inside the container by
+# design, so it is unreachable from the host; read the group and the join token from the startup log
+# instead (`docker compose logs dsh-session-manager-server`).
+
+# A project name keeps the container, the volume, and the network out of the way of every other
+# compose file on the host: they all become `dsh-session-manager-*`.
+name: dsh-session-manager
+
+services:
+  server:
+    # To build here instead of pulling, comment `image`, uncomment `build`, and run
+    # `pnpm --filter session-manager-server build` first — the image ships the compiled bundle.
+    image: ghcr.io/acehinnnqru/dsh-session-manager-server:latest
+    # build: .
+    # Named explicitly so the directory server is recognisable in `docker ps`; it is a singleton, so
+    # the service cannot be scaled, which is what the fixed name costs.
+    container_name: dsh-session-manager-server
+    restart: unless-stopped
+    ports:
+      - '8787:8787'
+    volumes:
+      # The group, its join tokens, and the node records survive a container restart.
+      - state:/data
+
+volumes:
+  state:
