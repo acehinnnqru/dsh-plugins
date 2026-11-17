@@ -27,12 +27,12 @@
       },
       "versions": [
         {
-          "version": "0.0.0",
-          "publishTimestamp": 1794828078,
+          "version": "0.1.0",
+          "publishTimestamp": 1794880684,
           "source": {
             "type": "git",
             "url": "https://github.com/acehinnnqru/dsh-plugins",
-            "commit": "22db643eb4b5f40143dee6cbbdc894b5cce44187",
+            "commit": "0f0dc0d5721f03405af99a03aa9c39e9bbc8e7b2",
             "path": "plugins/now"
           },
           "engines": {
@@ -56,12 +56,12 @@
       },
       "versions": [
         {
-          "version": "0.0.0",
-          "publishTimestamp": 1794828078,
+          "version": "0.1.0",
+          "publishTimestamp": 1794880684,
           "source": {
             "type": "git",
             "url": "https://github.com/acehinnnqru/dsh-plugins",
-            "commit": "22db643eb4b5f40143dee6cbbdc894b5cce44187",
+            "commit": "0f0dc0d5721f03405af99a03aa9c39e9bbc8e7b2",
             "path": "plugins/session-manager"
           },
           "engines": {
@@ -85,12 +85,12 @@
       },
       "versions": [
         {
-          "version": "0.0.0",
-          "publishTimestamp": 1794828078,
+          "version": "0.1.0",
+          "publishTimestamp": 1794880684,
           "source": {
             "type": "git",
             "url": "https://github.com/acehinnnqru/dsh-plugins",
-            "commit": "22db643eb4b5f40143dee6cbbdc894b5cce44187",
+            "commit": "0f0dc0d5721f03405af99a03aa9c39e9bbc8e7b2",
             "path": "plugins/workspace-diff"
           },
           "engines": {
