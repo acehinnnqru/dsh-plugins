@@ -4,25 +4,31 @@
  *
  *   pnpm market:index [--commit <ref>] [--out <file>] [--repo-url <url>]
  *                     [--title <text>] [--description <text>] [--author <name>]
+ *                     [--bump major|minor|patch] [--plugin <name>]... [--all]
  *   pnpm verify:market
  *
  * The index pins Git commits, so run it after a push. The default commit is HEAD; the default
- * repository URL is remote.origin.url.
+ * repository URL is remote.origin.url. `--bump` raises the working-tree version of changed
+ * plugins and stops there: those versions have to be committed and pushed before the index can
+ * list them. `--plugin` and `--all` select what `--bump` raises.
  */
 import { execFileSync } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { existsSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   buildMarketIndex,
+  bumpChangedVersions,
   readMarketIndex,
   remoteBranchesContaining,
   verifyMarketIndex,
+  versionDrift,
+  type VersionBump,
 } from '../tooling/market-index/src/index.ts'
 
 /** Repository root, derived from this script's own path so the working directory never matters. */
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const USAGE = 'usage: pnpm market:index [--commit <ref>] [--out <file>] [--repo-url <url>] [--title <text>] [--description <text>] [--author <name>] [--allow-unpushed]\n       pnpm verify:market [--out <file>] [--repo-url <url>]'
+const USAGE = 'usage: pnpm market:index [--commit <ref>] [--out <file>] [--repo-url <url>] [--title <text>] [--description <text>] [--author <name>] [--bump major|minor|patch] [--plugin <name>]... [--all] [--allow-unpushed]\n       pnpm verify:market [--out <file>] [--repo-url <url>]'
 
 interface Options {
   commit: string
@@ -33,6 +39,12 @@ interface Options {
   author?: string
   check: boolean
   allowUnpushed: boolean
+  /** The version component to bump, when bumping the working tree. */
+  bump?: VersionBump
+  /** Package names to bump explicitly; repeatable. */
+  plugins?: string[]
+  /** Whether every published plugin should be bumped. */
+  all: boolean
 }
 
 /**
@@ -46,6 +58,7 @@ function parse(argv: string[]): Options {
     out: join(ROOT, 'index.json'),
     check: false,
     allowUnpushed: false,
+    all: false,
   }
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -56,6 +69,10 @@ function parse(argv: string[]): Options {
     }
     if (arg === '--allow-unpushed') {
       options.allowUnpushed = true
+      continue
+    }
+    if (arg === '--all') {
+      options.all = true
       continue
     }
     if (arg === '--help' || arg === '-h') throw new Error(USAGE)
@@ -72,11 +89,38 @@ function parse(argv: string[]): Options {
       case '--title': options.title = value; break
       case '--description': options.description = value; break
       case '--author': options.author = value; break
+      case '--bump': options.bump = bumpLevel(value); break
+      case '--plugin': options.plugins = [...(options.plugins ?? []), value]; break
       default: throw new Error('unknown option ' + arg + '\n' + USAGE)
     }
   }
 
   return options
+}
+
+/**
+ * Parse the --bump level.
+ * @param value - the option value.
+ * @returns the component to increment.
+ */
+function bumpLevel(value: string): VersionBump {
+  if (value === 'major' || value === 'minor' || value === 'patch') return value
+  throw new Error('--bump needs major, minor, or patch, got ' + JSON.stringify(value) + '\n' + USAGE)
+}
+
+/**
+ * Read the index that is published now.
+ * @param path - the index file.
+ * @returns the parsed index, or undefined when there is none or it is unreadable.
+ */
+function readPrevious(path: string) {
+  if (!existsSync(path)) return undefined
+  try {
+    return readMarketIndex(path)
+  } catch (error) {
+    process.stderr.write('  warn: ' + (error instanceof Error ? error.message : String(error)) + '\n')
+    return undefined
+  }
 }
 
 /**
@@ -141,6 +185,54 @@ try {
 } catch (error) {
   process.stderr.write('✗ ' + (error instanceof Error ? error.message : String(error)) + '\n')
   process.exit(1)
+}
+
+if ((options.plugins !== undefined || options.all) && options.bump === undefined) {
+  process.stderr.write('✗ --plugin and --all only apply to --bump\n')
+  process.exit(1)
+}
+
+if (options.bump !== undefined) {
+  if (options.check) {
+    process.stderr.write('✗ --bump cannot be combined with --check\n')
+    process.exit(1)
+  }
+  if (options.plugins !== undefined && options.all) {
+    process.stderr.write('✗ --plugin and --all cannot be combined\n')
+    process.exit(1)
+  }
+
+  const previous = readPrevious(options.out)
+  if (previous === undefined) {
+    process.stderr.write('✗ no readable index at ' + relative(ROOT, options.out) + '; there is nothing to bump against\n')
+    process.stderr.write('  set the first versions by hand, publish them, then use --bump for later releases\n')
+    process.exit(1)
+  }
+
+  let changes
+  try {
+    changes = bumpChangedVersions({
+      root: ROOT,
+      level: options.bump,
+      previous,
+      ...(options.plugins === undefined ? {} : { plugins: options.plugins }),
+      ...(options.all ? { all: true } : {}),
+    })
+  } catch (error) {
+    process.stderr.write('✗ ' + (error instanceof Error ? error.message : String(error)) + '\n')
+    process.exit(1)
+  }
+  if (changes.length === 0) {
+    process.stdout.write('no published plugin changed since ' + relative(ROOT, options.out) + '; nothing to bump\n')
+    process.exit(0)
+  }
+
+  for (const change of changes) {
+    process.stdout.write(change.name + '  ' + change.from + ' -> ' + change.to + '  (' + change.dir + ')\n')
+  }
+  process.stderr.write('\nThe index cannot list these versions until they are committed and pushed.\n')
+  process.stderr.write('Commit the bumped manifests with the plugin change, push, then rerun `pnpm market:index`.\n')
+  process.exit(0)
 }
 
 const repoUrl = options.repoUrl ?? originUrl()
@@ -209,6 +301,18 @@ try {
 }
 
 for (const warning of result.warnings) process.stderr.write('  warn: ' + warning + '\n')
+
+const previous = readPrevious(options.out)
+if (previous !== undefined) {
+  const drift = versionDrift({ root: ROOT, previous, next: result.index })
+  if (drift.length > 0) {
+    for (const problem of drift) {
+      process.stderr.write('  ' + problem.plugin + '@' + problem.version + ': ' + problem.message + '\n')
+    }
+    process.stderr.write('\n✗ market:index: ' + String(drift.length) + ' plugin(s) changed without a version bump\n')
+    process.exit(1)
+  }
+}
 
 const remoteBranches = remoteBranchesContaining(ROOT, result.commit)
 if (remoteBranches.length === 0 && !options.allowUnpushed) {

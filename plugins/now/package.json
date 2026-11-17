@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-now",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Adds a `now` tool that answers with the current time.",
   "main": "lib/index.js",

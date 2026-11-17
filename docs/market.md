@@ -36,7 +36,9 @@ pnpm verify:market
 `market:index` reads **the commit**, not the working tree. Commit and push the plugin changes first;
 the default is `HEAD`, and the index names that commit in every version. It refuses to write when the
 commit is not on a remote-tracking branch, because pnpm could not fetch it. Uncommitted changes are
-reported as a warning, not silently included.
+reported as a warning, not silently included. It also refuses to write when a published plugin
+changed since its listed commit but its version did not increase; see
+[Updating a plugin](#updating-a-plugin).
 
 | Option | Meaning |
 |---|---|
@@ -45,6 +47,9 @@ reported as a warning, not silently included.
 | `--repo-url <url>` | Override the canonical repository URL; the default is `remote.origin.url` |
 | `--title`, `--description` | English index title and description |
 | `--author <name>` | Author shown when a plugin manifest declares none; the default is `git config user.name` |
+| `--bump <level>` | Raise the working-tree version of changed, already-published plugins by `major`, `minor`, or `patch`, then stop; the index cannot list them until they are committed and pushed |
+| `--plugin <name>` | With `--bump`, raise this plugin even when its directory did not change; repeatable |
+| `--all` | With `--bump`, raise every published plugin, not only the changed ones |
 | `--allow-unpushed` | Write the index even when the commit is not on a remote-tracking branch (the default refuses) |
 
 A manifest is skipped, with a warning, when it is private, has no `dsh.bundle.patch`, names a patch
@@ -52,8 +57,8 @@ file the commit does not contain, declares no DSH range, or has a version that i
 Review the warnings: a skipped plugin does not appear in Discover.
 
 The index is a release artifact and lags the branch by at least one commit, because a commit cannot
-contain its own SHA. After every push that changes a plugin, rerun `market:index` and commit the
-updated index.
+contain its own SHA. After every push that changes a plugin, bump its version, push the bump, rerun
+`market:index`, and commit the updated index.
 
 ## Host the index
 
@@ -96,15 +101,30 @@ This is the expected cost of a Git source. A tarball install has the same build 
 
 ## Updating a plugin
 
-The market has no upgrade action. To move to a newer commit:
+The market has no upgrade action. The index lists the version in the plugin's `package.json` at the
+commit it pins, so a release needs the bump committed before the index can name it:
 
-1. Push the plugin change.
-2. Rerun `pnpm market:index` and commit/host the result.
-3. Remove the installed bundle and install it again from Discover.
+1. Bump the changed plugins in the working tree:
 
-The plugin versions are `0.0.0` today. Version numbers are displayed and compared, but a Git source
-is pinned by commit; bumping the version is what lets DSH report `update-available` rather than
-`installed` after a new commit.
+   ```sh
+   pnpm market:index --bump patch
+   ```
+
+   It raises only plugins the index already lists, whose directory differs from the commit the
+   index pins, and whose manifest still carries the listed version. A plugin the author already
+   bumped is left alone. Add `--plugin <name>` (repeatable) to bump a named plugin even when its
+   directory did not change, or `--all` to bump every published plugin. The command prints the new
+   versions and stops: the index cannot name a version that is not committed and pushed yet.
+
+2. Commit the bumped manifests with the plugin change, then push.
+3. Rerun `pnpm market:index`, commit the result, and host it.
+4. Remove the installed bundle and install it again from Discover.
+
+Skipping the bump makes step 3 fail instead of publishing a version that would never report
+`update-available`; selecting plugins explicitly does not exempt the others from that check. The
+plugins are versioned from `0.1.0` onward; a Git source is pinned by commit, but the version is what
+DSH displays and compares. A plugin scaffolded by `pnpm new:plugin` starts at `0.0.0` until its
+first release bump.
 
 ## What `verify:market` checks
 

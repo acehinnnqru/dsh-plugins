@@ -30,7 +30,7 @@ real path stays in this repo, so the plugin resolves its peers from here instead
 
 ```sh
 dsh plugin --profile demo add "$PWD/plugins/now"
-dsh plugin --profile demo add "$PWD/dsh-plugin-pkg/dsh-plugin-now-0.0.0.tgz"
+dsh plugin --profile demo add "$PWD/dsh-plugin-pkg/dsh-plugin-now-0.1.0.tgz"
 ```
 
 The first one is `link:`: pnpm copies nothing and does not install the plugin's own dependencies —
@@ -56,7 +56,7 @@ initialize `demo` from the plain default, which is `dsh-base` alone.
 ## 2. Add the plugin
 
 ```sh
-dsh plugin --profile demo add "$PWD/dsh-plugin-pkg/dsh-plugin-now-0.0.0.tgz"
+dsh plugin --profile demo add "$PWD/dsh-plugin-pkg/dsh-plugin-now-0.1.0.tgz"
 ```
 
 Expected: pnpm reports `dsh-plugin-now` added, and the profile's `package.json` gains

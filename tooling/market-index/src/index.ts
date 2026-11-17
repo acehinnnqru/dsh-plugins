@@ -8,8 +8,8 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
-import { posix } from 'node:path'
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { join, posix } from 'node:path'
 import {
   MarketIndexError,
   parseMarketIndex,
@@ -576,6 +576,285 @@ export function verifyMarketIndex(options: {
         problem('publishTimestamp is ' + version.publishTimestamp + ', but ' + commit + ' was committed at ' + timestamp)
       }
     }
+  }
+
+  return problems
+}
+
+/** How much of a plugin version a bump increments. */
+export type VersionBump = 'major' | 'minor' | 'patch'
+
+/** One manifest version changed in the working tree. */
+export interface VersionChange {
+  /** Package name. */
+  name: string
+  /** Repository-relative package directory. */
+  dir: string
+  /** Version before the bump. */
+  from: string
+  /** Version after the bump. */
+  to: string
+}
+
+/** A package manifest read from the working tree. */
+interface WorkingPackage {
+  /** Repository-relative package directory. */
+  dir: string
+  /** Absolute manifest path. */
+  path: string
+  /** Parsed package.json. */
+  manifest: Record<string, unknown>
+}
+
+/**
+ * The last published version of every plugin in an index.
+ * @param index - the published index, when there is one.
+ * @returns name to the published version and the commit it pins.
+ */
+function publishedVersions(index: MarketIndex | undefined): Map<string, { version: string; commit: string }> {
+  const published = new Map<string, { version: string; commit: string }>()
+  for (const plugin of index?.plugins ?? []) {
+    const latest = plugin.versions.at(-1)
+    if (latest?.source.type !== 'git') continue
+    published.set(plugin.name, { version: latest.version, commit: latest.source.commit })
+  }
+  return published
+}
+
+/**
+ * Read every plugins/name/package.json from the working tree.
+ * @param root - repository root.
+ * @returns the readable manifests, in directory order.
+ */
+function workingTreePackages(root: string): WorkingPackage[] {
+  let names: string[]
+  try {
+    names = readdirSync(join(root, 'plugins'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+  } catch {
+    return []
+  }
+
+  const packages: WorkingPackage[] = []
+  for (const name of names) {
+    const dir = 'plugins/' + name
+    const path = join(root, dir, 'package.json')
+    try {
+      const manifest = record(JSON.parse(readFileSync(path, 'utf8')))
+      if (manifest !== undefined) packages.push({ dir, path, manifest })
+    } catch {
+      // A directory without a readable manifest is not a plugin; the builder reports it at commit time.
+    }
+  }
+  return packages
+}
+
+/**
+ * Increment one exact SemVer version, dropping any prerelease or build suffix.
+ * @param version - an exact SemVer version.
+ * @param level - which component to increment.
+ * @returns the bumped version.
+ * @throws when the version is not exact SemVer.
+ */
+export function bumpVersion(version: string, level: VersionBump): string {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.exec(version)
+  if (match === null || !SEMVER.test(version)) {
+    throw new Error('cannot bump ' + JSON.stringify(version) + ': not an exact SemVer version')
+  }
+  const major = Number(match[1])
+  const minor = Number(match[2])
+  const patch = Number(match[3])
+  if (level === 'major') return (major + 1) + '.0.0'
+  if (level === 'minor') return major + '.' + (minor + 1) + '.0'
+  return major + '.' + minor + '.' + (patch + 1)
+}
+
+/**
+ * Whether a directory differs between a commit and the working tree.
+ * @param root - repository root.
+ * @param commit - the commit to compare with.
+ * @param dir - repository-relative directory.
+ * @returns whether tracked content or untracked, non-ignored files changed.
+ * @throws when git cannot compare the two.
+ */
+function dirChangedSinceCommit(root: string, commit: string, dir: string): boolean {
+  try {
+    git(root, ['diff', '--quiet', commit, '--', dir])
+  } catch (error) {
+    if ((error as { status?: number | null }).status !== 1) {
+      throw new Error('cannot compare ' + dir + ' with ' + commit)
+    }
+    return true
+  }
+  return git(root, ['ls-files', '--others', '--exclude-standard', '--', dir]).trim() !== ''
+}
+
+/**
+ * Whether a directory differs between two commits.
+ * @param root - repository root.
+ * @param from - the earlier commit.
+ * @param to - the later commit.
+ * @param dir - repository-relative directory.
+ * @returns whether the directory changed.
+ * @throws when git cannot compare the two.
+ */
+function dirChangedBetween(root: string, from: string, to: string, dir: string): boolean {
+  try {
+    git(root, ['diff', '--quiet', from, to, '--', dir])
+    return false
+  } catch (error) {
+    if ((error as { status?: number | null }).status !== 1) {
+      throw new Error('cannot compare ' + dir + ' between ' + from + ' and ' + to)
+    }
+    return true
+  }
+}
+
+/** A working-tree manifest that could appear in the index. */
+type IndexableManifest = Record<string, unknown> & { name: string; version: string }
+
+/**
+ * Whether a working-tree manifest could appear in the index.
+ * @param manifest - a parsed package.json.
+ * @returns whether it has a valid name, an exact version, and a bundle patch.
+ */
+function indexableManifest(manifest: Record<string, unknown>): manifest is IndexableManifest {
+  const name = manifest['name']
+  const version = manifest['version']
+  return typeof name === 'string'
+    && typeof version === 'string'
+    && manifest['private'] !== true
+    && SEMVER.test(version)
+    && bundlePatches(manifest) !== undefined
+}
+
+/** What a working-tree bump should do. */
+export interface BumpOptions {
+  /** Repository root. */
+  root: string
+  /** Which component to increment. */
+  level: VersionBump
+  /** The index currently published, when there is one. */
+  previous?: MarketIndex | undefined
+  /** Package names to bump even when their directory did not change. */
+  plugins?: readonly string[]
+  /** Bump every published plugin, not only the ones whose directory changed. */
+  all?: boolean
+}
+
+/**
+ * Bump the working-tree version of published plugins.
+ *
+ * By default a plugin is bumped when the index already lists it, its directory differs from the
+ * commit that index pins, and the manifest still carries the published version. `plugins` selects
+ * names explicitly and `all` selects every published plugin; both ignore the directory check. New
+ * plugins, plugins the author already bumped, and unselected plugins are left alone.
+ * @param options - what to bump.
+ * @returns the changes written, empty when nothing needed one.
+ * @throws when an explicitly selected plugin cannot be bumped.
+ */
+export function bumpChangedVersions(options: BumpOptions): VersionChange[] {
+  const published = publishedVersions(options.previous)
+  const packages = workingTreePackages(options.root)
+  const packagesByName = new Map<string, WorkingPackage>()
+  for (const pkg of packages) {
+    const name = pkg.manifest['name']
+    if (typeof name === 'string') packagesByName.set(name, pkg)
+  }
+
+  const requested = [...new Set(options.plugins ?? [])]
+  for (const name of requested) {
+    const before = published.get(name)
+    if (before === undefined) {
+      const known = [...published.keys()].join(', ')
+      throw new Error(name + ' is not in the published index' + (known === '' ? '' : ' (known: ' + known + ')'))
+    }
+    const pkg = packagesByName.get(name)
+    if (pkg === undefined || !indexableManifest(pkg.manifest)) {
+      throw new Error(name + ' is not a market plugin in the working tree')
+    }
+    if (pkg.manifest.version !== before.version) {
+      throw new Error(name + ' is at ' + pkg.manifest.version + ', but the published index lists '
+        + before.version + '; it was already bumped')
+    }
+  }
+
+  const selected = new Set(requested)
+  const changes: VersionChange[] = []
+
+  for (const { dir, path, manifest } of packages) {
+    if (!indexableManifest(manifest)) continue
+    const { name, version } = manifest
+
+    const before = published.get(name)
+    if (before === undefined || before.version !== version) continue
+    if (selected.size > 0) {
+      if (!selected.has(name)) continue
+    } else if (options.all !== true && !dirChangedSinceCommit(options.root, before.commit, dir)) {
+      continue
+    }
+
+    const to = bumpVersion(version, options.level)
+    writeFileSync(path, JSON.stringify({ ...manifest, version: to }, null, 2) + '\n')
+    changes.push({ name, dir, from: version, to })
+  }
+
+  return changes
+}
+
+/** What a version-drift check compares. */
+export interface DriftOptions {
+  /** Repository root. */
+  root: string
+  /** The index that is published now. */
+  previous: MarketIndex
+  /** The index that would be published next. */
+  next: MarketIndex
+}
+
+/**
+ * Plugins whose files changed between two indexes but whose version did not increase.
+ *
+ * The check compares the commits the two indexes pin, not the working tree: the market installs a
+ * commit, so an uncommitted bump does not count.
+ * @param options - the two indexes.
+ * @returns one problem per plugin that changed without a new version.
+ */
+export function versionDrift(options: DriftOptions): VerifyProblem[] {
+  const published = publishedVersions(options.previous)
+  const problems: VerifyProblem[] = []
+
+  for (const plugin of options.next.plugins) {
+    const latest = plugin.versions.at(-1)
+    if (latest === undefined || latest.source.type !== 'git') continue
+    const before = published.get(plugin.name)
+    if (before === undefined) continue
+    if (before.version !== latest.version) continue
+    if (before.commit === latest.source.commit) continue
+
+    const dir = latest.source.path ?? ''
+    if (dir === '') continue
+    let changed: boolean
+    try {
+      changed = dirChangedBetween(options.root, before.commit, latest.source.commit, dir)
+    } catch (error) {
+      problems.push({
+        plugin: plugin.name,
+        version: latest.version,
+        message: error instanceof Error ? error.message : String(error),
+      })
+      continue
+    }
+    if (!changed) continue
+
+    problems.push({
+      plugin: plugin.name,
+      version: latest.version,
+      message: 'files changed since ' + before.commit.slice(0, 7) + ' but the version is still '
+        + latest.version + '; run pnpm market:index --bump patch, commit the bump, push, and rerun',
+    })
   }
 
   return problems
