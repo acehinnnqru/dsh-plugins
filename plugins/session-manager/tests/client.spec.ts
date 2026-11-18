@@ -170,7 +170,7 @@ describe('session-manager browser half', () => {
     expect(plugin?.inject).toEqual(['slots', 'locale', 'sessions', 'workspaces', 'uiSession', 'uiWorkspace', 'layout', 'remote', 'remote.settings', 'conversation'])
   })
 
-  it('contributes a main page, its preview child, the workspace picker, a sidebar row, and the leading back control', async () => {
+  it('contributes a main page, its Conversation child, the workspace picker, a sidebar row, and the leading back control', async () => {
     const [registration] = await registrations()
     if (registration === undefined) throw new Error('no registration')
     const { plugin } = instantiate(registration)

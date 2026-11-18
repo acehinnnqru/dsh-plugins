@@ -1,27 +1,21 @@
 /**
- * The session board, its management tab, its full-list session search, its full-screen conversation
- * preview, and its new-conversation overlay.
+ * The session board, its management tab, its full-list session search, and its new-conversation
+ * overlay.
  *
  * The page header selects between **Board**, three columns over the live runtime state of every
- * listed Session, and **Management**, a selectable list for batch archiving. A card or a management
- * row opens a preview *inside this page*: the native Conversation is embedded through the shared
- * `conversation.content` Factory, bound to a retained Session reference, so the composer and the
- * native question/approval takeovers travel with it. A back bar returns to the board; no Session
- * navigation happens.
+ * listed Session, and **Management**, a selectable list for batch archiving. A card, a search hit,
+ * and a management row all navigate straight to the real Session page through
+ * `uiWorkspace.openSession`, so the conversation keeps its native right Sidebar, view tabs, and
+ * header actions; the page arms the leading back control that returns to the board.
  *
- * The embedded Conversation has no right Sidebar, which is where the product opens a file
- * reference or an external page. Both preview surfaces therefore send such a click to the real
- * Session page and open the destination in that page's column, so one click has the response it
- * has everywhere else.
- *
- * The same Factory serves the new-conversation overlay, centered on a blank Session that this page
- * created or reused; accepted prompts hand the board back without navigating either.
+ * The one embedded Conversation left is the new-conversation overlay, centered on a blank Session
+ * this page created or reused through the shared `conversation.content` Factory; accepted prompts
+ * hand the board back without navigating.
  * @module dsh-plugin-session-manager/client/page
  */
 
 import {
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -31,13 +25,11 @@ import {
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconArchiveOutlineRegular,
-  IconChevronLeftOutlineRegular,
   IconCloseOutlineRegular,
   IconNewChatOutlineRegular,
   IconPinFillRegular,
   IconPlusOutlineRegular,
   IconPinOutlineRegular,
-  IconRightUpOutlineRegular,
   IconSearchOutlineRegular,
   IconSettingsOutlineRegular,
   Input,
@@ -48,7 +40,7 @@ import {
   type SegmentedControlOption,
   type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SessionListState, SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: each carries the declaration merges for the global hooks and the `main` slot row.
@@ -60,10 +52,7 @@ import {
   deriveBoard,
   deriveNodeColumns,
   derivePinned,
-  previewReadMark,
   sessionNodeOf,
-  sessionDisplayTitle,
-  waitingCopyKey,
   withinRecent,
   type BoardColumn,
   type NodeColumn,
@@ -76,12 +65,10 @@ import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
 import { REMOTE_PIN_KEY, readRemotePins, toggleRemotePin, writeRemotePins } from './remote-pins.ts'
 import { archivedSessions, matchSessions, searchableSessions, type SessionHit } from './session-search.ts'
-import { workspaceOf } from './workspace-search.ts'
 import { fullDate, stateText, timeText, workspaceName, type Translate } from './session-view.ts'
 import { Management } from './Management.tsx'
 import { NewConversation } from './NewConversation.tsx'
 import { NodeBadge } from './NodeBadge.tsx'
-import { handsOffToSessionPage, previewDestination, type PreviewDestination } from './preview-links.ts'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { SettingsDialog } from './SettingsDialog.tsx'
 import type { SessionManagerSettings } from './settings.ts'
@@ -96,7 +83,7 @@ import css from './SessionBoard.module.css'
 
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
   interface SessionReferenceSourceMap {
-    /** An embedded Conversation the board shows: a preview dialog, its page, or a new conversation. */
+    /** The embedded Conversation the board shows: the new-conversation overlay. */
     sessionManager: unknown
   }
 }
@@ -169,15 +156,6 @@ export interface SessionManagerInjected {
    * @param sessionId - Session to restore.
    */
   readonly unarchiveSession: (sessionId: SessionId) => Promise<void>
-  /**
-   * Open a destination an embedded Conversation cannot serve, on the real Session page.
-   *
-   * The click that asks for one navigates to that page first; this command opens the destination
-   * once the page can serve it.
-   * @param sessionId - the Session whose page opens the destination.
-   * @param destination - the file, web address, or change review the click named.
-   */
-  readonly openPreviewDestination: (sessionId: SessionId, destination: PreviewDestination) => void
   /** Resolve the live Host configuration form; the settings service may load after this page. */
   readonly settings: () => ConfigForm<SessionManagerSettings> | undefined
   /** Replace the plugin's live config section and return a Host failure message when refused. */
@@ -189,7 +167,7 @@ export interface SessionManagerInjected {
   readonly sharedStatus: SharedStatusStore
 }
 
-/** The main slot's props, the preview child slot, the translate seat, and Session retention. */
+/** The main slot's props, the child slot, the translate seat, and Session retention. */
 type PageProps =
   PropsRuntime<'main'>
   & PropsRenderSlots<typeof CONVERSATION_SLOT>
@@ -198,18 +176,6 @@ type PageProps =
 
 /** The page's three tabs: the board, per-node columns, and the management list. */
 type PageTab = 'board' | 'nodes' | 'management'
-
-/** The Session currently shown in a preview surface. */
-interface Preview {
-  readonly card: SessionCard
-  readonly reference: SessionReference
-  /** Waiting keeps the native question dialog; other states use the general session preview. */
-  readonly kind: 'question' | 'session'
-  /** State at open, used if the dialog opens the real page. */
-  readonly state: PinnedState
-  /** Only the question dialog can expand to the embedded page. */
-  readonly mode: 'dialog' | 'page'
-}
 
 /** The blank Session the new-conversation overlay is showing, and its two retained handles. */
 interface Composer {
@@ -225,208 +191,6 @@ interface ConversationTarget {
   readonly workspaceId?: WorkspaceId
   readonly cwd?: string
   readonly agentPreset?: string
-}
-
-/** Props of the question dialog. */
-interface PreviewDialogProps {
-  readonly preview: Preview
-  readonly title: string
-  /** Workspace and last-activity hint under the title. */
-  readonly subtitle: string
-  /** Current pending interaction kind; absent once the user has answered. */
-  readonly waitingKind: string | undefined
-  readonly t: Translate
-  readonly SessionProvider: PageProps['SessionProvider']
-  readonly renderSlot: PageProps['renderSlot']
-  /** Archive one Session on the Host; a refused archive leaves the Session as it was. */
-  readonly archiveSession: (sessionId: SessionId) => Promise<void>
-  /** Whether the current Peer may call the archive command on the previewed Session. */
-  readonly useSessionAccess: PageProps['useSessionAccess']
-  readonly onClose: () => void
-  readonly onOpenPage: () => void
-  readonly onOpenSession: () => void
-  /** Open a destination the embedded Conversation cannot serve, through the real Session page. */
-  readonly onOpenDestination: (destination: PreviewDestination | undefined) => void
-  /** A prompt in the preview was accepted; mark the Session running immediately. */
-  readonly onSubmitted: () => void
-  /** Start the board's new-conversation overlay in the previewed Session's context. */
-  readonly onNewSession: () => void
-}
-
-/**
- * Render the waiting Session's native Conversation in a dialog.
- *
- * The native question card lives in the Conversation composer chain, so the same embedded Factory
- * that fills the dialog puts the card at the bottom. The bar names why the Session waits and offers
- * the embedded page for context.
- *
- * The bar also carries the archive control, left of the new-conversation control. Archiving from
- * here is the same Host command the sidebar and the management tab use: it succeeds and hands the
- * board back, or the Host refuses a Session whose work still runs and the refusal is reported above
- * the Conversation, with the dialog left open.
- *
- * A click on a file reference or a web link leaves the dialog for the real Session page, which is
- * the only surface with the right Sidebar those destinations open in; the destination opens there
- * in the same click.
- * @param props - the preview, copy, the bound child slot, the two navigation callbacks, and the
- *   archive command with the access Hook that gates it.
- * @returns the dialog with the native Conversation.
- */
-function PreviewDialog({
-  preview,
-  title,
-  subtitle,
-  waitingKind,
-  t,
-  SessionProvider,
-  renderSlot,
-  archiveSession,
-  useSessionAccess,
-  onClose,
-  onOpenPage,
-  onOpenSession,
-  onOpenDestination,
-  onSubmitted,
-  onNewSession,
-}: PreviewDialogProps): ReactNode {
-  const canArchive = useSessionAccess(preview.card.id, 'workspace/archiveSession')
-  const [archiveBusy, setArchiveBusy] = useState(false)
-  const [archiveError, setArchiveError] = useState<string | undefined>(undefined)
-  const archiving = useRef(false)
-  const submitted = useRef(onSubmitted)
-  submitted.current = onSubmitted
-
-  // A prompt accepted in the embedded Conversation should reach Running before the shared poll.
-  useEffect(() => {
-    const session = preview.reference.binding.session
-    const shown = (): void => {
-      if (session.getSnapshot().pendingSubmissions.length > 0) submitted.current()
-    }
-    shown()
-    return session.subscribe(shown)
-  }, [preview.reference])
-
-  // The conversation's hover previews are portaled to the body below this dialog's mask; the body
-  // marker lifts them for as long as the dialog is up, so a file row still previews its diff here.
-  useEffect(() => {
-    document.body.dataset.sessionManagerPreview = ''
-    return () => {
-      delete document.body.dataset.sessionManagerPreview
-    }
-  }, [])
-
-  /**
-   * Archive the previewed Session, then hand the board back.
-   *
-   * A refusal is reported in place: the Session still runs, so the conversation stays on screen
-   * instead of disappearing under a closed dialog.
-   */
-  async function archive(): Promise<void> {
-    // A double click must not send the command twice; the state flag only governs the UI.
-    if (archiving.current) return
-    archiving.current = true
-    setArchiveBusy(true)
-    setArchiveError(undefined)
-    try {
-      await archiveSession(preview.card.id)
-    } catch (cause) {
-      setArchiveError(cause instanceof Error ? cause.message : String(cause))
-      setArchiveBusy(false)
-      archiving.current = false
-      return
-    }
-    // The archived Session leaves every board column, so the preview has nothing left to show.
-    onClose()
-  }
-
-  return (
-    <Modal open onClose={onClose} title={title} headless className={css.dialog ?? ''}>
-      <div className={css.dialogFrame}>
-        <header className={css.dialogBar}>
-          <div className={css.dialogHeading}>
-            <div className={css.dialogTitleRow}>
-              {preview.kind === 'question' && waitingKind !== undefined && (
-                <span className={css.dialogEyebrow}>{t(waitingCopyKey(waitingKind))}</span>
-              )}
-              <span className={css.dialogTitle} title={title}>{title}</span>
-            </div>
-            {subtitle !== '' && (
-              <span className={css.dialogSubtitle} title={subtitle}>{subtitle}</span>
-            )}
-          </div>
-          {canArchive && (
-            <button
-              type="button"
-              className={css.dialogIconAction}
-              aria-label={t('preview.archive')}
-              title={t('preview.archive')}
-              aria-busy={archiveBusy}
-              disabled={archiveBusy}
-              onClick={() => {
-                void archive()
-              }}
-            >
-              <IconArchiveOutlineRegular size={16} />
-            </button>
-          )}
-          <button
-            type="button"
-            className={css.dialogIconAction}
-            aria-label={t('new.title')}
-            title={t('new.title')}
-            onClick={onNewSession}
-          >
-            <IconNewChatOutlineRegular size={16} />
-          </button>
-          {preview.kind === 'question'
-            ? (
-              <button type="button" className={css.dialogAction} onClick={onOpenPage}>
-                {t('preview.openPage')}
-              </button>
-            )
-            : (
-              <button
-                type="button"
-                className={css.dialogIconAction}
-                aria-label={t('preview.openSession')}
-                title={t('preview.openSession')}
-                onClick={onOpenSession}
-              >
-                <IconRightUpOutlineRegular size={14} />
-              </button>
-            )}
-          <button
-            type="button"
-            className={css.dialogClose}
-            aria-label={t('preview.close')}
-            title={t('preview.close')}
-            onClick={onClose}
-          >
-            <IconCloseOutlineRegular size={14} />
-          </button>
-        </header>
-        {archiveError !== undefined && (
-          <p className={css.dialogError} role="alert">
-            {t('preview.archiveFailed')}: {archiveError}
-          </p>
-        )}
-        {/* A file or web link has no right Sidebar to open in here; the real page does. */}
-        <div
-          className={css.dialogBody}
-          onClickCapture={(event) => {
-            if (!handsOffToSessionPage(event)) return
-            event.preventDefault()
-            event.stopPropagation()
-            onOpenDestination(previewDestination(event))
-          }}
-        >
-          <SessionProvider session={preview.reference}>
-            {renderSlot(CONVERSATION_SLOT, {})}
-          </SessionProvider>
-        </div>
-      </div>
-    </Modal>
-  )
 }
 
 /**
@@ -453,22 +217,7 @@ const COLUMN_COPY: Record<BoardColumn, ColumnCopy> = {
   recent: { title: 'column.recent', empty: 'column.recent.empty', dot: 'idle' },
 }
 
-/**
- * Read the Agent preset a Session runs from the list projection.
- *
- * The projection is declared by the product's agent-preset plugin, which is not a dependency of
- * this one; read the id from the summary's opaque projection bag.
- * @param list - Session list snapshot.
- * @param sessionId - Session to inspect.
- * @returns the preset id, or undefined when the projection is absent or empty.
- */
-function sessionPreset(list: SessionListState, sessionId: SessionId): string | undefined {
-  const values = list.byId[sessionId]?.projectionValues as Record<string, unknown> | undefined
-  const listed = values?.['agentPreset']
-  return typeof listed === 'string' && listed !== '' ? listed : undefined
-}
-
-/** One card's content, its state, and the pin and real-page controls. */
+/** One card's content, its state, and the pin and archive controls. */
 interface SessionCardViewProps {
   readonly card: SessionCard
   readonly state: PinnedState
@@ -482,7 +231,6 @@ interface SessionCardViewProps {
   readonly now: number
   readonly useSessionAccess: PageProps['useSessionAccess']
   readonly onOpen: () => void
-  readonly onOpenSession: () => void
   readonly onTogglePin: () => void
   /** Archive straight from the card; only the Recent column passes it. */
   readonly onArchive?: () => void
@@ -493,11 +241,11 @@ interface SessionCardViewProps {
 /**
  * Render one Session card.
  *
- * The body is a button so the whole card opens the preview dialog. The pin and open-session
- * controls are sibling buttons in the corner, not nested controls. They are hidden until the card
- * is hovered or focused; the pin stays visible while the card is pinned, and only renders when the
- * Session's access snapshot allows the toggle.
- * @param props - the card, its state label, pin state, copy, clock, and three actions.
+ * The body is a button so the whole card opens the Session page. The pin and archive controls are
+ * sibling buttons in the corner, not nested controls. They are hidden until the card is hovered or
+ * focused; the pin stays visible while the card is pinned, and only renders when the Session's
+ * access snapshot allows the toggle.
+ * @param props - the card, its state label, pin state, copy, clock, and the two actions.
  * @returns the card.
  */
 function SessionCardView({
@@ -511,7 +259,6 @@ function SessionCardView({
   now,
   useSessionAccess,
   onOpen,
-  onOpenSession,
   onTogglePin,
   onArchive,
   archivePending,
@@ -554,8 +301,8 @@ function SessionCardView({
         <button
           type="button"
           className={css.archive}
-          aria-label={t('preview.archive')}
-          title={t('preview.archive')}
+          aria-label={t('card.archive')}
+          title={t('card.archive')}
           aria-busy={archivePending === true}
           disabled={archivePending === true}
           onClick={onArchive}
@@ -563,15 +310,6 @@ function SessionCardView({
           <IconArchiveOutlineRegular size={14} />
         </button>
       )}
-      <button
-        type="button"
-        className={css.open}
-        aria-label={t('preview.openSession')}
-        title={t('preview.openSession')}
-        onClick={onOpenSession}
-      >
-        <IconRightUpOutlineRegular size={14} />
-      </button>
       {pinAllowed === true && (
         <button
           type="button"
@@ -600,7 +338,6 @@ interface NodesBoardProps {
   readonly now: number
   readonly useSessionAccess: PageProps['useSessionAccess']
   readonly onOpen: (card: PinnedCard) => void
-  readonly onOpenSession: (card: PinnedCard) => void
   readonly onNew: (node: SessionNode) => void
   readonly onTogglePin: (card: PinnedCard, pinned: boolean) => void
 }
@@ -621,7 +358,6 @@ function NodesBoard({
   now,
   useSessionAccess,
   onOpen,
-  onOpenSession,
   onNew,
   onTogglePin,
 }: NodesBoardProps): ReactNode {
@@ -649,9 +385,6 @@ function NodesBoard({
                 useSessionAccess={useSessionAccess}
                 onOpen={() => {
                   onOpen(card)
-                }}
-                onOpenSession={() => {
-                  onOpenSession(card)
                 }}
                 onTogglePin={() => {
                   onTogglePin(card, pinned)
@@ -727,8 +460,7 @@ interface SearchDialogProps {
  *
  * The dialog opens with the field focused and the whole newest-first hit set listed, so it is also a
  * quick jump list. Typing filters it by title, by node, and by the Workspace each row lives in; a
- * row opens the board's preview dialog, which is why a waiting Session still surfaces its native
- * question.
+ * row opens its Session page, which is why a waiting Session still surfaces its native question.
  * The arrow keys and Enter work from the field, and the Modal layer keeps Escape for closing.
  * @param props - the search hits, Workspaces for the row hint, the clock, copy, and two actions.
  * @returns the search dialog.
@@ -804,8 +536,8 @@ function SessionSearchDialog({
           <button
             type="button"
             className={css.dialogClose}
-            aria-label={t('preview.close')}
-            title={t('preview.close')}
+            aria-label={t('dialog.close')}
+            title={t('dialog.close')}
             onClick={onClose}
           >
             <IconCloseOutlineRegular size={14} />
@@ -855,8 +587,8 @@ function SessionSearchDialog({
 
 /**
  * Render the board, the waiting dialog, or that dialog's expanded embedded page.
- * @param props - main-slot standard props, the preview child, translate seat, and retention.
- * @returns the board page or its full-screen conversation preview.
+ * @param props - main-slot standard props, the child slot, translate seat, and retention.
+ * @returns the board page or the new-conversation overlay.
  */
 export function SessionBoardPage(props: PageProps): ReactNode {
   const {
@@ -876,7 +608,6 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     setPinned,
     archiveSession,
     unarchiveSession,
-    openPreviewDestination,
     settings,
     saveSettings,
     sharedStatus,
@@ -891,8 +622,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const workspaces = useWorkspaces((state) => state)
   const archived = workspaces.archivedSessionIds
   const [now, setNow] = useState(() => Date.now())
-  const [preview, setPreview] = useState<Preview | undefined>(undefined)
-  const [previewError, setPreviewError] = useState<string | undefined>(undefined)
+  const [openError, setOpenError] = useState<string | undefined>(undefined)
   const [composer, setComposer] = useState<Composer | undefined>(undefined)
   const [startError, setStartError] = useState<string | undefined>(undefined)
   const [tab, setTab] = useState<PageTab>('board')
@@ -985,16 +715,16 @@ export function SessionBoardPage(props: PageProps): ReactNode {
 
   // Relative labels are the only clock-dependent copy on the page. A slow tick keeps them honest
   // without re-deriving the board, which only changes when Session state does. The tick pauses while
-  // the native Conversation is mounted, so the preview is not re-rendered by an unrelated clock.
+  // the new-conversation overlay's Conversation is mounted, so it is not re-rendered by the clock.
   useEffect(() => {
-    if (preview !== undefined || composer !== undefined) return undefined
+    if (composer !== undefined) return undefined
     const timer = setInterval(() => {
       setNow(Date.now())
     }, 30_000)
     return () => {
       clearInterval(timer)
     }
-  }, [preview, composer])
+  }, [composer])
 
   // Remote pins live in the browser, so another tab's pin change arrives as a storage event.
   useEffect(() => {
@@ -1008,32 +738,6 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       window.removeEventListener('storage', onStorage)
     }
   }, [])
-
-  // The preview owns one retained Session reference. Releasing it in the effect cleanup runs after
-  // the Conversation for the old reference has unmounted, including when the page itself unmounts.
-  const previewReference = preview?.reference
-  useEffect(() => {
-    if (previewReference === undefined) return
-    return () => {
-      previewReference.release()
-    }
-  }, [previewReference])
-
-  // A preview is a live conversation. DSH retires its own unread marker only for a `mainView`
-  // retention, and an embedded preview is deliberately not one, so the board settles the mark
-  // itself: a turn that finishes while its conversation is on screen has been read. The layout
-  // effect writes the mark before the paint, so the card never flashes through Unread.
-  const presentedId = preview?.card.id
-  useLayoutEffect(() => {
-    if (presentedId === undefined) return
-    const shared = sharedStatuses.get(presentedId)
-    if (shared?.unread === true) void sharedStatus.read(presentedId)
-    const mark = previewReadMark(list, statuses, presentedId, completionReadAt)
-    if (mark === undefined) return
-    completionReadAt.set(presentedId, mark)
-    clearLocalCompletion(presentedId)
-    bumpBoardRevision((value) => value + 1)
-  }, [presentedId, list, statuses, sharedStatuses, sharedStatus, bumpBoardRevision])
 
   // The overlay owns both handles; the cleanup runs after the Conversation unmounts.
   const composerReference = composer?.reference
@@ -1080,85 +784,47 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const visibleTab: PageTab = showNodes ? tab : tab === 'nodes' ? 'board' : tab
 
   /**
-   * Open the card's preview dialog.
+   * Open the Session page and arm the return control.
    *
-   * A waiting card keeps the native question surface; every other state gets the general session
-   * dialog. A completed card opened for viewing is acknowledged immediately.
-   * @param card - the clicked card.
+   * Every surface on this page navigates here: a card, a search hit, and a management row. The
+   * board keeps no embedded conversation, so the page the product's own navigation opens owns the
+   * composer, the question takeovers, and the right Sidebar.
+   * @param card - the clicked card, hit, or row.
    * @param state - the column or pinned state that owns the card.
    */
-  function openPreview(card: SessionCard, state: PinnedState): void {
-    setPreviewError(undefined)
-    void sharedStatus.read(card.id)
-    try {
-      const reference = retainSession(card.id)
-      if (state === 'completed') {
-        clearLocalCompletion(card.id)
-        completionReadAt.set(card.id, card.updatedAt)
-        bumpBoardRevision((value) => value + 1)
-      }
-      setPreview({
-        card,
-        reference,
-        kind: state === 'waiting' ? 'question' : 'session',
-        state,
-        mode: 'dialog',
-      })
-      // The preview's New Session control targets this node and Workspace. Warm that blank
-      // while the Conversation opens, so the button does not pay the whole bridge round-trip.
-      const workspace = workspaceOf(card, workspaces.items)
-      const cwd = workspace?.path ?? card.cwd
-      if (!card.node.self && cwd !== undefined) {
-        prepareRemote(card.node, cwd, sessionPreset(list, card.id))
-      }
-    } catch (cause) {
-      setPreviewError(cause instanceof Error ? cause.message : String(cause))
-    }
-  }
-
-  /**
-   * Open the real Session page and arm the return control.
-   * @param card - the clicked card.
-   * @param state - the column or pinned state that owns the card.
-   * @returns whether the Session page opened.
-   */
-  function openSessionPage(card: SessionCard, state: PinnedState): boolean {
-    setPreviewError(undefined)
+  function openSessionPage(card: SessionCard, state: PinnedState): void {
+    setOpenError(undefined)
     void sharedStatus.read(card.id)
     armBackToBoard()
     try {
       openSession(card.id)
     } catch (cause) {
       disarmBackToBoard()
-      setPreviewError(cause instanceof Error ? cause.message : String(cause))
-      return false
+      setOpenError(cause instanceof Error ? cause.message : String(cause))
+      return
     }
     // The real page is now the visible conversation; a completed card has been acknowledged.
     if (state === 'completed') {
       clearLocalCompletion(card.id)
       completionReadAt.set(card.id, card.updatedAt)
     }
-    return true
   }
 
   /**
-   * Close the search dialog and open the picked result in the preview dialog.
-   *
-   * The dialog owns no Session reference, so there is nothing to release here; `openPreview` retains
-   * the one the preview needs and acknowledges a completed result.
+   * Close the search dialog and open the picked result's Session page.
    * @param hit - the picked search result.
    */
   function openSearchHit(hit: SessionHit): void {
     setSearchOpen(false)
-    openPreview(hit, hit.state)
+    openSessionPage(hit, hit.state)
   }
 
   /**
-   * Open a management row in the same preview dialog the board and search use.
+   * Open a management row's Session page.
    * @param hit - the picked row.
    */
   function openManagedSession(hit: SessionHit): void {
-    openPreview(hit, hit.state)
+    openSessionPage(hit, hit.state)
   }
 
   /**
@@ -1168,33 +834,6 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   function selectTab(next: PageTab): void {
     setTab(next)
     setSettingsOpen(false)
-  }
-
-  /** Leave the preview; its effect cleanup releases the retained reference. */
-  function closePreview(): void {
-    setNow(Date.now())
-    setPreview(undefined)
-  }
-
-  /**
-   * Close the preview and open the new-conversation overlay in its Workspace and Agent preset.
-   *
-   * The previewed Session supplies the target; an absent Workspace or preset falls back to the
-   * native current/recent Workspace and the Host default.
-   */
-  function newSessionFromPreview(): void {
-    if (preview === undefined) return
-    const card = preview.card
-    const workspace = workspaceOf(card, workspaces.items)
-    const agentPreset = sessionPreset(list, card.id)
-    closePreview()
-    void startConversation({
-      node: card.node,
-      ...(workspace === undefined
-        ? card.cwd === undefined ? {} : { cwd: card.cwd }
-        : { workspaceId: workspace.workspaceId }),
-      ...(agentPreset === undefined ? {} : { agentPreset }),
-    })
   }
 
   /** Find one Workspace by its path. */
@@ -1570,90 +1209,6 @@ export function SessionBoardPage(props: PageProps): ReactNode {
     }
   }
 
-  /**
-   * Open the real page from the preview dialog, closing the dialog if navigation fails so the error
-   * is visible on the board.
-   * @param current - the dialog's preview.
-   */
-  function openRealPage(current: Preview): void {
-    if (openSessionPage(current.card, current.state)) return
-    setPreview(undefined)
-  }
-
-  /**
-   * Hand a click from an embedded Conversation to the real Session page.
-   *
-   * The page owns the right column a file reference or a web link opens in, so the click navigates
-   * there and the destination opens as soon as that column mounts — the same response the click
-   * would have had on the page itself. A destination the click does not name (an image file link
-   * the renderer draws without a title) only navigates.
-   * @param destination - what the click asked to open, when the surface knows it.
-   */
-  function openDestination(destination: PreviewDestination | undefined): void {
-    if (preview === undefined) return
-    if (!openSessionPage(preview.card, preview.state)) {
-      setPreview(undefined)
-      return
-    }
-    if (destination !== undefined) openPreviewDestination(preview.card.id, destination)
-  }
-
-  /** Keep the retained Session and expand the question dialog into the embedded page. */
-  function openPage(): void {
-    setPreview((current) => current === undefined || current.kind !== 'question'
-      ? current
-      : { ...current, mode: 'page' })
-  }
-
-  const previewTitle = preview === undefined
-    ? ''
-    : list.byId[preview.card.id] === undefined
-      ? preview.card.title
-      : sessionDisplayTitle(list.byId[preview.card.id]?.displayTitle ?? preview.card.title, preview.card.node)
-  const previewSubtitle = preview === undefined
-    ? ''
-    : [
-        ...(showNodes ? [preview.card.node.self ? 'self' : preview.card.node.name] : []),
-        workspaceName(preview.card, workspaces.items, t),
-        timeText(preview.card.updatedAt, now, t),
-      ]
-        .filter((part) => part !== '')
-        .join(' · ')
-
-  if (preview !== undefined && preview.kind === 'question' && preview.mode === 'page') {
-    return (
-      <div className={css.preview}>
-        <header className={css.previewBar}>
-          <button
-            type="button"
-            className={css.back}
-            aria-label={t('preview.back')}
-            title={t('preview.back')}
-            onClick={closePreview}
-          >
-            <IconChevronLeftOutlineRegular size={16} />
-            <span>{t('preview.back')}</span>
-          </button>
-          <span className={css.previewTitle} title={previewTitle}>{previewTitle}</span>
-        </header>
-        {/* The expanded preview is embedded too, so it hands the same clicks to the real page. */}
-        <div
-          className={css.previewBody}
-          onClickCapture={(event) => {
-            if (!handsOffToSessionPage(event)) return
-            event.preventDefault()
-            event.stopPropagation()
-            openDestination(previewDestination(event))
-          }}
-        >
-          <SessionProvider session={preview.reference}>
-            {renderSlot(CONVERSATION_SLOT, {})}
-          </SessionProvider>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <>
       <div className={css.page}>
@@ -1714,27 +1269,27 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           </div>
         </header>
 
-        {previewError !== undefined && (
-          <p className={css.previewError} role="alert">
-            {t('preview.failed')}: {previewError}
+        {openError !== undefined && (
+          <p className={css.pageError} role="alert">
+            {t('open.failed')}: {openError}
           </p>
         )}
 
         {startError !== undefined && (
-          <p className={css.previewError} role="alert">
+          <p className={css.pageError} role="alert">
             {t('new.failed')}: {startError}
           </p>
         )}
 
         {(visibleTab === 'board' || visibleTab === 'nodes') && pinError !== undefined && (
-          <p className={css.previewError} role="alert">
+          <p className={css.pageError} role="alert">
             {t('pin.failed')}: {pinError}
           </p>
         )}
 
         {visibleTab === 'board' && archiveError !== undefined && (
-          <p className={css.previewError} role="alert">
-            {t('preview.archiveFailed')}: {archiveError}
+          <p className={css.pageError} role="alert">
+            {t('card.archiveFailed')}: {archiveError}
           </p>
         )}
 
@@ -1765,9 +1320,6 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                         now={now}
                         useSessionAccess={useSessionAccess}
                         onOpen={() => {
-                          openPreview(card, card.state)
-                        }}
-                        onOpenSession={() => {
                           openSessionPage(card, card.state)
                         }}
                         onTogglePin={() => {
@@ -1831,9 +1383,6 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                                     now={now}
                                     useSessionAccess={useSessionAccess}
                                     onOpen={() => {
-                                      openPreview(card, state)
-                                    }}
-                                    onOpenSession={() => {
                                       openSessionPage(card, state)
                                     }}
                                     onTogglePin={() => {
@@ -1864,9 +1413,6 @@ export function SessionBoardPage(props: PageProps): ReactNode {
               now={now}
               useSessionAccess={useSessionAccess}
               onOpen={(card) => {
-                openPreview(card, card.state)
-              }}
-              onOpenSession={(card) => {
                 openSessionPage(card, card.state)
               }}
               onNew={(node) => {
@@ -1889,36 +1435,12 @@ export function SessionBoardPage(props: PageProps): ReactNode {
               archiveSession={archiveSession}
               unarchiveSession={unarchiveSession}
               archivedSessions={archivedSessions(list, statuses, archived, completionReadAt, locallyCompleted, sharedStatuses)}
-              onPreview={openManagedSession}
+              onOpen={openManagedSession}
             />
           </div>
         )}
         </div>
       </div>
-      {preview !== undefined && preview.mode === 'dialog' && (
-        <PreviewDialog
-          key={preview.card.id}
-          preview={preview}
-          title={previewTitle}
-          subtitle={previewSubtitle}
-          waitingKind={preview.card.waitingKind}
-          t={t}
-          SessionProvider={SessionProvider}
-          renderSlot={renderSlot}
-          archiveSession={archiveSession}
-          useSessionAccess={useSessionAccess}
-          onClose={closePreview}
-          onOpenPage={openPage}
-          onOpenSession={() => {
-            openRealPage(preview)
-          }}
-          onOpenDestination={openDestination}
-          onSubmitted={() => {
-            sharedStatus.noteRunning(preview.card.id)
-          }}
-          onNewSession={newSessionFromPreview}
-        />
-      )}
       {searchOpen && (
         <SessionSearchDialog
           hits={searchableSessions(list, statuses, archived, completionReadAt, locallyCompleted, sharedStatuses)}

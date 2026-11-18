@@ -14,7 +14,7 @@ import css from './BackToBoard.module.css'
 
 /** Props supplied by the action slot: the bound translate seat and the board transition. */
 export interface BackToBoardProps {
-  readonly t: (key: 'preview.back') => string
+  readonly t: (key: 'board.back') => string
   readonly goBack: () => void
 }
 
@@ -36,8 +36,8 @@ export function BackToBoard({ t, goBack }: BackToBoardProps): ReactNode {
     <button
       type="button"
       className={css.back}
-      aria-label={t('preview.back')}
-      title={t('preview.back')}
+      aria-label={t('board.back')}
+      title={t('board.back')}
       onClick={goBack}
     >
       <IconChevronLeftOutlineRegular size={16} />

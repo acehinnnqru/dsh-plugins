@@ -22,30 +22,16 @@ full-screen new-conversation overlay that embeds the native composer.
   - **Recent** — read and idle Sessions updated within the configured window (three days by default),
     newest first. A Session stays here after it leaves Unread, so it remains findable instead of
     disappearing.
-- Omits blank drafts, subagent-origin rows, and archived Sessions. A **pending** card body opens a
-  dialog that surfaces the native question immediately; every other card body opens the general
-  session preview dialog. A separate hover/focus control on the card opens the **real Session page**,
-  so the user's Conversation views and customizations stay intact. Recent cards carry one more
-  hover/focus control that archives the Session in one click, with no confirmation: those rows are
-  settled, so the Host cannot refuse them for running work, and the Management tab's archived set is
-  where a mistaken click is undone. Only local rows get it, because the archive set is a local
-  Workspace registry fact. The pending dialog's **Full
-  conversation** action still expands to the embedded page. The preview dialog's new-conversation
-  control, beside **Open session**, starts the board's overlay in the previewed Session's Workspace
-  under its Agent preset, then closes the preview. Its archive control, left of the
-  new-conversation control, archives the previewed Session through the same Host command the native
-  sidebar uses and then closes the preview; a Session whose work still runs is refused, and the
-  dialog stays open with the refusal reported above the Conversation. A click on a file reference, an
-  external link, or a turn's changed-files card moves to the real Session page and opens the
-  destination in that page's right Sidebar in the same click: the column exists only there, so the
-  embedded Conversation hands the click over instead of failing on it. A file opens at the top of
-  its viewer, and a changed-files header or row reopens the turn's review on the page the click
-  moved to. Hovering a changed-files header or row still previews that file's diff inside the
-  dialog: the shared hover card is lifted above the dialog's mask while the dialog is open.
-- When the open-session control or the session dialog's **Open session** action opens the real page,
-  a compact back control appears before the Session title and returns to the board; selecting any
-  global panel clears it. The pending dialog keeps its own close control, and its expanded page keeps
-  the back bar.
+- Omits blank drafts, subagent-origin rows, and archived Sessions. A card body opens the **real
+  Session page** in one click: the card, a search hit, and a management row all navigate through
+  `uiWorkspace.openSession`, so a waiting Session surfaces its native question there and the
+  conversation arrives with its own composer, view tabs, right Sidebar, and header controls. The
+  board keeps no embedded conversation of its own. Recent cards carry a hover/focus control that
+  archives the Session in one click, with no confirmation: those rows are settled, so the Host cannot
+  refuse them for running work, and the Management tab's archived set is where a mistaken click is
+  undone. Only local rows get it, because the archive set is a local Workspace registry fact.
+- Opening a Session from the board arms a compact back control that appears before the Session title
+  and returns to the board; selecting any global panel clears it.
 - Pins a Session from the icon that appears when its card is hovered or focused. Pinned Sessions move
   to a full-width **Pinned** rail above the columns and keep their runtime label there; the rail is
   absent until at least one pin exists. A local Session uses the registry-global Host pin set shared
@@ -53,9 +39,8 @@ full-screen new-conversation overlay that embeds the native composer.
   Session cannot enter this Host's workspace registry; its pin is stored by the viewing browser and
   merged after the Host pins. The button only renders when the Session's access snapshot allows the
   action.
-- Starts a new conversation from the **New conversation** control in the page's top-right, or from
-  the preview dialog's control beside **Open session**, which seeds the previewed Session's Workspace
-  and Agent preset. The header control resolves the target the way the native New Session action does: the
+- Starts a new conversation from the **New conversation** control in the page's top-right. The
+  control resolves the target the way the native New Session action does: the
   Workspace of the Session the app currently shows, falling back to the Workspace with the most
   recent activity. The Workspace
   controller reuses the first parked blank there or creates one under the Host default, so the overlay
@@ -84,8 +69,9 @@ full-screen new-conversation overlay that embeds the native composer.
 - Switches the page between **Board** (the three columns) and **Management** with the header's
   segmented control. Management lists every eligible Session, newest first, with a
   title-or-node-or-Workspace filter; each active row wears the node badge a card does, so one
-  query lists every Session a node owns. A row opens the same preview dialog a card does. A
-  checkbox selects a row, the toolbar checkbox selects the filtered set, and **Archive** removes the
+  query lists every Session a node owns. An active row opens its Session page in one click, the
+  same way a card does. A checkbox selects a row, the toolbar checkbox selects the filtered set, and
+  **Archive** removes the
   selected Sessions after a confirmation. The batch runs one
   Session at a time: the Host refuses a Session whose work is still running, so the tab reports how
   many were refused and leaves those rows listed and selected.
@@ -102,22 +88,22 @@ full-screen new-conversation overlay that embeds the native composer.
   owns. The search covers every eligible Session, not just the Recent window; blank drafts,
   subagent-origin rows, and archived Sessions stay out. The dialog opens with the
   newest-first list and the field focused; the arrow keys and Enter pick a row, and picking one opens
-  the same preview dialog a card does, so a waiting Session still surfaces its native question.
-  Closing that preview returns to the board.
+  that Session's page, so a waiting Session still surfaces its native question there.
 - Embeds the native Conversation through the shared `conversation.content` Factory — the same host
-  the subagent right-Sidebar chat uses — for both preview dialogs, the pending question's **Full
-  conversation** page, and the new-conversation overlay, with a `SessionProvider` bound to a
-  retained Session reference. The embedded body itself does not navigate or replace the main
-  Conversation panel; the card control or the session dialog's **Open session** action opens the real
-  panel, and closing releases the reference.
+  the subagent right-Sidebar chat uses — for the new-conversation overlay alone, with a
+  `SessionProvider` bound to a retained Session reference. The overlay never replaces the main
+  Conversation panel; closing or sending releases the reference. Navigating from a card reaches the
+  product's own Session page instead, which is why no embedded surface has to reproduce the right
+  Sidebar, the view tabs, or the header actions.
 - Reads the live client state DSH already publishes — the Session list, the unified Session
   status, and the Workspace archive set — and, when the network runtime is configured, the shared
   status route. **Unread** combines pending interactions, DSH's unread-completion marker, and the
   host's running→stopped observation. A stop counts unless that Session's conversation is on
-  screen: the native page (conversation selected and retained as `mainView`) or a board preview,
-  which retains the Session as `sessionManager` for as long as the embedded conversation is open.
-- Opening an unread completion marks it read: the preview dialog, the open-session control, and the
-  conversation itself for as long as it stays open acknowledge it. The card moves from **Unread** to
+  screen: the native page (conversation selected and retained as `mainView`) or an embedded
+  Conversation this plugin hosts, which retains the Session as `sessionManager` for as long as it is
+  open.
+- Opening an unread completion marks it read: the click that opens its page acknowledges it, and
+  the conversation itself does for as long as it stays open. The card moves from **Unread** to
   **Recent** and stays findable; it is not hidden. With the network runtime, the read is sent to the
   Host and broadcast to every node, so the same completion clears there too. Without a server, the
   read mark and stop note stay browser-local.
@@ -171,32 +157,17 @@ Safety: without a server URL the host half starts no network runtime and makes n
 requests until the settings dialog asks it to create a group. With one, it owns the group/status
 routes and the outbound node socket. The
 browser half reads the Session list and unified UI status from the Web client, the shared status
-route when the runtime is configured, and the archive and pin sets from the Workspace Controller. Opening a card retains one Session reference and renders
-the native Conversation through the `conversation.content` Factory in the preview dialog; closing
-releases the reference. The **New conversation** control creates or reuses the target Workspace's
-blank Session through `uiWorkspace.connectWorkspace` and retains it for the overlay, together with a
-`mainView` handle that the native Agent preset control requires (the board panel stays selected, so
-this adds no navigation); sending or closing releases both. A Workspace switch resolves a blank in
-the chosen Workspace through the same controller call and moves the draft text between the two input
-shells, so it costs no navigation either. The card's open-session control and the
-session dialog's **Open session** action navigate through `uiWorkspace.openSession` to the real
-Session panel; the leading back control selects the board again. The preview dialog's
-new-conversation control closes the preview and opens the overlay in the previewed Session's
-Workspace under its Agent preset; its archive control writes the same registry-global archive set
-through `uiWorkspace`, gated by the Session's access snapshot, and closes the preview on success.
-A file or external-link click inside the embedded Conversation is captured before the product's own
-handler runs and navigates through `uiWorkspace.openSession` to the real page, which is the only
-surface with the right Sidebar those destinations open in. The destination then opens through
-`ctx.get('sidebarRight')`: a file as a `dsh-resource://file/session/…` address, a web link as the
-column's browser page unless the Chat setting sends links to a new browser tab. The command is
-retried for a few frames because the column is mounted only once that page renders, and this plugin
-treats the column as optional — a build without it keeps the navigation and opens a link in the
-browser instead. A change review is different: only the changed-files card's own handler holds the
-turn's coordinates, so the page's copy of that card is clicked rather than the column command run.
-The card sits in its turn's tail, which the page draws for the newest turns; a card the transcript
-has virtualized out is left unserved, and the click has still moved to the page.
-The search dialog only reads the same live list snapshot and
-retains a Session when its result is previewed. Pinning a local Session writes the Host pin set
+route when the runtime is configured, and the archive and pin sets from the Workspace Controller.
+A card, a search hit, and a management row navigate through `uiWorkspace.openSession` to the real
+Session panel, and the leading back control selects the board again; no Session reference is retained
+for them. The **New conversation** control creates or reuses the target Workspace's blank Session
+through `uiWorkspace.connectWorkspace` and retains it for the overlay, together with a `mainView`
+handle that the native Agent preset control requires (the board panel stays selected, so this adds no
+navigation); sending or closing releases both. A Workspace switch resolves a blank in the chosen
+Workspace through the same controller call and moves the draft text between the two input shells, so
+it costs no navigation either. The Recent card's archive control writes the registry-global archive
+set through `uiWorkspace`, gated by the Session's access snapshot. The search dialog only reads the
+same live list snapshot. Pinning a local Session writes the Host pin set
 through `uiWorkspace`; pinning a remote one writes the browser-local remote pin order, because the
 Host registry rejects ids it does not own. The management tab writes the registry-global archive set
 through the same service; the page never stops, renames, or pauses a Session, and a batch archive
@@ -216,8 +187,7 @@ shared status registry.
    list row's own running flag is the fallback, matching the Workspace row.
 4. Otherwise shared `unread`, `completionUnread`, or a stop this plugin observed puts it in
    **Unread**. A shared read clears it on every node; without a shared row, a completion whose read
-   mark is at least as new as the row does not count. An open preview keeps that mark current, so a
-   turn that finishes there is read.
+   mark is at least as new as the row does not count. Opening the Session records that mark.
 5. Everything else inside the configured **Recent** window goes to **Recent**, newest first, so read
    and idle Sessions remain findable.
 6. Opening an unread completion only moves it from **Unread** to **Recent**; it never removes the
@@ -237,8 +207,5 @@ title-or-node-or-Workspace filter;
 return marker; `tests/conversation-input.spec.ts` covers the embedded Factory phase;
 `tests/new-conversation.spec.ts` covers the current and most-recent target Workspace;
 `tests/workspace-search.spec.ts` covers the picker's label rule and filter;
-`tests/preview-links.spec.ts` covers which embedded clicks leave for the real Session page and
-what they name; `tests/right-column.spec.ts` covers the file address, the mount wait, and the
-changed-files replay;
 `tests/client.spec.ts` executes the built bundle and checks its registrations, baseline imports, CSS,
 and source map.

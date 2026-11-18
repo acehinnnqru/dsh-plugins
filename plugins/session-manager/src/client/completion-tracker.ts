@@ -42,9 +42,9 @@ export function subscribeLocalCompletions(listener: () => void): () => void {
  * Whether a Session's conversation is on screen right now.
  *
  * Two surfaces show one: the native page, which retains the Session as `mainView` while no global
- * panel is selected, and the board's own preview, which retains it as `sessionManager` for as long
- * as the embedded conversation is mounted. The preview is interactive, so a stop there is a stop
- * the reader watched.
+ * panel is selected, and the board's new-conversation overlay, which retains it as `sessionManager`
+ * for as long as its embedded conversation is mounted. The overlay is interactive, so a stop there
+ * is a stop the reader watched.
  * @param retainedBy - retention counts from the listed Session row.
  * @param activePanelId - the selected global panel, or null when a Session page is showing.
  * @returns true when a stop is already being watched.
@@ -82,8 +82,8 @@ export function localCompletionIds(list: SessionListState): Set<SessionId> {
  * Start the global running→stopped tracker.
  *
  * A stop is recorded only when the Session's conversation is off screen, in neither the native page
- * nor a board preview. Opening that conversation later clears the local mark, so the board does not
- * resurrect a completion the user has since read.
+ * nor the new-conversation overlay. Opening that conversation later clears the local mark, so the
+ * board does not resurrect a completion the user has since read.
  * @param ctx - client context carrying sessions, the Session UI status, and layout.
  */
 export function startCompletionTracker(ctx: ClientContext): void {

@@ -2,8 +2,8 @@
  * The management tab: every eligible Session in one selectable list, with batch archiving.
  *
  * The list is the same full-listed set the search dialog filters — not the board's Recent window —
- * so an older Session stays reachable. Selection is local to the tab; each row still opens the
- * board's preview dialog, which is what keeps a running Session inspectable before it is archived.
+ * so an older Session stays reachable. Selection is local to the tab; each active row opens the
+ * Session page, which is what keeps a running Session inspectable before it is archived.
  * @module dsh-plugin-session-manager/client/management-tab
  */
 
@@ -42,8 +42,8 @@ export interface ManagementProps {
   readonly unarchiveSession: (sessionId: SessionId) => Promise<void>
   /** Sessions the registry currently holds as archived. */
   readonly archivedSessions: readonly SessionHit[]
-  /** Open one row in the board's preview dialog. */
-  readonly onPreview: (hit: SessionHit) => void
+  /** Open one row's Session page. */
+  readonly onOpen: (hit: SessionHit) => void
 }
 
 /**
@@ -60,7 +60,7 @@ export function Management({
   archiveSession,
   unarchiveSession,
   archivedSessions,
-  onPreview,
+  onOpen,
 }: ManagementProps): ReactNode {
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<'active' | 'archived'>('active')
@@ -292,7 +292,7 @@ export function Management({
                         className={css.manageRowBody}
                         title={hit.title}
                         onClick={() => {
-                          onPreview(hit)
+                          onOpen(hit)
                         }}
                       >
                         <span className={css.manageRowTitle}>{hit.title}</span>
@@ -336,7 +336,7 @@ export function Management({
             setConfirming(false)
           }}
           title={t('manage.confirmTitle')}
-          closeLabel={t('preview.close')}
+          closeLabel={t('dialog.close')}
           description={t('manage.confirmBody', { count: chosen.size })}
           footer={(
             <>

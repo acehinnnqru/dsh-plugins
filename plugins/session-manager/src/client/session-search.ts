@@ -28,7 +28,7 @@ import {
 import type { SharedStatus } from './status.ts'
 import { baseName, workspaceLabel, workspaceOf } from './workspace-search.ts'
 
-/** One search result: a card plus the runtime state its preview opens with. */
+/** One search result: a card plus the runtime state its Session page opens with. */
 export interface SessionHit extends SessionCard {
   readonly state: PinnedState
 }

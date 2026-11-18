@@ -141,7 +141,7 @@ describe('searchableSessions', () => {
     expect(idsOf(hits)).toEqual([newerB.id, newerC.id, older.id])
   })
 
-  it('carries the runtime state the preview opens with', () => {
+  it('carries the runtime state its Session page opens with', () => {
     const waiting = summary('waiting')
     const running = summary('running')
     const done = summary('done')

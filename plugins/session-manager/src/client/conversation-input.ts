@@ -2,7 +2,7 @@
  * Pure phase decision for the embedded Conversation occurrence.
  *
  * The shared `conversation.content` Factory wants a variant and a body phase; the main Conversation
- * derives them from the Session and Conversation snapshots. The preview host is not the main shell,
+ * derives them from the Session and Conversation snapshots. The overlay host is not the main shell,
  * so it repeats that small decision here — outside React and the Factory seat, which keeps it
  * testable without a browser.
  * @module dsh-plugin-session-manager/client/conversation-input

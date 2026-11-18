@@ -8,7 +8,6 @@ import {
   deriveNodeColumns,
   derivePinned,
   forgetSessionNode,
-  previewReadMark,
   rememberSessionNode,
   sessionNodeOf,
   waitingCopyKey,
@@ -388,33 +387,6 @@ describe('derivePinned', () => {
     )
 
     expect(pinned.map((card) => card.id)).toEqual([normal.id])
-  })
-})
-
-describe('previewReadMark', () => {
-  it('records the row once a previewed Session reports an unread completion', () => {
-    const session = id('shown')
-    const list = listOf([summary('shown', { updatedAt: 40 })])
-    const statuses = statusesOf([[session, status({ completionUnread: true })]])
-
-    expect(previewReadMark(list, statuses, session, new Map())).toBe(40)
-  })
-
-  it('leaves an acknowledged completion alone', () => {
-    const session = id('shown')
-    const list = listOf([summary('shown', { updatedAt: 40 })])
-    const statuses = statusesOf([[session, status({ completionUnread: true })]])
-    const readAt = new Map<SessionId, number>([[session, 40]])
-
-    expect(previewReadMark(list, statuses, session, readAt)).toBeUndefined()
-  })
-
-  it('ignores a Session with no unread completion or no row', () => {
-    const session = id('shown')
-    const list = listOf([summary('shown', { updatedAt: 40 })])
-
-    expect(previewReadMark(list, statusesOf([[session, status()]]), session, new Map())).toBeUndefined()
-    expect(previewReadMark(list, statusesOf([]), id('gone'), new Map())).toBeUndefined()
   })
 })
 

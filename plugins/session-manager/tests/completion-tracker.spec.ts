@@ -106,8 +106,8 @@ describe('completion tracker', () => {
     expect(localCompletionIds(list.getSnapshot()).has(id)).toBe(false)
   })
 
-  it('does not record a stop while the board previews the Session', () => {
-    const id = 'previewed' as SessionId
+  it('does not record a stop while the overlay shows the Session', () => {
+    const id = 'overlaid' as SessionId
     const list = new Source(listOf([id], [row(id, { running: true, sessionManager: 1 })]))
     const statuses = new Source(new Map([[id, { running: true }]]))
     const panel = new Source({ activePanelId: 'session-manager' })
@@ -119,8 +119,8 @@ describe('completion tracker', () => {
     expect(localCompletionIds(list.getSnapshot()).has(id)).toBe(false)
   })
 
-  it('clears a local completion when the board opens the Session', () => {
-    const id = 'previewed-later' as SessionId
+  it('clears a local completion when the overlay shows the Session', () => {
+    const id = 'overlaid-later' as SessionId
     const list = new Source(listOf([id], [row(id, { running: true })]))
     const statuses = new Source(new Map([[id, { running: true }]]))
     const panel = new Source({ activePanelId: 'session-manager' })

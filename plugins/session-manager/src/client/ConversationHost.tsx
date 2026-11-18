@@ -1,5 +1,5 @@
 /**
- * The native Conversation body rendered inside the board's embedded surfaces.
+ * The native Conversation body rendered inside the board's new-conversation overlay.
  *
  * The page declares `session-manager.conversation` and binds it with `SessionProvider`; this
  * component is the occupant. It instantiates the shared `conversation.content` Factory exactly the
@@ -32,8 +32,9 @@ type ConversationHostProps =
 /**
  * Render the Chat view only.
  *
- * The embeddable Conversation body leaves view selection to its caller. A preview is a conversation,
- * not a workspace inspector, so it pins the native Chat view and skips the Trajectory/Changes tabs.
+ * The embeddable Conversation body leaves view selection to its caller. The overlay is a
+ * conversation, not a workspace inspector, so it pins the native Chat view and skips the
+ * Trajectory/Changes tabs.
  * @param props - the Factory's local `views` occurrence props.
  * @returns the native Conversation session body.
  */
@@ -42,7 +43,7 @@ function ChatOnlyView(props: ConversationViewsProps): ReactNode {
 }
 
 /**
- * Render the native Conversation for the bound preview or new-conversation Session.
+ * Render the native Conversation for the new-conversation Session.
  *
  * A blank Session reaches the Factory's hero phase, which supplies the hero row and the native Agent
  * preset chip; the Workspace picker in that row's options seat is this plugin's own entry.
@@ -58,6 +59,6 @@ export function SessionConversationHost(props: ConversationHostProps): ReactNode
 
   return renderFactorySlot('conversation.content', input, {
     slots: { views: ChatOnlyView },
-    fallback: <p className={css.unavailable}>{t('preview.unavailable')}</p>,
+    fallback: <p className={css.unavailable}>{t('conversation.unavailable')}</p>,
   })
 }

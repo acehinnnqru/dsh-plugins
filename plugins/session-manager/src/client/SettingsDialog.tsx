@@ -162,7 +162,7 @@ export function SettingsDialog(props: SettingsDialogProps): ReactNode {
   if (!open) return null
 
   return (
-    <Modal open onClose={onClose} title={t('settings.title')} closeLabel={t('preview.close')} className={css.settingsDialog ?? ''}>
+    <Modal open onClose={onClose} title={t('settings.title')} closeLabel={t('dialog.close')} className={css.settingsDialog ?? ''}>
       <form className={css.settingsForm} onSubmit={(event) => { void save(event) }}>
         <section className={css.settingsSection}>
           <h3 className={css.settingsHeading}>{t('settings.recent')}</h3>
@@ -252,7 +252,7 @@ export function SettingsDialog(props: SettingsDialogProps): ReactNode {
                       ? t('settings.unavailable')
                       : ''}
           </span>
-          <button type="button" className={css.dialogAction} onClick={onClose}>{t('preview.close')}</button>
+          <button type="button" className={css.dialogAction} onClick={onClose}>{t('dialog.close')}</button>
           <button type="submit" className={css.settingsSave} disabled={!writable || saving}>
             {t('settings.save')}
           </button>
