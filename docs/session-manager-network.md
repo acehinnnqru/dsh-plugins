@@ -104,9 +104,11 @@ A browser reads the merged status through `GET /api/session-manager/status` on
 its own host. Opening a card posts to `/api/session-manager/read`, which sends a
 read acknowledgement to the server. The server clears `unread` and broadcasts
 the new row to every node, including the owner, so a read on A clears the same
-completion on B. A browser that already holds a native unread marker imports it
-with `/api/session-manager/report`; the host ignores it when the server already
-has a newer read mark.
+completion on B. An open conversation acknowledges the row too: the owner marks
+every stop unread without knowing what the browser shows, and DSH sets no native
+marker for a stop the reader watched. A browser that already holds a native
+unread marker imports it with `/api/session-manager/report`; the host ignores it
+when the server already has a newer read mark.
 
 ## 4. Bridge protocol
 

@@ -5,6 +5,9 @@
  * keeps the last conversation `mainView`-retained behind it. That makes a stop look read while the
  * board is the visible surface. This tracker observes the running→stopped edge globally and records
  * it, unless the stopping Session's conversation is actually on screen.
+ *
+ * The same rule settles a shared read: the Host marks every stop unread, including one the reader
+ * watched, and only an open conversation can say that it was read.
  * @module dsh-plugin-session-manager/client/completion-tracker
  */
 
@@ -55,6 +58,35 @@ function conversationShown(
 ): boolean {
   if ((retainedBy.sessionManager ?? 0) > 0) return true
   return activePanelId === null && (retainedBy.mainView ?? 0) > 0
+}
+
+/** The live facts one visible-read acknowledgement needs. */
+export interface VisibleReadSource {
+  /** Session Controller list snapshot. */
+  readonly list: SessionListState
+  /** The selected global panel, or null when a Session page is showing. */
+  readonly activePanelId: string | null
+  /** Whether the shared status row still counts one completion unread. */
+  readonly unread: (sessionId: SessionId) => boolean
+  /** Acknowledge one Session read on the Host. */
+  readonly read: (sessionId: SessionId) => void
+}
+
+/**
+ * Acknowledge every shared unread completion whose conversation is on screen.
+ *
+ * The owner marks a running→stopped edge unread without knowing what the browser shows, and DSH
+ * sets no marker of its own for a stop the reader watched live, so no native transition clears the
+ * shared row. A conversation that is open has been read: this is the read side of the same on-screen
+ * rule the tracker applies to its stop notes.
+ * @param source - the listed rows, the selected panel, the shared unread lookup, and the read call.
+ */
+export function acknowledgeVisibleUnread(source: VisibleReadSource): void {
+  for (const id of source.list.ids) {
+    const row = source.list.byId[id]
+    if (row === undefined || !conversationShown(row.retainedBy, source.activePanelId)) continue
+    if (source.unread(id)) source.read(id)
+  }
 }
 
 /**

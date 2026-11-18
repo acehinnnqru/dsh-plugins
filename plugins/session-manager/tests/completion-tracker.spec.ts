@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
+  acknowledgeVisibleUnread,
   clearLocalCompletion,
   localCompletionIds,
   startCompletionTracker,
@@ -164,5 +165,75 @@ describe('completion tracker', () => {
     statuses.set(new Map([[id, { running: true }]]))
     expect(localCompletionIds(list.getSnapshot()).has(id)).toBe(false)
     clearLocalCompletion(id)
+  })
+})
+
+describe('visible read acknowledgement', () => {
+  it('acknowledges an unread completion whose conversation is on screen', () => {
+    const id = 'open' as SessionId
+    const list = listOf([id], [row(id, { running: false, mainView: 1 })])
+    const reads: SessionId[] = []
+
+    acknowledgeVisibleUnread({
+      list,
+      activePanelId: null,
+      unread: () => true,
+      read: (sessionId) => {
+        reads.push(sessionId)
+      },
+    })
+
+    expect(reads).toEqual([id])
+  })
+
+  it('leaves an unread completion alone while a global panel hides it', () => {
+    const id = 'hidden' as SessionId
+    const list = listOf([id], [row(id, { running: false, mainView: 1 })])
+    const reads: SessionId[] = []
+
+    acknowledgeVisibleUnread({
+      list,
+      activePanelId: 'session-manager',
+      unread: () => true,
+      read: (sessionId) => {
+        reads.push(sessionId)
+      },
+    })
+
+    expect(reads).toEqual([])
+  })
+
+  it('acknowledges the overlay conversation the board hosts', () => {
+    const id = 'overlaid' as SessionId
+    const list = listOf([id], [row(id, { running: false, sessionManager: 1 })])
+    const reads: SessionId[] = []
+
+    acknowledgeVisibleUnread({
+      list,
+      activePanelId: 'session-manager',
+      unread: () => true,
+      read: (sessionId) => {
+        reads.push(sessionId)
+      },
+    })
+
+    expect(reads).toEqual([id])
+  })
+
+  it('skips a Session whose shared row is already read', () => {
+    const id = 'settled' as SessionId
+    const list = listOf([id], [row(id, { running: false, mainView: 1 })])
+    const reads: SessionId[] = []
+
+    acknowledgeVisibleUnread({
+      list,
+      activePanelId: null,
+      unread: () => false,
+      read: (sessionId) => {
+        reads.push(sessionId)
+      },
+    })
+
+    expect(reads).toEqual([])
   })
 })

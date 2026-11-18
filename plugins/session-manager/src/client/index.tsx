@@ -34,7 +34,7 @@ import { BackToBoard } from './BackToBoard.tsx'
 import { disarmBackToBoard } from './back-to-board.ts'
 import { payloadSession } from './agent-call.ts'
 import { ListRepair } from './list-repair.ts'
-import { localCompletionIds, startCompletionTracker, subscribeLocalCompletions } from './completion-tracker.ts'
+import { acknowledgeVisibleUnread, localCompletionIds, startCompletionTracker, subscribeLocalCompletions } from './completion-tracker.ts'
 import { SharedStatusStore } from './status.ts'
 import { SessionConversationHost } from './ConversationHost.tsx'
 import { SessionWaitingBlock } from './WaitingBlock.tsx'
@@ -348,6 +348,32 @@ export function apply(ctx: ClientContext): void {
       disposeLocal()
     }
   }, 'session-manager: unread import')
+
+  // The Host marks every running→stopped edge unread, including a stop the reader watched on the
+  // conversation that stayed open. DSH sets no native marker for that case, so no transition ever
+  // publishes a read. A conversation on screen has been read; apply the tracker's on-screen rule to
+  // the shared row and keep it applied for as long as the conversation stays open.
+  ctx.effect(() => {
+    const acknowledge = (): void => {
+      acknowledgeVisibleUnread({
+        list: ctx.sessions.list.getSnapshot(),
+        activePanelId: ctx.layout.panelInfo.getSnapshot().activePanelId,
+        unread: (sessionId) => sharedStatus.getSnapshot().get(sessionId)?.unread === true,
+        read: (sessionId) => {
+          void sharedStatus.read(sessionId)
+        },
+      })
+    }
+    acknowledge()
+    const disposeShared = sharedStatus.subscribe(acknowledge)
+    const disposePanel = ctx.layout.panelInfo.subscribe(acknowledge)
+    const disposeList = ctx.sessions.list.subscribe(acknowledge)
+    return () => {
+      disposeShared()
+      disposePanel()
+      disposeList()
+    }
+  }, 'session-manager: read the visible conversation')
 
   // Every row is event-fed — local ones from the Host, remote ones relayed by the Host from the
   // owning peer's roster. One listing is still needed: a disposal frame drops a row the Host keeps
