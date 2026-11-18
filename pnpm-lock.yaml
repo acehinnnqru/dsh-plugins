@@ -38,43 +38,6 @@ importers:
         specifier: ^4.1.8
         version: 4.1.11(@types/node@22.20.4)(jsdom@30.1.0)(vite@8.3.0(@types/node@22.20.4)(esbuild@0.28.2)(tsx@4.23.13)(yaml@2.9.1))
 
-  plugins/now:
-    dependencies:
-      '@deepseek-ai/schemastery':
-        specifier: 3.19.0
-        version: 3.19.0
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: 4.1.0
-        version: 4.1.0(@deepseek-ai/cordis-plugin-include@1.1.0)(@deepseek-ai/cordis-plugin-loader@1.1.0)
-      '@deepseek-ai/dsh-client-ui-renderer':
-        specifier: 0.2.2-rc.3
-        version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)
-      '@deepseek-ai/dsh-client-ui-sidebar':
-        specifier: 0.2.2-rc.3
-        version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)
-      '@deepseek-ai/dsh-client-ui-slots':
-        specifier: 0.2.2-rc.3
-        version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)
-      '@deepseek-ai/dsh-tools':
-        specifier: 0.2.2-rc.3
-        version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-agent@0.2.2-rc.3(cbef900d773c0d0ee336f7e4f4030cb2))(@deepseek-ai/dsh-llm@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-error@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)))(@deepseek-ai/dsh-scope@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0))(@deepseek-ai/dsh-session@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-error@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0))(@deepseek-ai/dsh-scope@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)))(@deepseek-ai/dsh-system-prompt@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-llm@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-error@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)))(@deepseek-ai/dsh-scope@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)))(@deepseek-ai/dsh-user-approval@0.2.2-rc.3(ee6e75fd8d32bf9cc3d2f1db3d9afcf1))
-      '@types/node':
-        specifier: 22.20.4
-        version: 22.20.4
-      '@types/react':
-        specifier: 18.3.31
-        version: 18.3.31
-      dsh-client-preset:
-        specifier: file:../../tooling/dsh-client-preset
-        version: link:../../tooling/dsh-client-preset
-      tsdown:
-        specifier: 0.22.14
-        version: 0.22.14(tsx@4.23.13)(typescript@6.0.3)
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-
   plugins/session-manager:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -281,7 +244,35 @@ importers:
         specifier: 0.2.2-rc.3
         version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)
 
-  tooling/new-plugin: {}
+  tooling/new-plugin:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: 4.1.0
+        version: 4.1.0(@deepseek-ai/cordis-plugin-include@1.1.0)(@deepseek-ai/cordis-plugin-loader@1.1.0)
+      '@deepseek-ai/dsh-client-ui-renderer':
+        specifier: 0.2.2-rc.3
+        version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)
+      '@deepseek-ai/dsh-client-ui-sidebar':
+        specifier: 0.2.2-rc.3
+        version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: 0.2.2-rc.3
+        version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)
+      '@deepseek-ai/dsh-tools':
+        specifier: 0.2.2-rc.3
+        version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-agent@0.2.2-rc.3(cbef900d773c0d0ee336f7e4f4030cb2))(@deepseek-ai/dsh-llm@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-error@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)))(@deepseek-ai/dsh-scope@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0))(@deepseek-ai/dsh-session@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-error@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0))(@deepseek-ai/dsh-scope@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)))(@deepseek-ai/dsh-system-prompt@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-llm@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-error@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)))(@deepseek-ai/dsh-scope@0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)))(@deepseek-ai/dsh-user-approval@0.2.2-rc.3(ee6e75fd8d32bf9cc3d2f1db3d9afcf1))
+      '@types/node':
+        specifier: 22.20.4
+        version: 22.20.4
+      '@types/react':
+        specifier: 18.3.31
+        version: 18.3.31
+      dsh-client-preset:
+        specifier: workspace:*
+        version: link:../dsh-client-preset
+      tsdown:
+        specifier: 0.22.14
+        version: 0.22.14(tsx@4.23.13)(typescript@6.0.3)
 
   tooling/pack-check:
     dependencies:

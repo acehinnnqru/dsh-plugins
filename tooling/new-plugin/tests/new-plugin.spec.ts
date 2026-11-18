@@ -7,7 +7,7 @@
  * directory under `plugins/`, compiled, bundled, packed and linted, exactly like a real plugin.
  *
  * The temporary directory is a dot directory on purpose: pnpm's workspace globs skip it, so the
- * lockfile is never touched, and `node_modules` is a symlink into the already-installed `plugins/now`.
+ * lockfile is never touched, and `node_modules` is a symlink into this tooling package's install.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -25,8 +25,8 @@ import { addPluginReference, packageName, writePlugin } from '../src/index.ts'
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 /** The toolchain's binaries, as pnpm links them at the repo root. */
 const BIN = join(ROOT, 'node_modules', '.bin')
-/** `plugins/now` depends on everything both variants need — host and browser alike. */
-const DEPENDENCIES = join(ROOT, 'plugins', 'now', 'node_modules')
+/** This tooling package depends on everything both variants need — host and browser alike. */
+const DEPENDENCIES = join(ROOT, 'tooling', 'new-plugin', 'node_modules')
 
 /** The part of `pnpm pack --dry-run --json` this test reads. */
 interface PackReport {

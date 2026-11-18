@@ -13,35 +13,6 @@
   },
   "plugins": [
     {
-      "name": "dsh-plugin-now",
-      "description": "Adds a `now` tool that answers with the current time.",
-      "author": "acehinnnqru",
-      "repository": {
-        "url": "https://github.com/acehinnnqru/dsh-plugins",
-        "directory": "plugins/now"
-      },
-      "metadata": {
-        "keywords": [],
-        "labels": [],
-        "sortKeys": {}
-      },
-      "versions": [
-        {
-          "version": "0.1.0",
-          "publishTimestamp": 1794984474,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/acehinnnqru/dsh-plugins",
-            "commit": "9a6b33a025a8341faddb89ba789e71e9a8373cb4",
-            "path": "plugins/now"
-          },
-          "engines": {
-            "dsh": "0.2.2-rc.3"
-          }
-        }
-      ]
-    },
-    {
       "name": "dsh-plugin-session-manager",
       "description": "A sidebar session board that shows running, waiting-for-input, and unread-completed sessions.",
       "author": "acehinnnqru",
