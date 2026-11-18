@@ -1,11 +1,11 @@
 /**
  * `dsh-plugin-session-manager`, browser half.
  *
- * One panel, five registrations: the sidebar row that launches it, the page itself in the main
- * column, the session-scoped host for the new-conversation overlay's Conversation, the searchable
- * Workspace picker in the native hero's options row, and the leading control that returns to the
- * board. The page and the sidebar row share the same id because the sidebar resolves a panel row by
- * selecting the main key of the same name.
+ * One panel, six registrations: the sidebar row that launches it, the page itself in the main
+ * column, the session-scoped hosts for the new-conversation overlay's Conversation and the waiting
+ * dialog's answer block, the searchable Workspace picker in the native hero's options row, and the
+ * leading control that returns to the board. The page and the sidebar row share the same id because
+ * the sidebar resolves a panel row by selecting the main key of the same name.
  *
  * Only values from DSH baseline modules may be imported; every cross-package import below is
  * type-only and exists for its declaration merge. The bundle build refuses the alternative on
@@ -37,13 +37,14 @@ import { ListRepair } from './list-repair.ts'
 import { localCompletionIds, startCompletionTracker, subscribeLocalCompletions } from './completion-tracker.ts'
 import { SharedStatusStore } from './status.ts'
 import { SessionConversationHost } from './ConversationHost.tsx'
+import { SessionWaitingBlock } from './WaitingBlock.tsx'
 import { SessionBoardPage, type SessionManagerInjected } from './SessionBoardPage.tsx'
 import { SessionManagerIcon } from './SessionManagerIcon.tsx'
 import { forgetSessionNode, rememberSessionNode, sessionNodeOf } from './board.ts'
 import { mergeWorkspaceMembers, remoteSessionsByPath } from './workspace-membership.ts'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, NS, zh } from './locales.ts'
-import { CONVERSATION_SLOT } from './slots.ts'
+import { CONVERSATION_SLOT, WAITING_SLOT } from './slots.ts'
 import { SETTINGS_ENTRY, type SessionManagerSettings } from './settings.ts'
 
 /** The panel's id: the main column's key and the sidebar row's list id have to be the same value. */
@@ -486,6 +487,7 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     children: {
       [CONVERSATION_SLOT]: { kind: 'single', scope: 'session' },
+      [WAITING_SLOT]: { kind: 'single', scope: 'session' },
     },
     inject: (): SessionManagerInjected => ({
       retainSession,
@@ -507,12 +509,17 @@ export function apply(ctx: ClientContext): void {
     }),
   }, SessionBoardPage))
 
-  // The page declares the child slot above; waiting for its declaration lets the host register in
-  // either plugin order without touching a slot that does not exist yet.
+  // The page declares the child slots above; waiting for their declarations lets the hosts register
+  // in either plugin order without touching a slot that does not exist yet.
   ctx.slots.inject(CONVERSATION_SLOT, () => ctx.slots.register({
     name: CONVERSATION_SLOT,
     locale: NS,
   }, SessionConversationHost))
+
+  ctx.slots.inject(WAITING_SLOT, () => ctx.slots.register({
+    name: WAITING_SLOT,
+    locale: NS,
+  }, SessionWaitingBlock))
 
   // The native hero renders the options row after the Workspace and Agent preset controls. The
   // picker claims a seat there and renders nothing outside the overlay, so the main new-session page

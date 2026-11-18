@@ -170,7 +170,7 @@ describe('session-manager browser half', () => {
     expect(plugin?.inject).toEqual(['slots', 'locale', 'sessions', 'workspaces', 'uiSession', 'uiWorkspace', 'layout', 'remote', 'remote.settings', 'conversation'])
   })
 
-  it('contributes a main page, its Conversation child, the workspace picker, a sidebar row, and the leading back control', async () => {
+  it('contributes a main page, its two native-Conversation children, the workspace picker, a sidebar row, and the leading back control', async () => {
     const [registration] = await registrations()
     if (registration === undefined) throw new Error('no registration')
     const { plugin } = instantiate(registration)
@@ -183,16 +183,18 @@ describe('session-manager browser half', () => {
     expect(wait).toEqual([
       'main',
       'session-manager.conversation',
+      'session-manager.waiting',
       'conversation.hero.options',
       'sidebar.panellist',
       'conversation.header.leading',
     ])
-    expect(seen).toHaveLength(5)
+    expect(seen).toHaveLength(6)
     expect(seen[0]?.options).toMatchObject({
       name: 'main',
       key: 'session-manager',
       children: {
         'session-manager.conversation': { kind: 'single', scope: 'session' },
+        'session-manager.waiting': { kind: 'single', scope: 'session' },
       },
     })
     expect(seen[1]?.options).toMatchObject({
@@ -200,20 +202,24 @@ describe('session-manager browser half', () => {
       locale: 'sessionManager',
     })
     expect(seen[2]?.options).toMatchObject({
+      name: 'session-manager.waiting',
+      locale: 'sessionManager',
+    })
+    expect(seen[3]?.options).toMatchObject({
       name: 'conversation.hero.options',
       id: 'session-manager-workspace',
       locale: 'sessionManager',
     })
-    expect(seen[3]?.options).toMatchObject({
+    expect(seen[4]?.options).toMatchObject({
       name: 'sidebar.panellist',
       id: 'session-manager',
       order: 30,
     })
-    expect(seen[4]?.options).toMatchObject({
+    expect(seen[5]?.options).toMatchObject({
       name: 'conversation.header.leading',
     })
 
-    const label = seen[3]?.options['label']
+    const label = seen[4]?.options['label']
     expect(label).toBeTypeOf('function')
     expect((label as () => string)()).toBe('panel.title')
     for (const registration of seen) {
@@ -236,6 +242,7 @@ describe('session-manager browser half', () => {
     expect(map.sources?.some((source) => source.includes('client/index.tsx'))).toBe(true)
     expect(map.sources?.some((source) => source.includes('client/board.ts'))).toBe(true)
     expect(map.sources?.some((source) => source.includes('client/ConversationHost.tsx'))).toBe(true)
+    expect(map.sources?.some((source) => source.includes('client/WaitingBlock.tsx'))).toBe(true)
     expect(map.sources?.some((source) => source.includes('client/BackToBoard.tsx'))).toBe(true)
     expect(map.sourcesContent?.some((content) => content.includes('sidebar.panellist'))).toBe(true)
     expect(map.sourcesContent?.some((content) => content.includes('conversation.header.leading'))).toBe(true)

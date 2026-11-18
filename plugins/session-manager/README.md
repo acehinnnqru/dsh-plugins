@@ -22,14 +22,17 @@ full-screen new-conversation overlay that embeds the native composer.
   - **Recent** — read and idle Sessions updated within the configured window (three days by default),
     newest first. A Session stays here after it leaves Unread, so it remains findable instead of
     disappearing.
-- Omits blank drafts, subagent-origin rows, and archived Sessions. A card body opens the **real
-  Session page** in one click: the card, a search hit, and a management row all navigate through
-  `uiWorkspace.openSession`, so a waiting Session surfaces its native question there and the
-  conversation arrives with its own composer, view tabs, right Sidebar, and header controls. The
-  board keeps no embedded conversation of its own. Recent cards carry a hover/focus control that
-  archives the Session in one click, with no confirmation: those rows are settled, so the Host cannot
-  refuse them for running work, and the Management tab's archived set is where a mistaken click is
-  undone. Only local rows get it, because the archive set is a local Workspace registry fact.
+- Omits blank drafts, subagent-origin rows, and archived Sessions. A card body opens its Session
+  in one click. A waiting Session whose approval or question is answerable in this Client opens the
+  native answer block in a dialog over the board: the approval card or question composer comes from
+  the Conversation composer chain, so one click answers without navigating. A card, a search hit, or
+  a management row without such an interaction navigates through `uiWorkspace.openSession` to the
+  **real Session page**, which keeps its own composer, view tabs, right Sidebar, and header
+  controls. A peer Session only carries a shared-status kind, so it keeps navigating; its answer
+  stays on the owning node. Recent cards carry a hover/focus control that archives the Session in one
+  click, with no confirmation: those rows are settled, so the Host cannot refuse them for running
+  work, and the Management tab's archived set is where a mistaken click is undone. Only local rows
+  get it, because the archive set is a local Workspace registry fact.
 - Opening a Session from the board arms a compact back control that appears before the Session title
   and returns to the board; selecting any global panel clears it.
 - Pins a Session from the icon that appears when its card is hovered or focused. Pinned Sessions move
@@ -87,14 +90,17 @@ full-screen new-conversation overlay that embeds the native composer.
   Sessions whose durable title says nothing about it, and a node name lists every Session that node
   owns. The search covers every eligible Session, not just the Recent window; blank drafts,
   subagent-origin rows, and archived Sessions stay out. The dialog opens with the
-  newest-first list and the field focused; the arrow keys and Enter pick a row, and picking one opens
-  that Session's page, so a waiting Session still surfaces its native question there.
+  newest-first list and the field focused; the arrow keys and Enter pick a row, and picking one
+  follows the card rule: an answerable waiting Session opens its native block, every other row opens
+  its Session page.
 - Embeds the native Conversation through the shared `conversation.content` Factory — the same host
-  the subagent right-Sidebar chat uses — for the new-conversation overlay alone, with a
-  `SessionProvider` bound to a retained Session reference. The overlay never replaces the main
-  Conversation panel; closing or sending releases the reference. Navigating from a card reaches the
-  product's own Session page instead, which is why no embedded surface has to reproduce the right
-  Sidebar, the view tabs, or the header actions.
+  the subagent right-Sidebar chat uses — for the new-conversation overlay and for the waiting
+  dialog, with a `SessionProvider` bound to a retained Session reference. The waiting dialog passes a
+  null `views` component, so the Factory renders the composer seat's approval or question takeover
+  and skips the transcript; this is the native block, not a copy. Neither surface replaces the main
+  Conversation panel; closing or sending releases the reference. A row that cannot host its block
+  navigates to the product's own Session page instead, which is why no embedded surface has to
+  reproduce the right Sidebar, the view tabs, or the header actions.
 - Reads the live client state DSH already publishes — the Session list, the unified Session
   status, and the Workspace archive set — and, when the network runtime is configured, the shared
   status route. **Unread** combines pending interactions, DSH's unread-completion marker, and the
@@ -158,11 +164,13 @@ requests until the settings dialog asks it to create a group. With one, it owns 
 routes and the outbound node socket. The
 browser half reads the Session list and unified UI status from the Web client, the shared status
 route when the runtime is configured, and the archive and pin sets from the Workspace Controller.
-A card, a search hit, and a management row navigate through `uiWorkspace.openSession` to the real
-Session panel, and the leading back control selects the board again; no Session reference is retained
-for them. The **New conversation** control creates or reuses the target Workspace's blank Session
-through `uiWorkspace.connectWorkspace` and retains it for the overlay, together with a `mainView`
-handle that the native Agent preset control requires (the board panel stays selected, so this adds no
+A card, a search hit, or a management row without an answerable waiting block navigates through
+`uiWorkspace.openSession` to the real Session panel, and the leading back control selects the board
+again; no Session reference is retained for it. A waiting row with an answerable approval or question
+retains one reference for its dialog and releases it on close, without navigating. The **New
+conversation** control creates or reuses the target Workspace's blank Session through
+`uiWorkspace.connectWorkspace` and retains it for the overlay, together with a `mainView` handle that
+the native Agent preset control requires (the board panel stays selected, so this adds no
 navigation); sending or closing releases both. A Workspace switch resolves a blank in the chosen
 Workspace through the same controller call and moves the draft text between the two input shells, so
 it costs no navigation either. The Recent card's archive control writes the registry-global archive
@@ -198,8 +206,8 @@ it keeps only the rows in the registry archive set, which is what the management
 lists and restores from.
 
 `tests/board.spec.ts` covers the precedence, the filters, the read mark, the Recent-window
-boundary, and the pinned states (whose ids come from the Host pin set plus the browser-local remote
-pin order); `tests/remote-pins.spec.ts` covers that stored order;
+boundary, the pinned states (whose ids come from the Host pin set plus the browser-local remote pin
+order), and the inline waiting-block classifier; `tests/remote-pins.spec.ts` covers that stored order;
 `tests/session-search.spec.ts` covers the full-list and archived derivations and the
 title-or-node-or-Workspace filter;
 `tests/archive.spec.ts` covers the batch archive and unarchive outcomes;

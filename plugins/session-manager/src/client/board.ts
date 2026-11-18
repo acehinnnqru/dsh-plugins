@@ -12,7 +12,11 @@
  */
 
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type {
+  SessionPendingInteraction,
+  SessionStatus,
+  SessionStatusSnapshot,
+} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SharedStatus } from './status.ts'
 
@@ -97,6 +101,33 @@ export function waitingCopyKey(kind: string | undefined): WaitingCopyKey {
     case 'plan-review': return 'waiting.planReview'
     case 'question': return 'waiting.question'
     default: return 'waiting.input'
+  }
+}
+
+/** Pending interactions whose native answer block the board can host in place. */
+export type WaitingBlockKind = 'approval' | 'question' | 'plan-review'
+
+/**
+ * Name the inline answer block for one pending interaction, when one can be answered in place.
+ *
+ * The native approval card and question composer are entries of the Conversation composer chain,
+ * and their selectors match their own objects from the pending-interaction registry. A row that only
+ * knows a shared-status kind has no such object, so it has no `answer` method and no block to host;
+ * that click keeps opening the Session page.
+ * @param interaction - the Session's current pending interaction, when the Client holds one.
+ * @returns the block kind, or undefined when the interaction cannot be answered on this surface.
+ */
+export function waitingBlockKind(
+  interaction: SessionPendingInteraction | undefined,
+): WaitingBlockKind | undefined {
+  if (interaction === undefined) return undefined
+  const answerable = interaction as { readonly kind?: unknown; readonly answer?: unknown }
+  if (typeof answerable.answer !== 'function') return undefined
+  switch (answerable.kind) {
+    case 'approval': return 'approval'
+    case 'question': return 'question'
+    case 'plan-review': return 'plan-review'
+    default: return undefined
   }
 }
 

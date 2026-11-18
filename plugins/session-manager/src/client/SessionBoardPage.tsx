@@ -1,16 +1,21 @@
 /**
- * The session board, its management tab, its full-list session search, and its new-conversation
- * overlay.
+ * The session board, its management tab, its full-list session search, its new-conversation
+ * overlay, and its waiting-answer dialog.
  *
  * The page header selects between **Board**, three columns over the live runtime state of every
- * listed Session, and **Management**, a selectable list for batch archiving. A card, a search hit,
- * and a management row all navigate straight to the real Session page through
- * `uiWorkspace.openSession`, so the conversation keeps its native right Sidebar, view tabs, and
- * header actions; the page arms the leading back control that returns to the board.
+ * listed Session, and **Management**, a selectable list for batch archiving. Most cards navigate
+ * straight to the real Session page through `uiWorkspace.openSession`, so the conversation keeps its
+ * native right Sidebar, view tabs, and header actions; the page arms the leading back control that
+ * returns to the board.
  *
- * The one embedded Conversation left is the new-conversation overlay, centered on a blank Session
- * this page created or reused through the shared `conversation.content` Factory; accepted prompts
- * hand the board back without navigating.
+ * A waiting Session whose approval or question is answerable in this Client opens a dialog instead:
+ * the native answer block is hosted in the board, so one click answers without leaving the page. A
+ * peer Session only carries a shared-status kind and keeps navigating, because its answer stays on
+ * the owning node.
+ *
+ * The embedded Conversations are the new-conversation overlay, centered on a blank Session this page
+ * created or reused through the shared `conversation.content` Factory, and the waiting dialog's
+ * answer block; accepted prompts hand the board back without navigating.
  * @module dsh-plugin-session-manager/client/page
  */
 
@@ -53,6 +58,8 @@ import {
   deriveNodeColumns,
   derivePinned,
   sessionNodeOf,
+  waitingBlockKind,
+  waitingCopyKey,
   withinRecent,
   type BoardColumn,
   type NodeColumn,
@@ -60,6 +67,7 @@ import {
   type PinnedState,
   type SessionCard,
   type SessionNode,
+  type WaitingBlockKind,
 } from './board.ts'
 import { armBackToBoard, disarmBackToBoard } from './back-to-board.ts'
 import { clearLocalCompletion, localCompletionIds, subscribeLocalCompletions } from './completion-tracker.ts'
@@ -76,21 +84,21 @@ import type { SharedStatusStore } from './status.ts'
 import { NS, type SessionManagerKey } from './locales.ts'
 import { currentWorkspaceId, recentWorkspaceId } from './new-conversation-target.ts'
 import { recentWindowDays, setRecentWindowDays, subscribeRecentWindow } from './recent-window.ts'
-import { CONVERSATION_SLOT } from './slots.ts'
+import { CONVERSATION_SLOT, WAITING_SLOT } from './slots.ts'
 import { setChooseNode, setPrepareNode } from './node-choice.ts'
 import { setChooseWorkspace } from './workspace-choice.ts'
 import css from './SessionBoard.module.css'
 
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
   interface SessionReferenceSourceMap {
-    /** The embedded Conversation the board shows: the new-conversation overlay. */
+    /** An embedded Conversation the board shows: the new-conversation overlay or the waiting dialog. */
     sessionManager: unknown
   }
 }
 
 /** The actions the board needs; the registration injects them from the client services. */
 export interface SessionManagerInjected {
-  /** Retain one Session for the waiting dialog; the page releases the reference when it closes. */
+  /** Retain one Session for an embedded Conversation; the page releases it with that surface. */
   readonly retainSession: (sessionId: SessionId) => SessionReference
   /**
    * Retain one blank Session as `mainView` for the new-conversation overlay.
@@ -167,10 +175,10 @@ export interface SessionManagerInjected {
   readonly sharedStatus: SharedStatusStore
 }
 
-/** The main slot's props, the child slot, the translate seat, and Session retention. */
+/** The main slot's props, the child slots, the translate seat, and Session retention. */
 type PageProps =
   PropsRuntime<'main'>
-  & PropsRenderSlots<typeof CONVERSATION_SLOT>
+  & PropsRenderSlots<typeof CONVERSATION_SLOT | typeof WAITING_SLOT>
   & PropsLocale<typeof NS>
   & InjectFace<SessionManagerInjected>
 
@@ -183,6 +191,18 @@ interface Composer {
   readonly reference: SessionReference
   /** Keeps the blank Session eligible for the native hero's Agent preset control. */
   readonly mainView: SessionReference
+}
+
+/** One waiting Session whose native answer block the dialog is showing. */
+interface Waiting {
+  /** The card that opened the dialog. */
+  readonly card: SessionCard
+  /** Pending interaction kind named by the dialog header. */
+  readonly kind: WaitingBlockKind
+  /** Registry key of the request the dialog opened; a replacement closes it. */
+  readonly requestKey: string
+  /** Owns the embedded composer chain for as long as the dialog is mounted. */
+  readonly reference: SessionReference
 }
 
 /** Optional node, Workspace, directory, and Agent preset for the next new-conversation overlay. */
@@ -460,7 +480,7 @@ interface SearchDialogProps {
  *
  * The dialog opens with the field focused and the whole newest-first hit set listed, so it is also a
  * quick jump list. Typing filters it by title, by node, and by the Workspace each row lives in; a
- * row opens its Session page, which is why a waiting Session still surfaces its native question.
+ * picked row follows the board's open rule, including an answerable waiting Session's native block.
  * The arrow keys and Enter work from the field, and the Modal layer keeps Escape for closing.
  * @param props - the search hits, Workspaces for the row hint, the clock, copy, and two actions.
  * @returns the search dialog.
@@ -586,9 +606,10 @@ function SessionSearchDialog({
 }
 
 /**
- * Render the board, the waiting dialog, or that dialog's expanded embedded page.
- * @param props - main-slot standard props, the child slot, translate seat, and retention.
- * @returns the board page or the new-conversation overlay.
+ * Render the board, its search and settings dialogs, the new-conversation overlay, and the waiting
+ * answer dialog.
+ * @param props - main-slot standard props, the child slots, translate seat, and retention.
+ * @returns the board page and its overlays.
  */
 export function SessionBoardPage(props: PageProps): ReactNode {
   const {
@@ -624,6 +645,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const [now, setNow] = useState(() => Date.now())
   const [openError, setOpenError] = useState<string | undefined>(undefined)
   const [composer, setComposer] = useState<Composer | undefined>(undefined)
+  const [waiting, setWaiting] = useState<Waiting | undefined>(undefined)
   const [startError, setStartError] = useState<string | undefined>(undefined)
   const [tab, setTab] = useState<PageTab>('board')
   const [hasPeerNodes, setHasPeerNodes] = useState(false)
@@ -715,16 +737,17 @@ export function SessionBoardPage(props: PageProps): ReactNode {
 
   // Relative labels are the only clock-dependent copy on the page. A slow tick keeps them honest
   // without re-deriving the board, which only changes when Session state does. The tick pauses while
-  // the new-conversation overlay's Conversation is mounted, so it is not re-rendered by the clock.
+  // an embedded Conversation is mounted, so neither the new-conversation overlay nor the waiting
+  // dialog is re-rendered by the clock.
   useEffect(() => {
-    if (composer !== undefined) return undefined
+    if (composer !== undefined || waiting !== undefined) return undefined
     const timer = setInterval(() => {
       setNow(Date.now())
     }, 30_000)
     return () => {
       clearInterval(timer)
     }
-  }, [composer])
+  }, [composer, waiting])
 
   // Remote pins live in the browser, so another tab's pin change arrives as a storage event.
   useEffect(() => {
@@ -749,6 +772,27 @@ export function SessionBoardPage(props: PageProps): ReactNode {
       composerMainView?.release()
     }
   }, [composerReference, composerMainView])
+
+  // The waiting dialog owns one retained Session; closing it releases that handle.
+  const waitingReference = waiting?.reference
+  useEffect(() => {
+    if (waitingReference === undefined) return
+    return () => {
+      waitingReference.release()
+    }
+  }, [waitingReference])
+
+  // Answering the request removes it from the registry; the dialog has nothing left to show, so it
+  // closes on the same update. A replacement with a different domain also closes instead of letting
+  // the composer chain fall back to the ordinary input bar.
+  useEffect(() => {
+    if (waiting === undefined) return
+    const interaction = statuses.get(waiting.card.id)?.pendingInteraction
+    if (interaction === undefined || interaction.key !== waiting.requestKey
+      || waitingBlockKind(interaction) === undefined) {
+      setWaiting(undefined)
+    }
+  }, [statuses, waiting])
 
   const locallyCompleted = localCompletionIds(list)
   const localPinnedIds = new Set(workspaces.pinnedSessionIds)
@@ -784,11 +828,49 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   const visibleTab: PageTab = showNodes ? tab : tab === 'nodes' ? 'board' : tab
 
   /**
+   * Open one Session from a card, a search hit, or a management row.
+   *
+   * A waiting Session whose native approval or question block is answerable in this Client shows
+   * that block in place; every other row, including a peer row that only has a shared-status kind,
+   * opens the real Session page.
+   * @param card - the clicked card, hit, or row.
+   * @param state - the column or pinned state that owns the card.
+   */
+  function openCard(card: SessionCard, state: PinnedState): void {
+    const interaction = statuses.get(card.id)?.pendingInteraction
+    const kind = waitingBlockKind(interaction)
+    if (state === 'waiting' && kind !== undefined && interaction !== undefined) {
+      openWaiting(card, kind, interaction.key)
+      return
+    }
+    openSessionPage(card, state)
+  }
+
+  /**
+   * Show the native answer block for one waiting Session without leaving the board.
+   * @param card - the waiting card.
+   * @param kind - the approval or question domain the block answers.
+   * @param requestKey - registry key of the request being answered.
+   */
+  function openWaiting(card: SessionCard, kind: WaitingBlockKind, requestKey: string): void {
+    setOpenError(undefined)
+    try {
+      const reference = retainSession(card.id)
+      void sharedStatus.read(card.id)
+      setWaiting({ card, kind, requestKey, reference })
+    } catch {
+      // A reference can fail when the row left the list between render and click; the native page
+      // is still the fallback.
+      openSessionPage(card, 'waiting')
+    }
+  }
+
+  /**
    * Open the Session page and arm the return control.
    *
-   * Every surface on this page navigates here: a card, a search hit, and a management row. The
-   * board keeps no embedded conversation, so the page the product's own navigation opens owns the
-   * composer, the question takeovers, and the right Sidebar.
+   * Every surface on this page navigates here except a waiting Session with an answerable block.
+   * The page the product's own navigation opens owns the composer, the question takeovers, and the
+   * right Sidebar.
    * @param card - the clicked card, hit, or row.
    * @param state - the column or pinned state that owns the card.
    */
@@ -811,20 +893,20 @@ export function SessionBoardPage(props: PageProps): ReactNode {
   }
 
   /**
-   * Close the search dialog and open the picked result's Session page.
+   * Close the search dialog and open the picked result.
    * @param hit - the picked search result.
    */
   function openSearchHit(hit: SessionHit): void {
     setSearchOpen(false)
-    openSessionPage(hit, hit.state)
+    openCard(hit, hit.state)
   }
 
   /**
-   * Open a management row's Session page.
+   * Open a management row.
    * @param hit - the picked row.
    */
   function openManagedSession(hit: SessionHit): void {
-    openSessionPage(hit, hit.state)
+    openCard(hit, hit.state)
   }
 
   /**
@@ -1320,7 +1402,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                         now={now}
                         useSessionAccess={useSessionAccess}
                         onOpen={() => {
-                          openSessionPage(card, card.state)
+                          openCard(card, card.state)
                         }}
                         onTogglePin={() => {
                           void togglePin(card.id, true)
@@ -1383,7 +1465,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
                                     now={now}
                                     useSessionAccess={useSessionAccess}
                                     onOpen={() => {
-                                      openSessionPage(card, state)
+                                      openCard(card, state)
                                     }}
                                     onTogglePin={() => {
                                       void togglePin(card.id, false)
@@ -1413,7 +1495,7 @@ export function SessionBoardPage(props: PageProps): ReactNode {
               now={now}
               useSessionAccess={useSessionAccess}
               onOpen={(card) => {
-                openSessionPage(card, card.state)
+                openCard(card, card.state)
               }}
               onNew={(node) => {
                 const cwd = node.self ? undefined : nodeDirectory(node)
@@ -1466,6 +1548,44 @@ export function SessionBoardPage(props: PageProps): ReactNode {
           }}
           onClose={closeConversation}
         />
+      )}
+      {waiting !== undefined && (
+        <Modal
+          open
+          headless
+          title={t(waitingCopyKey(waiting.kind))}
+          onClose={() => {
+            setWaiting(undefined)
+          }}
+          className={css.waitingDialog ?? ''}
+        >
+          <div className={css.waitingFrame}>
+            <header className={css.waitingBar}>
+              <div className={css.waitingHeading}>
+                <span className={css.waitingEyebrow}>{t(waitingCopyKey(waiting.kind))}</span>
+                <span className={css.waitingTitle} title={waiting.card.title}>
+                  {waiting.card.title}
+                </span>
+              </div>
+              <button
+                type="button"
+                className={css.dialogClose}
+                aria-label={t('dialog.close')}
+                title={t('dialog.close')}
+                onClick={() => {
+                  setWaiting(undefined)
+                }}
+              >
+                <IconCloseOutlineRegular size={14} />
+              </button>
+            </header>
+            <div className={css.waitingBody}>
+              <SessionProvider session={waiting.reference}>
+                {renderSlot(WAITING_SLOT, {})}
+              </SessionProvider>
+            </div>
+          </div>
+        </Modal>
       )}
       <SettingsDialog
         open={settingsOpen}

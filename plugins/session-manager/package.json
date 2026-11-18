@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-session-manager",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "A sidebar session board that shows running, waiting-for-input, and unread-completed sessions.",
   "main": "lib/index.js",

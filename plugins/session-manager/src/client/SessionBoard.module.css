@@ -718,6 +718,97 @@
   overflow: visible;
 }
 
+/* The waiting dialog: a focused shell around the native answer block. The waiting host renders the
+   Conversation Factory with a null `views` component, so only the composer seat's approval or
+   question takeover is present; the shell therefore shrink-wraps that card instead of opening a
+   transcript. */
+.waitingDialog.waitingDialog {
+  width: min(720px, 100%);
+  max-height: 100%;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-panel);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: var(--dsw-elevation-prominent);
+}
+
+.waitingFrame {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+}
+
+.waitingBar {
+  box-sizing: border-box;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 10px 12px 10px 20px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+.waitingHeading {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+}
+
+.waitingEyebrow {
+  color: var(--dsw-alias-state-warn-label);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.waitingTitle {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.waitingBody {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+/* The Factory's body is a flex column that normally fills the Conversation column. Here it has no
+   transcript and no fixed height, so it takes the answer card's height. */
+.waitingBody [data-conversation-content] {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.waitingBody [data-conversation-scroll] {
+  overflow: visible;
+  margin-right: 0;
+}
+
+/* The active-phase seat is sticky to the bottom of a scrollport; the dialog owns the position. The
+   doubled dialog class outranks the native `.embeddedBody[data-content-phase='active'] .composerSeat`
+   rule that applies the sticky geometry. */
+.waitingDialog.waitingDialog .waitingBody [data-conversation-region='composer'] {
+  position: static;
+  margin-top: 0;
+  background: none;
+}
+
 .nodeNew {
   flex: none;
   display: inline-flex;

@@ -10,6 +10,7 @@ import {
   forgetSessionNode,
   rememberSessionNode,
   sessionNodeOf,
+  waitingBlockKind,
   waitingCopyKey,
   withinRecent,
   type SessionCard,
@@ -69,6 +70,31 @@ function idsOf(cards: readonly { readonly id: SessionId }[]): SessionId[] {
 function pending(kind: string, sessionId: SessionId): NonNullable<SessionStatus['pendingInteraction']> {
   return { key: `test-${kind}`, kind, sessionId }
 }
+
+/** A pending interaction that carries the answer channel the native block needs. */
+function answerable(kind: string, sessionId: SessionId): NonNullable<SessionStatus['pendingInteraction']> {
+  return { ...pending(kind, sessionId), answer: () => Promise.resolve() } as NonNullable<
+    SessionStatus['pendingInteraction']
+  >
+}
+
+describe('waitingBlockKind', () => {
+  it('names the native approval and question blocks', () => {
+    const session = id('inline')
+    expect(waitingBlockKind(answerable('approval', session))).toBe('approval')
+    expect(waitingBlockKind(answerable('question', session))).toBe('question')
+    expect(waitingBlockKind(answerable('plan-review', session))).toBe('plan-review')
+  })
+
+  it('refuses a shared-status placeholder with no answer channel', () => {
+    expect(waitingBlockKind(pending('approval', id('peer')))).toBeUndefined()
+  })
+
+  it('refuses unknown kinds and absence', () => {
+    expect(waitingBlockKind(answerable('other', id('unknown')))).toBeUndefined()
+    expect(waitingBlockKind(undefined)).toBeUndefined()
+  })
+})
 
 describe('deriveBoard', () => {
   it('groups cards by owning node and keeps pins at the top of each column', () => {
