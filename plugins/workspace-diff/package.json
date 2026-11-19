@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-workspace-diff",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "A Conversation view showing the session workspace's uncommitted git changes and their unified diffs.",
   "main": "lib/index.js",
