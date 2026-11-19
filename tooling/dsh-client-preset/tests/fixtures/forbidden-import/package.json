@@ -32,7 +32,7 @@
     "build:forbidden": "tsx scripts/build.ts"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-client-ui-session": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-client-ui-session": "0.2.2-rc.4",
     "dsh-client-preset": "workspace:*",
     "tsdown": "0.22.14"
   }
